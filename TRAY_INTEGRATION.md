@@ -1,93 +1,125 @@
-# Dock background apps and system actions
+# Windows notification area integration
 
-An unpinned app remains in the dock after its last window closes only if Bloom
-observed that app with a window during the current session and it still has a
-live notification icon. Other tray-only apps do not fill the dock. Pinned apps
-show a grey dot from startup when they are already active in the tray. Windowed
-apps retain their normal window dots and previews.
-Running unpinned apps appear to the right of the pinned group. Settings > Dock >
-App Separator controls the thin theme-aware divider; it is on by default and
-appears only when an unpinned app is present.
+The dock and the future tray placements share discovery and native actions.
+They use different representations: a dock app can own several notification
+icons. A tray icon is not evidence of an open application window.
+
+## Current dock behavior
+
+An unpinned app remains after its last window closes only if Bloom observed its
+window in this session and it still has a live notification icon. Other tray-only
+apps do not fill the dock. Pinned apps can show a grey background dot; windowed
+apps keep window dots and previews. This resident representation remains until
+the separate tray UI is available. Closing WhatsApp to the tray therefore still
+leaves its current dock access.
 
 - Click a background app to invoke its notification icon's default action.
-- Right-click a background app for Bloom's menu. Its "App tray menu" entry
-  opens the app's native tray context menu.
-- An app with several tray icons has a separate menu entry for each icon.
-- Start's context menu includes Task Manager, Disk Management, Device Manager,
-  Computer Management and Windows settings shortcuts. The dock background menu
-  includes Task Manager and Taskbar Settings.
+- Right-click for Bloom's menu; "App tray menu" opens its native context menu.
+- Apps with several tray icons have separate native-menu entries.
+- Explorer-hosted icons are excluded from the dock app aggregate, so Bluetooth
+  does not become a File Explorer app action.
 
-## Implementation and compatibility
+## Per-icon catalog and action contract
 
-`tray.rs` reads notification-icon candidates from Windows 11's
-`HKCU\Control Panel\NotifyIconSettings`. Each candidate must match a running
-process path and pass `Shell_NotifyIconGetRect`; historical entries alone never
-count as running. Explorer-hosted system icons (including Bluetooth) are excluded
-because their process path is shared with File Explorer windows. The frontend reconciles tray owners with actual window handles,
-including applications launched through shell IDs. A shared browser tray does
-not combine multiple PWAs. Pinned shell IDs also match visible app windows when
-their executable paths differ, so opening Bloom's Settings window does not add
-an unpinned duplicate of a pinned Bloom app.
+`get_tray_icons` returns `{ shell_id, icons }`; each icon has `id`, `name`, `path`,
+`is_promoted` and `is_shell_icon`. This independent catalog includes attributable
+live icons even when Bloom has never seen an app window, including icons hosted
+by Explorer and Bloom itself. `get_tray_apps` preserves the dock's grouped contract.
+`name` is the executable's display name, not a live tooltip. Dynamic tray artwork
+and live tooltip extraction remain work for UI integration.
 
-Native interactions use UI Automation. Windows reports the chevron rectangle for
-an icon hidden in the overflow, so hidden icons are matched by the live
-`UIOrderList` order against Explorer's overflow buttons, with equal-count and
-nonempty-label checks. Any label that uniquely identifies another icon must
-also agree with that order. App-defined tooltip text may differ from the
-executable description, so it cannot be required to contain the process name.
-Promoted icons are matched to the
-taskbar's XAML controls by screen position, accounting for display scaling.
-Failure produces a user-visible error. Menu opening temporarily exposes the
-native tray and restores the taskbar on completion or error, without changing
-AppBar state or icon promotion preferences. Windows' connection/transaction
-timeouts bound UIA provider calls.
+`id` is an opaque, transient action token. Pass it unchanged to
+`activate_tray_icon` or `show_tray_context_menu`; do not save or parse it.
+It binds the candidate to Explorer's taskbar handle, process ID and process
+creation time, registry key, executable path and native icon identity. A GUID
+identifies an icon independently of HWND/UID; otherwise both HWND and UID are
+required. This follows Microsoft's
+[NOTIFYICONIDENTIFIER contract](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyiconidentifier).
 
-The registry layout and Explorer's UIA tree are Windows implementation details.
-Windows versions or alternative shells that do not expose them keep the existing
-window-based dock behavior. Windows 10 tray discovery is not implemented here.
-Background processes without notification icons are not included.
+`tray.rs` reads candidates from Windows 11's
+`HKCU\Control Panel\NotifyIconSettings`. Each must match a running process path
+and pass
+[Shell_NotifyIconGetRect](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shell_notifyicongetrect).
+Cached registry entries alone never count as running. A changed shell during
+catalog construction is an error, not an empty successful snapshot. Actions
+re-enumerate and reject stale tokens before invoking UIA. Refresh after errors.
 
-API references:
+## Native selection and fallback
 
-- [Shell_NotifyIconGetRect](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shell_notifyicongetrect)
-- [IUIAutomationElement3::ShowContextMenu](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationelement3-showcontextmenu)
+Promoted icons use their screen rectangle and the existing DPI-aware UIA matcher.
+Hidden icons use `UIOrderList` and Explorer's overflow buttons. Distinct name or
+cached-tooltip hints must agree with the order. A changed order/catalog is rejected.
+When counts differ, only one label unambiguously naming one known app is accepted.
+Several icons from the same executable additionally require unique matching
+hints. Ambiguous selection fails; the native tray lets the user select manually.
+`InitialTooltip` is only a private matching hint, never a live tooltip or liveness
+test, and is not included in the public catalog or diagnostic output.
+
+The existing Command Center **System Tray** button now calls `open_system_tray`.
+This awaits `Result<bool, String>`: `true` after opening and dismissal, `false`
+when there is no supported hidden-icons button, or an error. It finds one enabled,
+onscreen chevron by AutomationId, class and control type; it never sends Win+B
+and Space or invokes an arbitrary taskbar button. The existing button is disabled
+while waiting. A native dialog reports absence/errors and allows retry.
+
+Actions share one operation guard and scoped taskbar exposure. The guard preserves
+the original rectangle, extended style and layered attributes, and keeps the
+native owner alive while a recognized context menu or overflow remains open.
+Exit, disabled dock or shell replacement determine the final visibility state;
+late cleanup must not hide a taskbar restored on exit. The existing global exit
+cleanup also removes temporary transparency if process exit precedes worker Drop.
+Normal successful cleanup does not change AppBar state or icon-promotion settings.
+
+Overflow polling is bounded to five minutes; recognized-menu polling retains its
+existing one-minute limit. Shell changes/settings/shutdown can end polling early.
+UIA connection and transaction timeouts are set to 1s and 2s. These limit requests,
+not the whole operation: Microsoft notes that
+[Invoke can depend on the provider's implementation](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationinvokepattern-invoke).
+An acknowledgment is not proof that an app opened a window.
+[ShowContextMenu may invoke an ancestor's menu](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationelement3-showcontextmenu);
+custom menus and each shell-hosted icon still require physical validation.
+
+## Compatibility and limits
+
+Registry layout and Explorer's UIA tree are Windows implementation details, not
+a supported enumeration API. The catalog covers live icons attributable through
+this adapter, not every process or every system quick-setting control. Missing
+metadata or UIA ambiguity can exclude an icon or prevent its direct action.
+Windows 10 discovery and alternative shells are not implemented; the catalog
+returns an error when its registry source is unavailable. Window-based dock
+behavior is preserved. Universal tray coverage, mixed-DPI action correctness and
+shell-restart recovery are not proven by pure tests or read-only discovery.
+
+The approved notch grid and bottom-right horizontal strip are subsequent steps;
+both will consume the same catalog/actions. Neither is added by this foundation.
 
 ## Validation
 
-Automated checks:
-
 ```powershell
+bun run test
 bun run build
-bun test scripts/dockApps.test.ts
 cd src-tauri
 cargo check --locked
 cargo clippy --locked --all-targets
 cargo test --locked
-# Optional read-only integration check against the current desktop:
-cargo test --locked live_tray_discovery -- --ignored --nocapture
+# Optional read-only check; does not open menus or expose the taskbar:
+cargo test --locked live_tray_catalog -- --ignored --nocapture
 ```
 
-Manual acceptance checks (required before merging):
+24 October 2026: 64 Bun tests, 89 Rust tests and build/check/Clippy pass (11 existing
+Clippy warnings; two native tests ignored by default). The optional catalog check
+found eight live icons, three promoted and zero Explorer-hosted in that snapshot.
+It checks uniqueness, stable shell session and readable existing layered attributes.
+It does not prove native activation, complete coverage or restoration.
 
-1. On Bloom startup, unrelated tray-only apps stay out of the dock; pinned apps
-   already active in the tray show a grey dot.
-2. Start an unpinned Discord with one window: one normal dot, no duplicate entry.
-3. Close Discord to the tray: one grey dot, no window thumbnail.
-4. Right-click its dock icon: Discord's own menu appears and its actions work.
-5. Click the background icon: Discord responds through its tray default action.
-6. Quit Discord through its native menu: unpinned icon disappears; pinned dot clears
-   within the 10-second safety poll.
-7. Repeat with an icon in overflow, a promoted icon, and an app with multiple icons.
-   Include apps whose tooltips differ from their executable names, such as
-   Tailscale, Phone Link, and Windows Security.
-8. Exit/restart Explorer, exit Bloom during menu opening, and toggle the dock off:
-   the taskbar must return to the intended state with no transparent residue.
-9. Check Start and dock system actions, including denied UAC and launch errors.
-10. Check light/dark themes, large Bloom scale, multiple monitors and mixed DPI.
-11. Toggle App Separator off and on: only the divider changes; unpinned apps stay
-    on the right. Open pinned Bloom and check that Settings appears without a
-    second unpinned Bloom icon. File Explorer must not show Bluetooth tray actions.
+The owner performs physical installed tests; these remain pending until reported:
 
-Live discovery, the Discord background dot, and Discord's native context menu
-have been exercised on the development machine. The broader compatibility,
-menu-action, and restoration checks above still require end-to-end validation.
+1. System Tray opens; Escape/outside click closes it; repeat the action.
+2. No hidden icons/all promoted: report absence without opening another app.
+3. Background WhatsApp/Slack: default action and native context menu, then Quit;
+   include promoted, hidden, multiple icons and app-defined tooltip names.
+4. Exit Bloom with overflow/menu open, disable dock, restart Explorer: recover the
+   intended taskbar state without transparency. Check pinned/unpinned access.
+5. Mixed DPI, multiple monitors, scale changes and permission-denied applications.
+
+Publishing a technically validated test version does not complete these cases.

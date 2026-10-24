@@ -2,6 +2,8 @@ import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { message } from "@tauri-apps/plugin-dialog";
+import { createNativeTrayAction } from "./tray";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
 import type { UpdateCheckResult } from "./updater";
@@ -2482,15 +2484,22 @@ function App() {
 		[sendBrightness]
 	);
 
-	// Open system tray (unhide taskbar and invoke Win+B)
-	const openSystemTray = useCallback(async (e: React.MouseEvent) => {
-		e.stopPropagation();
-		try {
-			await invoke("open_system_tray");
-		} catch (e) {
-			console.error("Failed to open system tray:", e);
-		}
-	}, []);
+	const [systemTrayBusy, setSystemTrayBusy] = useState(false);
+	const nativeTrayAction = useMemo(
+		() => createNativeTrayAction(
+			() => invoke<boolean>("open_system_tray"),
+			(text, kind) => message(text, { title: "System Tray", kind }),
+			setSystemTrayBusy
+		),
+		[]
+	);
+	const openSystemTray = useCallback(
+		(e: React.MouseEvent) => {
+			e.stopPropagation();
+			void nativeTrayAction().catch(console.error);
+		},
+		[nativeTrayAction]
+	);
 
 	const openSettingsWindow = useCallback(async () => {
 		try {
@@ -3664,7 +3673,10 @@ function App() {
 														e.stopPropagation();
 														openSystemTray(e);
 													}}
-													title="System Tray"
+													disabled={systemTrayBusy}
+													title={systemTrayBusy ? "System Tray — close the Windows popup to continue" : "System Tray"}
+													aria-label="System Tray"
+													aria-busy={systemTrayBusy}
 												>
 													<TrayIcon />
 												</button>

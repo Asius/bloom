@@ -1,7 +1,11 @@
 //! Read-only discovery of live notification icons. Registry entries are only
 //! candidates: Shell_NotifyIconGetRect must confirm each icon before it is used.
+mod model;
+
+use model::{icon_identity, normalized_label, OperationGuard, Restoration};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use windows::core::{w, Interface, BOOL, GUID, PCWSTR};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::{
@@ -16,6 +20,77 @@ pub struct TrayApp {
     pub path: String,
     pub tray_ids: Vec<String>,
     pub window_handles: Vec<isize>,
+}
+
+/// One notification icon, independent of window history and dock grouping.
+/// `id` is a live action token, not a value to persist in settings.
+#[derive(Clone, Serialize)]
+pub struct TrayIcon {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub is_promoted: bool,
+    pub is_shell_icon: bool,
+}
+
+#[derive(Serialize)]
+pub struct TraySnapshot {
+    pub shell_id: String,
+    pub icons: Vec<TrayIcon>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ShellSession {
+    hwnd: HWND,
+    pid: u32,
+    created: u64,
+}
+
+impl ShellSession {
+    unsafe fn current() -> Result<Self, String> {
+        use windows::Win32::Foundation::{CloseHandle, FILETIME};
+        use windows::Win32::System::Threading::{
+            GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let hwnd = FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null())
+            .map_err(|_| "Windows taskbar is unavailable. Please try again.")?;
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+            .map_err(|_| "Windows Explorer cannot be queried.")?;
+        let mut times = [FILETIME::default(); 4];
+        let [created, exited, kernel, user] = &mut times;
+        let result = GetProcessTimes(process, created, exited, kernel, user);
+        let _ = CloseHandle(process);
+        result.map_err(|_| "Windows Explorer's session cannot be queried.")?;
+        Ok(Self {
+            hwnd,
+            pid,
+            created: ((created.dwHighDateTime as u64) << 32) | created.dwLowDateTime as u64,
+        })
+    }
+
+    fn id(&self) -> String {
+        format!("{}:{}:{}", self.pid, self.hwnd.0 as isize, self.created)
+    }
+
+    unsafe fn is_current(&self) -> bool {
+        Self::current().is_ok_and(|current| current == *self)
+    }
+}
+
+static OPERATION_BUSY: AtomicBool = AtomicBool::new(false);
+
+fn begin_operation() -> Result<OperationGuard<'static>, String> {
+    // A click outside a native popup may reach Bloom just before its close is
+    // observed. Allow that observation to finish, without overlapping actions.
+    for _ in 0..20 {
+        if let Ok(guard) = OperationGuard::begin(&OPERATION_BUSY) {
+            return Ok(guard);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    OperationGuard::begin(&OPERATION_BUSY)
 }
 
 struct Key(HKEY);
@@ -108,6 +183,25 @@ struct Icon {
     path: String,
     identifier: NOTIFYICONIDENTIFIER,
     promoted: bool,
+    label_hint: Option<String>,
+}
+
+impl Icon {
+    fn action_id(&self, shell: &ShellSession) -> String {
+        let guid = if self.identifier.guidItem == GUID::zeroed() {
+            String::new()
+        } else {
+            format!("{:?}", self.identifier.guidItem)
+        };
+        icon_identity(
+            &shell.id(),
+            &self.key,
+            &self.path,
+            &guid,
+            self.identifier.hWnd.0 as isize,
+            self.identifier.uID,
+        )
+    }
 }
 
 // Explorer owns system notification icons such as Bluetooth. They share
@@ -157,10 +251,9 @@ unsafe fn process_windows() -> Vec<(isize, String)> {
     windows
 }
 
-unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Vec<Icon> {
-    let Some(root) = open_key(HKEY_CURRENT_USER, "Control Panel\\NotifyIconSettings") else {
-        return vec![];
-    };
+unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<Vec<Icon>, String> {
+    let root = open_key(HKEY_CURRENT_USER, "Control Panel\\NotifyIconSettings")
+        .ok_or("Windows notification-icon discovery is unavailable on this system.")?;
     let own_path = std::env::current_exe()
         .ok()
         .map(|p| p.to_string_lossy().to_lowercase());
@@ -227,25 +320,65 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Vec<Icon
             key: key_name,
             path,
             identifier: id,
+            label_hint: string(key.0, "InitialTooltip"),
             promoted: value(key.0, "IsPromoted", REG_DWORD)
                 .and_then(|v| <[u8; 4]>::try_from(v).ok())
                 .map(u32::from_le_bytes)
                 == Some(1),
         });
     }
-    result
+    Ok(result)
+}
+
+pub fn catalog() -> Result<TraySnapshot, String> {
+    unsafe {
+        let shell = ShellSession::current()?;
+        let windows = process_windows();
+        let mut names = HashMap::new();
+        let mut icons: Vec<_> = live_icons(&windows, true)?
+            .into_iter()
+            .map(|icon| {
+                let name = names
+                    .entry(icon.path.to_lowercase())
+                    .or_insert_with(|| crate::commands::app_display_name(&icon.path, None))
+                    .clone();
+                TrayIcon {
+                    id: icon.action_id(&shell),
+                    name,
+                    is_shell_icon: is_explorer_hosted_icon(&icon.path),
+                    path: icon.path,
+                    is_promoted: icon.promoted,
+                }
+            })
+            .collect();
+        if !shell.is_current() {
+            return Err(
+                "Windows Explorer restarted while reading the tray. Please try again.".into(),
+            );
+        }
+        icons.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
+        Ok(TraySnapshot {
+            shell_id: shell.id(),
+            icons,
+        })
+    }
 }
 
 pub fn enumerate() -> Vec<TrayApp> {
     unsafe {
+        let Ok(shell) = ShellSession::current() else {
+            return vec![];
+        };
         let windows = process_windows();
         let mut apps: HashMap<String, TrayApp> = HashMap::new();
         // Explorer-hosted system icons still occupy overflow positions, so
         // live_icons keeps them for interact(); they just aren't app trays.
         for icon in live_icons(&windows, false)
+            .unwrap_or_default()
             .into_iter()
             .filter(|icon| !is_explorer_hosted_icon(&icon.path))
         {
+            let action_id = icon.action_id(&shell);
             let app = apps
                 .entry(icon.path.to_lowercase())
                 .or_insert_with(|| TrayApp {
@@ -258,7 +391,10 @@ pub fn enumerate() -> Vec<TrayApp> {
                     path: icon.path,
                     tray_ids: vec![],
                 });
-            app.tray_ids.push(icon.key);
+            app.tray_ids.push(action_id);
+        }
+        if !shell.is_current() {
+            return vec![];
         }
         let mut apps: Vec<_> = apps.into_values().collect();
         apps.sort_by(|a, b| a.path.cmp(&b.path));
@@ -283,13 +419,34 @@ impl Drop for ComApartment {
     }
 }
 
+unsafe fn automation_client() -> Result<IUIAutomation, String> {
+    let automation: IUIAutomation =
+        CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER).map_err(|e| e.to_string())?;
+    let options = automation
+        .cast::<IUIAutomation2>()
+        .map_err(|e| e.to_string())?;
+    options
+        .SetConnectionTimeout(1000)
+        .map_err(|e| e.to_string())?;
+    options
+        .SetTransactionTimeout(2000)
+        .map_err(|e| e.to_string())?;
+    Ok(automation)
+}
+
 /// Restore every temporary Explorer change, including on an early error. No
 /// AppBar state or user icon-promotion preferences are changed for this operation.
 struct TrayExposure {
+    session: ShellSession,
     taskbar: HWND,
     rect: RECT,
     style: i32,
     was_hidden: bool,
+    layered: Option<(
+        windows::Win32::Foundation::COLORREF,
+        u8,
+        LAYERED_WINDOW_ATTRIBUTES_FLAGS,
+    )>,
     overflow: Option<HWND>,
 }
 
@@ -299,19 +456,32 @@ impl TrayExposure {
         if crate::state::SHUTTING_DOWN.load(Ordering::Relaxed) {
             return Err("Bloom is shutting down.".into());
         }
-        let hwnd = FindWindowW(w!("Shell_TrayWnd"), PCWSTR::null())
-            .map_err(|_| "Windows taskbar is unavailable.")?;
+        let session = ShellSession::current()?;
+        let hwnd = session.hwnd;
         let mut rect = RECT::default();
         GetWindowRect(hwnd, &mut rect).map_err(|e| e.to_string())?;
+        let style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        let layered = if style & WS_EX_LAYERED.0 as i32 != 0 {
+            let mut color = windows::Win32::Foundation::COLORREF(0);
+            let mut alpha = 255;
+            let mut flags = LAYERED_WINDOW_ATTRIBUTES_FLAGS::default();
+            GetLayeredWindowAttributes(hwnd, Some(&mut color), Some(&mut alpha), Some(&mut flags))
+                .map_err(|_| "Windows taskbar transparency cannot be preserved.")?;
+            Some((color, alpha, flags))
+        } else {
+            None
+        };
         if crate::state::TRAY_INTERACTION_ACTIVE.swap(true, Ordering::SeqCst) {
             return Err("Another tray menu is already opening.".into());
         }
         let guard = Self {
+            session,
             taskbar: hwnd,
             rect,
-            style: GetWindowLongW(hwnd, GWL_EXSTYLE),
+            style,
             was_hidden: crate::state::NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed),
             overflow: None,
+            layered,
         };
         if guard.was_hidden {
             SetWindowLongW(
@@ -344,7 +514,10 @@ impl TrayExposure {
         Ok(guard)
     }
 
-    unsafe fn expose_overflow(&mut self, automation: &IUIAutomation) -> Result<(), String> {
+    unsafe fn expose_overflow(
+        &mut self,
+        automation: &IUIAutomation,
+    ) -> Result<Option<HWND>, String> {
         let find_overflow = || {
             FindWindowW(w!("TopLevelWindowForOverflowXamlIsland"), PCWSTR::null())
                 .or_else(|_| FindWindowW(w!("NotifyIconOverflowWindow"), PCWSTR::null()))
@@ -372,18 +545,13 @@ impl TrayExposure {
                     element
                         .CurrentAutomationId()
                         .is_ok_and(|id| id == "NotifyItemIcon")
+                        && element.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
+                        && element
+                            .CurrentIsOffscreen()
+                            .is_ok_and(|offscreen| !offscreen.as_bool())
                 })
             })
         };
-        if let Ok(hwnd) = find_overflow() {
-            if !IsWindowVisible(hwnd).as_bool() {
-                self.overflow = Some(hwnd);
-                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            }
-            if has_icons(hwnd) {
-                return Ok(());
-            }
-        }
         // Windows 11's tray controls live in a child XAML bridge, not in the
         // Shell_TrayWnd automation subtree itself. Invoking the chevron also
         // populates the overflow; ShowWindow on its host alone does not.
@@ -407,6 +575,7 @@ impl TrayExposure {
         // activate another app when all notification icons are promoted.
         // The chevron is identified by AutomationId and class: its name is
         // localized ("Show Hidden Icons", "Ausgeblendete Symbole einblenden").
+        let mut chevrons = Vec::new();
         for index in 0..elements.Length().unwrap_or(0) {
             let Ok(element) = elements.GetElement(index) else {
                 continue;
@@ -421,34 +590,54 @@ impl TrayExposure {
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
             );
-            if is_chevron {
-                let pattern = element
-                    .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
-                    .map_err(|e| e.to_string())?;
-                if element
-                    .CurrentName()
-                    .is_ok_and(|name| name.to_string().ends_with("Hide"))
-                {
-                    // Explorer remembers an open chevron even after Bloom hides
-                    // its host; close that stale state before reopening it.
-                    pattern.Invoke().map_err(|e| e.to_string())?;
-                }
-                // The open/closed state is only visible in the English name, so
-                // on other languages a stale "open" state is detected by the
-                // overflow not appearing: toggle once more and wait again.
-                for _attempt in 0..2 {
-                    pattern.Invoke().map_err(|e| e.to_string())?;
-                    for _ in 0..20 {
-                        if let Ok(hwnd) = find_overflow() {
-                            self.overflow = Some(hwnd);
-                            if IsWindowVisible(hwnd).as_bool() && has_icons(hwnd) {
-                                return Ok(());
-                            }
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(30));
+            if is_chevron
+                && element.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
+                && element
+                    .CurrentIsEnabled()
+                    .is_ok_and(|enabled| enabled.as_bool())
+                && element
+                    .CurrentIsOffscreen()
+                    .is_ok_and(|offscreen| !offscreen.as_bool())
+            {
+                chevrons.push(element);
+            }
+        }
+        if chevrons.is_empty() {
+            return Ok(None);
+        }
+        if chevrons.len() != 1 {
+            return Err("Windows did not identify a unique hidden-icons button.".into());
+        }
+        // Explorer can retain a hidden overflow host with cached children after
+        // all icons are promoted. Never expose that host without a live chevron.
+        if let Ok(hwnd) = find_overflow() {
+            if !IsWindowVisible(hwnd).as_bool() {
+                self.overflow = Some(hwnd);
+                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            }
+            if IsWindowVisible(hwnd).as_bool() && has_icons(hwnd) {
+                return Ok(Some(hwnd));
+            }
+        }
+        let pattern = chevrons
+            .remove(0)
+            .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
+            .map_err(|e| e.to_string())?;
+        // Use visible host/content state in every language. Explorer can
+        // retain a stale open state after its host has been hidden.
+        for _attempt in 0..2 {
+            if !self.session.is_current() {
+                return Err("Windows Explorer restarted. Please try again.".into());
+            }
+            pattern.Invoke().map_err(|e| e.to_string())?;
+            for _ in 0..20 {
+                if let Ok(hwnd) = find_overflow() {
+                    self.overflow = Some(hwnd);
+                    if IsWindowVisible(hwnd).as_bool() && has_icons(hwnd) {
+                        return Ok(Some(hwnd));
                     }
                 }
-                break;
+                std::thread::sleep(std::time::Duration::from_millis(30));
             }
         }
         Err(
@@ -462,16 +651,26 @@ impl Drop for TrayExposure {
     fn drop(&mut self) {
         use std::sync::atomic::Ordering;
         unsafe {
-            if let Some(hwnd) = self.overflow {
-                let _ = ShowWindow(hwnd, SW_HIDE);
+            let same_shell = self.session.is_current();
+            if same_shell {
+                if let Some(hwnd) = self.overflow {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                }
             }
             // Exit/settings cleanup owns the final visible state if it changed
             // while UIA was working; never undo a taskbar restoration.
-            if self.was_hidden
-                && !crate::state::SHUTTING_DOWN.load(Ordering::Relaxed)
-                && crate::state::NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed)
-            {
+            let restore = model::restoration(
+                self.was_hidden,
+                crate::state::NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed),
+                crate::utils::dock_enabled(),
+                crate::state::SHUTTING_DOWN.load(Ordering::Relaxed),
+                same_shell,
+            );
+            if restore == Restoration::HideOriginal {
                 let _ = ShowWindow(self.taskbar, SW_HIDE);
+                if let Some((color, alpha, flags)) = self.layered {
+                    let _ = SetLayeredWindowAttributes(self.taskbar, color, alpha, flags);
+                }
                 SetWindowLongW(self.taskbar, GWL_EXSTYLE, self.style);
                 let _ = SetWindowPos(
                     self.taskbar,
@@ -483,13 +682,16 @@ impl Drop for TrayExposure {
                     SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER,
                 );
             }
-            if self.was_hidden
-                && (crate::state::SHUTTING_DOWN.load(Ordering::Relaxed)
-                    || !crate::state::NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed))
-            {
-                crate::utils::set_taskbar_visibility(true, true);
-            }
             crate::state::TRAY_INTERACTION_ACTIVE.store(false, Ordering::SeqCst);
+            match restore {
+                Restoration::ShowCurrent => {
+                    crate::utils::set_taskbar_visibility(true, true);
+                }
+                Restoration::HideCurrent => {
+                    crate::utils::set_taskbar_visibility(false, false);
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -499,34 +701,7 @@ unsafe fn tray_order() -> Result<HashMap<String, usize>, String> {
         .ok_or("Windows tray settings are unavailable.")?;
     let bytes =
         value(root.0, "UIOrderList", REG_BINARY).ok_or("Windows tray order is unavailable.")?;
-    let (entries, remainder) = bytes.as_chunks::<8>();
-    if !remainder.is_empty() {
-        return Err("Windows tray order is invalid.".into());
-    }
-    Ok(entries
-        .iter()
-        .enumerate()
-        .map(|(index, bytes)| (u64::from_le_bytes(*bytes).to_string(), index))
-        .collect())
-}
-
-fn normalized_label(label: &str) -> String {
-    label
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
-}
-
-unsafe fn matches_icon_label(label: &str, target: &Icon) -> bool {
-    let name = normalized_label(label);
-    let friendly = normalized_label(&crate::commands::friendly_process_name(&target.path));
-    let stem = std::path::Path::new(&target.path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(normalized_label)
-        .unwrap_or_default();
-    (!friendly.is_empty() && name.contains(&friendly)) || (!stem.is_empty() && name.contains(&stem))
+    model::parse_order(&bytes)
 }
 
 /// Shell_NotifyIconGetRect points at the chevron for hidden icons. The live
@@ -539,6 +714,7 @@ unsafe fn find_overflow_icon(
     automation: &IUIAutomation,
     icons: &[Icon],
     target: &Icon,
+    session: &ShellSession,
 ) -> Result<IUIAutomationElement3, String> {
     let order = tray_order()?;
     let mut hidden: Vec<_> = icons.iter().filter(|icon| !icon.promoted).collect();
@@ -583,47 +759,38 @@ unsafe fn find_overflow_icon(
             buttons.push(element);
         }
     }
-    if buttons.len() != hidden.len() {
-        // Some overflow icons can't be attributed to a process Bloom can read,
-        // so positions don't line up. Fall back to the button whose label
-        // names the target app, but only when exactly one does and it names
-        // no other known icon; otherwise opening a menu could hit another app.
-        let labelled: Vec<_> = buttons
-            .iter()
-            .filter(|button| {
-                let label = button.CurrentName().unwrap_or_default().to_string();
-                matches_icon_label(&label, target)
-                    && !hidden
-                        .iter()
-                        .any(|icon| icon.key != target.key && matches_icon_label(&label, icon))
-            })
-            .collect();
-        if let [button] = labelled[..] {
-            return button.cast().map_err(|e| e.to_string());
-        }
-        return Err("Windows tray icons changed while opening the menu. Please try again.".into());
+    let labels = buttons
+        .iter()
+        .map(|button| button.CurrentName().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    let candidates = hidden
+        .iter()
+        .map(|icon| model::IconLabel {
+            path: icon.path.clone(),
+            hint: icon.label_hint.clone(),
+            names: vec![
+                normalized_label(&crate::commands::friendly_process_name(&icon.path)),
+                std::path::Path::new(&icon.path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(normalized_label)
+                    .unwrap_or_default(),
+            ],
+        })
+        .collect::<Vec<_>>();
+    let button = model::resolve_overflow_button(&candidates, position, &labels)?;
+    let mut old_ids: Vec<_> = hidden.iter().map(|icon| icon.action_id(session)).collect();
+    let mut current_ids: Vec<_> = live_icons(&process_windows(), true)?
+        .iter()
+        .filter(|icon| !icon.promoted)
+        .map(|icon| icon.action_id(session))
+        .collect();
+    old_ids.sort();
+    current_ids.sort();
+    if tray_order()? != order || old_ids != current_ids || !session.is_current() {
+        return Err("Windows tray changed while selecting the icon. Please try again.".into());
     }
-    // Name matches provide cross-checks of Explorer's ordered UI tree, but
-    // cannot be required for every icon because tooltip text is app-defined.
-    // An icon without a name (an app with no tooltip, or one that just
-    // re-registered after Explorer restarted) simply can't be cross-checked;
-    // it must not block the icon the user clicked.
-    for (button_index, button) in buttons.iter().enumerate() {
-        let label = button.CurrentName().unwrap_or_default().to_string();
-        if label.trim().is_empty() {
-            continue;
-        }
-        let matches: Vec<_> = hidden
-            .iter()
-            .enumerate()
-            .filter(|(_, icon)| matches_icon_label(&label, icon))
-            .map(|(index, _)| index)
-            .collect();
-        if matches.len() == 1 && matches[0] != button_index {
-            return Err("Windows tray icon order changed. Please try again.".into());
-        }
-    }
-    buttons.remove(position).cast().map_err(|e| e.to_string())
+    buttons.remove(button).cast().map_err(|e| e.to_string())
 }
 
 unsafe fn find_promoted_icon(
@@ -839,11 +1006,19 @@ unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Op
 /// Keep the dock's native-menu hold until the external popup closes. UIA's
 /// ShowContextMenu returns when the popup opens, not when the user dismisses it.
 unsafe fn wait_for_menu_close(menu: HWND, bottom: i32) {
+    let mut owner = 0;
+    GetWindowThreadProcessId(menu, Some(&mut owner));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while std::time::Instant::now() < deadline
         && IsWindow(Some(menu)).as_bool()
         && IsWindowVisible(menu).as_bool()
+        && !crate::state::SHUTTING_DOWN.load(std::sync::atomic::Ordering::Relaxed)
     {
+        let mut current_owner = 0;
+        GetWindowThreadProcessId(menu, Some(&mut current_owner));
+        if current_owner != owner {
+            break;
+        }
         // Steam can reposition its popup after UIA returns. Keep its bottom
         // above the bar while retaining the existing native-menu hover hold.
         let mut rect = RECT::default();
@@ -863,28 +1038,32 @@ unsafe fn wait_for_menu_close(menu: HWND, bottom: i32) {
 }
 
 pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
+    let _operation = begin_operation()?;
     unsafe {
         let _com = ComApartment::new()?;
+        let session = ShellSession::current()?;
         let windows = process_windows();
-        let icons = live_icons(&windows, true);
+        let icons = live_icons(&windows, true)?;
         let icon = icons
             .iter()
-            .find(|i| i.key == key)
+            .find(|i| i.action_id(&session) == key)
             .ok_or("This tray icon is no longer running.")?;
-        let automation: IUIAutomation =
-            CoCreateInstance(&CUIAutomation8, None, CLSCTX_INPROC_SERVER)
-                .map_err(|e| e.to_string())?;
-        if let Ok(options) = automation.cast::<IUIAutomation2>() {
-            let _ = options.SetConnectionTimeout(1000);
-            let _ = options.SetTransactionTimeout(2000);
-        }
+        let automation = automation_client()?;
         let mut exposure = TrayExposure::new()?;
+        if exposure.session != session {
+            return Err("Windows Explorer restarted. Refresh the tray and try again.".into());
+        }
         let element = if icon.promoted {
             find_promoted_icon(&automation, icon)?
         } else {
-            exposure.expose_overflow(&automation)?;
-            find_overflow_icon(&automation, &icons, icon)?
+            exposure.expose_overflow(&automation)?.ok_or(
+                "Windows is not showing this icon in the overflow. Refresh the tray and try again.",
+            )?;
+            find_overflow_icon(&automation, &icons, icon, &session)?
         };
+        if !session.is_current() {
+            return Err("Windows Explorer restarted. Refresh the tray and try again.".into());
+        }
         Shell_NotifyIconGetRect(&icon.identifier)
             .map_err(|_| "This tray icon is no longer running.")?;
         if context_menu {
@@ -896,9 +1075,16 @@ pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
                 .ShowContextMenu()
                 .map_err(|_| "Windows could not open this app's native tray menu.".to_string())?;
             let menu = move_new_menu_to(&icon.path, &before, cursor);
-            drop(exposure);
             if let Some((menu, bottom)) = menu {
+                // Hiding the native owner can dismiss a shell-hosted menu.
                 wait_for_menu_close(menu, bottom);
+            } else if let Some(overflow) = exposure
+                .overflow
+                .filter(|hwnd| IsWindowVisible(*hwnd).as_bool())
+            {
+                // Custom menus may not expose an attributable HWND. Preserve
+                // their native owner without moving an unrelated popup.
+                wait_for_overflow_close(&exposure, overflow)?;
             }
             Ok(())
         } else {
@@ -911,6 +1097,45 @@ pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
                 .map_err(|_| "Windows could not activate this tray icon.".to_string())
         }
     }
+}
+
+/// Opens Explorer's actual hidden-icons flyout through its own chevron. There
+/// is deliberately no keyboard macro or arbitrary-button fallback. The guard
+/// stays on this worker until dismissal, settings change, shell restart or timeout.
+pub fn open_native_overflow() -> Result<bool, String> {
+    let _operation = begin_operation()?;
+    unsafe {
+        let _com = ComApartment::new()?;
+        let automation = automation_client()?;
+        let mut exposure = TrayExposure::new()?;
+        let Some(overflow) = exposure.expose_overflow(&automation)? else {
+            return Ok(false);
+        };
+        wait_for_overflow_close(&exposure, overflow)?;
+        Ok(true)
+    }
+}
+
+unsafe fn wait_for_overflow_close(exposure: &TrayExposure, overflow: HWND) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    while IsWindow(Some(overflow)).as_bool() && IsWindowVisible(overflow).as_bool() {
+        if !exposure.session.is_current() {
+            return Err("Windows Explorer restarted. Open the tray again.".into());
+        }
+        if crate::state::SHUTTING_DOWN.load(std::sync::atomic::Ordering::Relaxed)
+            || (exposure.was_hidden
+                && (!crate::utils::dock_enabled()
+                    || !crate::state::NATIVE_TASKBAR_HIDDEN
+                        .load(std::sync::atomic::Ordering::Relaxed)))
+        {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("The Windows tray did not close. Please try again.".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1018,6 +1243,36 @@ mod tests {
             println!("{}: {} live tray icon(s)", app.name, app.tray_ids.len());
         }
         println!("{} live tray apps", apps.len());
+    }
+
+    #[test]
+    #[ignore = "read-only check against the current Windows desktop"]
+    fn live_tray_catalog() {
+        let first = catalog().expect("the current Windows shell must expose its tray catalog");
+        let ids: std::collections::HashSet<_> = first.icons.iter().map(|icon| &icon.id).collect();
+        assert_eq!(ids.len(), first.icons.len());
+        assert!(first
+            .icons
+            .iter()
+            .all(|icon| !icon.path.is_empty() && !icon.id.is_empty()));
+        let second = catalog().expect("reading the catalog twice must not change the shell");
+        assert_eq!(first.shell_id, second.shell_id);
+        unsafe {
+            let shell = ShellSession::current().unwrap();
+            if GetWindowLongW(shell.hwnd, GWL_EXSTYLE) & WS_EX_LAYERED.0 as i32 != 0 {
+                let mut alpha = 0;
+                GetLayeredWindowAttributes(shell.hwnd, None, Some(&mut alpha), None).expect(
+                    "the existing taskbar transparency must be readable before any exposure",
+                );
+            }
+        }
+        // Do not log tooltip hints, application paths, messages or HWNDs.
+        println!(
+            "{} live icons; {} shell-hosted; {} promoted",
+            first.icons.len(),
+            first.icons.iter().filter(|icon| icon.is_shell_icon).count(),
+            first.icons.iter().filter(|icon| icon.is_promoted).count()
+        );
     }
     #[test]
     fn accepts_braced_guid_and_rejects_bad_identity() {

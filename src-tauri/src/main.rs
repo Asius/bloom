@@ -148,6 +148,7 @@ fn main() {
             shelf_open,
             get_active_windows,
             get_tray_apps,
+            get_tray_icons,
             show_tray_context_menu,
             activate_tray_icon,
             open_system_action,
