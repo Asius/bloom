@@ -36,9 +36,18 @@ Run from the repo root unless noted. Bun 1.4.0, Rust stable.
 - The `windows` crate is pinned to 0.61 with an explicit feature list in `Cargo.toml`; add features there when using new Win32 APIs
 - Commits follow conventional commits (`feat:`, `fix:`); release notes are generated from them and commits touching only `website/*`, `.github/*`, or `*.md` are filtered out
 
-## Commit log and manual push
+## Commit log and GitHub management
 
 - Every commit must have a short conventional-commit Summary as its first line, then a blank line and a brief description. Write the Summary and body in Spanish.
 - Explain the change and purpose in the body; briefly record validation and relevant limitations. Do not claim checks that were not run.
-- Leave commits local for the owner to push from GitHub Desktop. Do not push branches/tags or run automatic-push scripts (including `bun run release`) unless the owner explicitly requests it later.
+- Standing owner authorization, 24 October 2026: manage `Asius/bloom`, push commits/branches, create/review/update/merge PRs and prepare/publish new version tags and Releases as appropriate. Do not ask again for routine GitHub/release permission. This replaces the previous owner-only push and per-release approval rules.
+- Work on `main` by default; use branches/PRs when useful for review or isolation. Review diffs and checks before merging; do not batch-merge dependency PRs just because they exist. Preserve repository protections and published tags.
+- Before publishing, synchronize all four version files and verify relevant local checks plus CI/CodeQL on the exact revision. Wait for Release completion and verify the updater manifest, downloads, hashes and signatures. Keep the private signing key out of code/logs. Use release steps that preserve the Spanish Summary/body rule; the existing automatic release script does not supply that body.
 - Report the commit hash, Summary and description to the owner. Stage only files belonging to the current delivery.
+
+## Installed Windows testing
+
+- The agent owns code review, automated tests, builds, GitHub checks and technical verification of published artifacts.
+- The owner runs physical tests on their PC, including N-1 updates, real windows, hardware, tray and taskbar recovery. Provide a short per-release test list and record their feedback.
+- Pending owner tests do not block publishing a technically validated version for those tests or require another approval. Keep them explicitly pending; publication and mocked IPC are not proof of native behavior or completion of a roadmap stage.
+- Do not automatically replace the installed app or control the owner's desktop during a release. Only do so when requested for a particular test.

@@ -3,11 +3,21 @@
 Bloom ships auto-updates to every install, so a bad release reaches users
 silently. Run this checklist for every release, every time.
 
+## Owner agreement (24 October 2026)
+
+The agent manages pushes, PR review/merges and Releases under standing owner
+authorization; no per-release approval is needed. The agent completes technical
+checks and artifact verification. The owner performs the physical Windows tests
+below after publication. Record those as pending until the owner reports results;
+they do not block a technically validated release intended for testing. Do not
+replace the owner's installation or control their desktop automatically.
+
 ## 1. Before tagging (on `main`)
 
 - [ ] CI green on `main` (Build, CodeQL) and `bun run build` passes locally.
 - [ ] In `src-tauri`: `cargo check --locked`, `cargo clippy --locked --all-targets`, `cargo test --locked`.
-- [ ] Run `bun run tauri dev` and exercise what the release touches. Always cover:
+- [ ] Prepare the affected native test cases for the owner (or record a requested
+      development smoke test separately). Physical checks assigned to the owner:
   - [ ] notch modes (fixed / smart / peek) and hover expansion
   - [ ] dock modes, pinned apps, Start menu
   - [ ] volume/brightness overlays and per-app mixer
@@ -18,25 +28,29 @@ silently. Run this checklist for every release, every time.
       the app's own `CHECK_TIMEOUT_SECS` budget (`src-tauri/src/updater.rs`). If it
       fails on the release machine, users on similar networks cannot update —
       fix the manifest/network path before tagging.
-- [ ] Any network/timeout change was tested against a degraded connection, not
-      just a fast one. Update paths must tolerate slow GitHub routes (SYN retries
+- [ ] For network/timeout changes, verify automated failure/timeout handling and
+      explicitly list any degraded-connection test still pending with the owner.
+      A fast channel check alone does not prove slow-route recovery (SYN retries
       alone can take ~21 s).
 
 ## 2. Tag and publish
 
-- [ ] `bun run release x.y.z` (must be on `main`).
+- [ ] Commit coherent versions with a Spanish Summary and brief body, push main,
+      verify CI/CodeQL on that revision, then send a new version tag. Do not move
+      published tags. The existing `bun run release` script does not provide the
+      required commit body or wait for checks before pushing its tag.
 - [ ] Watch the Release workflow to completion; do not walk away from a red run.
 
 ## 3. After the workflow
 
 - [ ] `bun scripts/verify-updater.mjs vX.Y.Z` passes.
-- [ ] **N‑1 install smoke test**: on a machine still running the previous
+- [ ] **Owner: N‑1 install smoke test**: on a machine still running the previous
       version, click Settings → About → Check for Updates. It must find the new
       version. Auto-install waits ~24 h by design (`MIN_AUTO_INSTALL_AGE_SECS`),
       but the badge/label must appear immediately.
-- [ ] Fresh install: download `bloom_X.Y.Z_x64-setup.exe`, install, confirm it
+- [ ] **Owner: fresh install**: download `bloom_X.Y.Z_x64-setup.exe`, install, confirm it
       launches and About shows the new version.
-- [ ] Quit from the tray on the fresh install; confirm the taskbar returns.
+- [ ] **Owner:** quit from the tray on the fresh install; confirm the taskbar returns.
 - [ ] If users must be told something (workarounds, known issues), publish
       `website/public/announcements.json` and pin a GitHub issue with direct
       installer links.
