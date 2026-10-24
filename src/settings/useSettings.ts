@@ -3,7 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { getVersion } from "@tauri-apps/api/app";
-import type { UpdateCheckResult } from "../updater";
+import {
+	isUpdateActive,
+	updateErrorMessage,
+	type AutoUpdateEvent,
+	type UpdateCheckResult,
+	type UpdateStatus
+} from "../updater";
 import { useSettingsSync } from "../hooks/useSettingsSync";
 import { reloadIfMirrorWasStale } from "../hooks/settingsMirror";
 import { hexToHsl } from "../theme";
@@ -134,9 +140,9 @@ export function useSettings() {
 		return val !== null ? parseInt(val) : 200;
 	});
 	const [lowBatteryThreshold, setLowBatteryThreshold] = useState(20);
-	const [updateStatus, setUpdateStatus] = useState<
-		"idle" | "checking" | "available" | "uptodate" | "error" | "downloading" | "installing"
-	>("idle");
+	const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+	const [updateError, setUpdateError] = useState("");
+	const updateRequestRef = useRef(false);
 	const [updateVersion, setUpdateVersion] = useState("");
 	const [appVersion, setAppVersion] = useState("");
 	const [autoUpdate, setAutoUpdate] = useState(
@@ -442,6 +448,9 @@ export function useSettings() {
 
 	// ── Update checker ──
 	const checkForUpdates = async (manual = true) => {
+		if (updateRequestRef.current || isUpdateActive(updateStatus)) return;
+		updateRequestRef.current = true;
+		setUpdateError("");
 		setUpdateStatus("checking");
 		try {
 			const result = await invoke<UpdateCheckResult>("check_for_updates", { force: manual });
@@ -453,41 +462,53 @@ export function useSettings() {
 			}
 		} catch (e) {
 			console.error("Updater error:", e);
-			setUpdateStatus("error");
+			setUpdateError(updateErrorMessage(e));
+			setUpdateStatus("check-error");
+		} finally {
+			updateRequestRef.current = false;
 		}
 	};
 
 	const installUpdate = async () => {
+		if (updateRequestRef.current || isUpdateActive(updateStatus)) return;
+		updateRequestRef.current = true;
+		setUpdateError("");
 		try {
 			setUpdateStatus("downloading");
 			await invoke("install_update");
 			setUpdateStatus("idle");
 		} catch (e) {
 			console.error(e);
-			setUpdateStatus("error");
+			setUpdateError(updateErrorMessage(e));
+			setUpdateStatus("install-error");
+		} finally {
+			updateRequestRef.current = false;
 		}
 	};
 
 	// Reflect install progress triggered from any window (including auto-update).
 	useEffect(() => {
-		const unlisten = listen<{ status: string; progress?: number }>(
-			"auto-update-status",
-			(event) => {
-				switch (event.payload.status) {
-					case "downloading":
-						setUpdateStatus("downloading");
-						break;
-					case "installing":
-						setUpdateStatus("installing");
-						break;
-					case "done":
-						setUpdateStatus((prev) =>
-							prev === "downloading" || prev === "installing" ? "idle" : prev
-						);
-						break;
-				}
+		const unlisten = listen<AutoUpdateEvent>("auto-update-status", (event) => {
+			switch (event.payload.status) {
+				case "checking":
+					setUpdateError("");
+					setUpdateStatus("checking");
+					break;
+				case "downloading":
+					setUpdateStatus("downloading");
+					break;
+				case "installing":
+					setUpdateStatus("installing");
+					break;
+				case "done":
+					setUpdateStatus((prev) => (isUpdateActive(prev) ? "idle" : prev));
+					break;
+				case "error":
+					setUpdateError(updateErrorMessage(event.payload.message));
+					setUpdateStatus(event.payload.operation === "check" ? "check-error" : "install-error");
+					break;
 			}
-		);
+		});
 		return () => {
 			unlisten.then((fn) => fn());
 		};
@@ -1031,6 +1052,7 @@ export function useSettings() {
 
 		// Updates
 		updateStatus,
+		updateError,
 		updateVersion,
 		appVersion,
 		checkForUpdates,

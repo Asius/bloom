@@ -13,6 +13,7 @@ import "./Overlay.css";
 import { EdgeSurface } from "./components/EdgeSurface";
 import { initTheme } from "./theme";
 import { createRegionSender, measureElements, type RegionRect } from "./windowRegion";
+import { isUpdateActive, isUpdateTerminal, type AutoUpdateEvent } from "./updater";
 
 // ─── App Volume Mixer ───────────────────────────────────────────────────────
 
@@ -768,24 +769,22 @@ function OverlayApp() {
 			}
 		});
 
-		const autoUpdatePromise = listen<{ status: string; progress?: number }>(
-			"auto-update-status",
-			(event) => {
-				const { status, progress } = event.payload;
-				setUpdateStatus(status);
-				if (progress !== undefined) setUpdateProgress(progress);
+		const autoUpdatePromise = listen<AutoUpdateEvent>("auto-update-status", (event) => {
+			const { status, progress } = event.payload;
+			setUpdateStatus(status);
+			if (progress !== undefined) setUpdateProgress(progress);
 
-				if (status === "checking" || status === "downloading" || status === "installing") {
-					splashActiveRef.current = true;
-					setMode("updating");
-					invoke("set_splash_fullscreen", { fullscreen: true });
-				} else if (status === "done") {
-					splashActiveRef.current = false;
-					setMode("idle");
-					invoke("set_splash_fullscreen", { fullscreen: false });
-				}
+			if (isUpdateActive(status)) {
+				splashActiveRef.current = true;
+				setMode("updating");
+				invoke("set_splash_fullscreen", { fullscreen: true });
+			} else if (isUpdateTerminal(status)) {
+				splashActiveRef.current = false;
+				setUpdateProgress(0);
+				setMode("idle");
+				invoke("set_splash_fullscreen", { fullscreen: false });
 			}
-		);
+		});
 
 		return () => {
 			volPromise.then((fn) => fn());

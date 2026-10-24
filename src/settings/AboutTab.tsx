@@ -2,12 +2,14 @@ import { Download, RefreshCw, FileDown, Upload } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { GithubIcon } from "../icons";
 import { SettingRow } from "./SettingRow";
+import { isUpdateActive, updateLabel, type UpdateStatus } from "../updater";
 
 interface AboutTabProps {
 	appVersion: string;
 	autoUpdate: boolean;
 	toggleAutoUpdate: () => void;
-	updateStatus: string;
+	updateStatus: UpdateStatus;
+	updateError: string;
 	updateVersion: string;
 	checkForUpdates: () => void;
 	installUpdate: () => void;
@@ -22,6 +24,7 @@ export function AboutTab({
 	autoUpdate,
 	toggleAutoUpdate,
 	updateStatus,
+	updateError,
 	updateVersion,
 	checkForUpdates,
 	installUpdate,
@@ -30,29 +33,12 @@ export function AboutTab({
 	handleExportSettings,
 	handleImportSettings
 }: AboutTabProps) {
-	const getUpdateLabel = () => {
-		switch (updateStatus) {
-			case "checking":
-				return "Checking...";
-			case "available":
-				return `Update Available (v${updateVersion})`;
-			case "uptodate":
-				return "Bloom is up to date";
-			case "downloading":
-				return "Downloading Update...";
-			case "installing":
-				return "Installing...";
-			case "error":
-				return "No updates found";
-			default:
-				return "Check for Updates";
-		}
-	};
-
 	const getUpdateDesc = () =>
-		updateStatus === "available"
-			? "Click to install and restart"
-			: `Currently running v${appVersion}`;
+		updateStatus === "check-error" || updateStatus === "install-error"
+			? `${updateError || "Please try again."} Click to check again.`
+			: updateStatus === "available"
+				? "Click to install and restart"
+				: `Currently running v${appVersion}`;
 
 	const getExportLabel = () => {
 		if (exportStatus === "exporting") return "Exporting...";
@@ -98,11 +84,15 @@ export function AboutTab({
 
 				<SettingRow
 					icon={RefreshCw}
-					label={getUpdateLabel()}
+					label={updateLabel(updateStatus, updateVersion)}
 					desc={getUpdateDesc()}
-					action
+					action={!isUpdateActive(updateStatus)}
 					divider={false}
-					onClick={() => (updateStatus === "available" ? installUpdate() : checkForUpdates())}
+					onClick={
+						isUpdateActive(updateStatus)
+							? undefined
+							: () => (updateStatus === "available" ? installUpdate() : checkForUpdates())
+					}
 				/>
 			</div>
 

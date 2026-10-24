@@ -197,16 +197,59 @@ pub async fn check(app: &AppHandle, force: bool) -> Result<UpdateCheckResult, St
     Ok(result)
 }
 
-/// Downloads and installs the available update. On Windows the updater plugin
-/// launches the NSIS installer and terminates this process, which then
-/// relaunches the app; on other platforms this returns after restarting.
-pub async fn install(app: &AppHandle) -> Result<(), String> {
-    if UPDATE_BUSY.swap(true, Ordering::SeqCst) {
+// Release the busy flag and report cancellation when an accepted future is dropped.
+struct InstallAttempt<'a, F: FnOnce(&Result<(), String>)> {
+    busy: &'a AtomicBool,
+    finish: Option<F>,
+}
+
+impl<F: FnOnce(&Result<(), String>)> Drop for InstallAttempt<'_, F> {
+    fn drop(&mut self) {
+        if let Some(finish) = self.finish.take() {
+            finish(&Err("update was cancelled".to_string()));
+        }
+        self.busy.store(false, Ordering::SeqCst);
+    }
+}
+
+// The accepted attempt owns both the busy flag and its terminal event. A second
+// caller must not dismiss the overlay belonging to the operation already running.
+async fn run_install_attempt(
+    busy: &AtomicBool,
+    operation: impl std::future::Future<Output = Result<(), String>>,
+    finish: impl FnOnce(&Result<(), String>),
+) -> Result<(), String> {
+    if busy.swap(true, Ordering::SeqCst) {
         return Err("an update is already in progress".to_string());
     }
-    let result = install_inner(app).await;
-    UPDATE_BUSY.store(false, Ordering::SeqCst);
+    let mut attempt = InstallAttempt {
+        busy,
+        finish: Some(finish),
+    };
+    let result = operation.await;
+    if let Some(finish) = attempt.finish.take() {
+        finish(&result);
+    }
     result
+}
+
+/// Downloads and installs the available update. On Windows the updater plugin
+/// launches the NSIS installer and terminates this process, which then relaunches
+/// the app. Failures that return to Bloom always release the overlay for retry.
+pub async fn install(app: &AppHandle) -> Result<(), String> {
+    run_install_attempt(&UPDATE_BUSY, install_inner(app), |result| {
+        // Release the native full-screen surface even if its webview missed an
+        // event. Successful Windows installs exit inside the updater plugin.
+        crate::commands::set_splash_fullscreen(app.clone(), false);
+        let payload = match result {
+            Ok(()) => serde_json::json!({ "status": "done" }),
+            Err(message) => serde_json::json!({
+                "status": "error", "operation": "install", "message": message
+            }),
+        };
+        let _ = app.emit("auto-update-status", payload);
+    })
+    .await
 }
 
 async fn install_inner(app: &AppHandle) -> Result<(), String> {
@@ -232,9 +275,9 @@ async fn install_inner(app: &AppHandle) -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let update = updater
-        .check()
+    let update = tokio::time::timeout(Duration::from_secs(CHECK_TIMEOUT_SECS), updater.check())
         .await
+        .map_err(|_| "update check timed out".to_string())?
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "no update available".to_string())?;
 
@@ -308,11 +351,13 @@ pub async fn run_startup_check(app: AppHandle) {
 
     let result = match check(&app, false).await {
         Ok(result) => result,
-        Err(_) => {
+        Err(message) => {
             if auto_update {
                 let _ = app.emit(
                     "auto-update-status",
-                    serde_json::json!({ "status": "done" }),
+                    serde_json::json!({
+                        "status": "error", "operation": "check", "message": message
+                    }),
                 );
             }
             return;
@@ -335,12 +380,8 @@ pub async fn run_startup_check(app: AppHandle) {
 
     if auto_update && release_is_old_enough(&result) && !attempted_recently {
         // On Windows this never returns: the installer exits the process.
-        if install(&app).await.is_err() {
-            let _ = app.emit(
-                "auto-update-status",
-                serde_json::json!({ "status": "done" }),
-            );
-        }
+        // install owns success/error/cancellation cleanup for every caller.
+        let _ = install(&app).await;
     } else if auto_update {
         // An install for this version was already attempted (or is pending),
         // so keep the badge visible instead of relaunching the installer on
@@ -420,6 +461,111 @@ mod tests {
         days_from_civil, install_attempted_recently, parse_rfc3339_utc, state_is_current,
         PersistedUpdateState,
     };
+
+    fn run_ready<F: std::future::Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(result) => result,
+            std::task::Poll::Pending => panic!("expected an immediately ready operation"),
+        }
+    }
+
+    #[test]
+    fn every_failed_install_finishes_and_allows_a_retry() {
+        use std::{
+            cell::RefCell,
+            sync::atomic::{AtomicBool, Ordering},
+        };
+        for message in [
+            "check timed out",
+            "download disconnected",
+            "invalid signature",
+            "installer failed",
+        ] {
+            let busy = AtomicBool::new(false);
+            let endings = RefCell::new(Vec::new());
+            let result = run_ready(super::run_install_attempt(
+                &busy,
+                async { Err(message.to_string()) },
+                |result| endings.borrow_mut().push(result.clone()),
+            ));
+            assert_eq!(result, Err(message.to_string()));
+            assert_eq!(*endings.borrow(), vec![Err(message.to_string())]);
+            assert!(!busy.load(Ordering::SeqCst));
+            assert!(run_ready(super::run_install_attempt(&busy, async { Ok(()) }, |_| {})).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_second_caller_does_not_finish_the_accepted_install() {
+        use std::{
+            cell::Cell,
+            sync::atomic::{AtomicBool, Ordering},
+        };
+        let busy = AtomicBool::new(true);
+        let started = Cell::new(false);
+        let finished = Cell::new(false);
+        let result = run_ready(super::run_install_attempt(
+            &busy,
+            async {
+                started.set(true);
+                Ok(())
+            },
+            |_| finished.set(true),
+        ));
+        assert!(result.is_err());
+        assert!(!started.get());
+        assert!(!finished.get());
+        assert!(busy.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn cancelling_an_install_releases_the_busy_flag_and_reports_the_failure() {
+        use std::{
+            cell::RefCell,
+            future::Future,
+            sync::atomic::{AtomicBool, Ordering},
+        };
+        let busy = AtomicBool::new(false);
+        let endings = RefCell::new(Vec::new());
+        let mut operation = Box::pin(super::run_install_attempt(
+            &busy,
+            std::future::pending(),
+            |result| endings.borrow_mut().push(result.clone()),
+        ));
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(operation.as_mut().poll(&mut context).is_pending());
+        assert!(busy.load(Ordering::SeqCst));
+        drop(operation);
+        assert!(!busy.load(Ordering::SeqCst));
+        assert_eq!(
+            *endings.borrow(),
+            vec![Err("update was cancelled".to_string())]
+        );
+    }
+
+    #[test]
+    fn successful_install_finishes_once_before_accepting_another_attempt() {
+        use std::{
+            cell::Cell,
+            sync::atomic::{AtomicBool, Ordering},
+        };
+        let busy = AtomicBool::new(false);
+        let finished = Cell::new(0);
+        let result = run_ready(super::run_install_attempt(
+            &busy,
+            async { Ok(()) },
+            |result| {
+                assert!(result.is_ok());
+                assert!(busy.load(Ordering::SeqCst));
+                finished.set(finished.get() + 1);
+            },
+        ));
+        assert!(result.is_ok());
+        assert!(!busy.load(Ordering::SeqCst));
+        assert_eq!(finished.get(), 1);
+    }
 
     #[test]
     fn parses_tauri_action_pub_date() {

@@ -257,6 +257,7 @@ function SettingsApp() {
 							autoUpdate={settings.autoUpdate}
 							toggleAutoUpdate={settings.toggleAutoUpdate}
 							updateStatus={settings.updateStatus}
+							updateError={settings.updateError}
 							updateVersion={settings.updateVersion}
 							checkForUpdates={settings.checkForUpdates}
 							installUpdate={settings.installUpdate}
