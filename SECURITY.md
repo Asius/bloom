@@ -15,7 +15,7 @@ Please do not report security vulnerabilities in public issues or discussions.
 
 Report privately through GitHub's private vulnerability reporting:
 
-https://github.com/SehajveerSingh2005/bloom/security/advisories/new
+https://github.com/Asius/bloom/security/advisories/new
 
 Include as much of the following as you can:
 
@@ -24,7 +24,7 @@ Include as much of the following as you can:
 - Bloom version (Settings → About) and Windows version
 - Any suggested fix
 
-You can expect an initial response within a few days. When a fix is ready, a release will be published and you will be credited unless you prefer to stay anonymous.
+This is a personal fork maintained by @Asius. Response times depend on maintainer availability. Confirmed fixes will be published in a release, with credit unless you prefer to stay anonymous.
 
 ## Scope
 

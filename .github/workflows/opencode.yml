@@ -16,14 +16,15 @@ on:
     types: [created]
 
 permissions:
-  id-token: write
   contents: read
-  pull-requests: read
-  issues: read
 
 jobs:
   opencode:
+    # Opt in only after reviewing the external installer and service permissions.
+    # Public comments must never start a privileged agent on their own.
     if: |
+      vars.BLOOM_ENABLE_AI_AUTOMATIONS == 'true' &&
+      github.event.comment.author_association == 'OWNER' &&
       (
         startsWith(github.event.comment.body, '/oc') ||
         contains(github.event.comment.body, ' /oc') ||
@@ -34,6 +35,11 @@ jobs:
         github.event.issue.pull_request
       )
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

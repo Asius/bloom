@@ -30,6 +30,15 @@ dist-ssr
 *.key
 *.key.pub
 
+# Local credentials and recovery archives
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.bundle
+
 #skills
 .agents/*
 skills-lock.json
