@@ -11,10 +11,28 @@ a aparecer al salir.
 GitHub Desktop sirve para ver cambios, crear commits y enviarlos a GitHub; no
 compila ni instala la aplicación. Para probar cambios de código sin crear un
 instalador, instala Bun 1.4.0, Rust estable y los prerrequisitos de Tauri para
-Windows. Desde esta carpeta:
+Windows: herramientas C++ de Visual Studio Build Tools, Windows SDK y WebView2.
+No hace falta instalar el editor completo de Visual Studio. Consulta los
+[prerrequisitos oficiales](https://v2.tauri.app/start/prerequisites/#windows).
+Abre una terminal nueva después de instalar las herramientas para que reconozca
+los cambios de `PATH`.
+
+El repositorio está en OneDrive. Para mantener la caché de compilación Rust
+fuera de la carpeta sincronizada, define esta variable en cada terminal desde
+la que compiles o ejecutes el modo de desarrollo:
 
 ```powershell
-bun install
+$env:CARGO_TARGET_DIR = Join-Path $env:LOCALAPPDATA 'BloomFlorecer\cargo-target'
+```
+
+Esta variable solo afecta a esa terminal y sus procesos. La caché se puede
+reconstruir; el código permanece en el repositorio. Usa la misma ubicación
+para `cargo` y `tauri` para reutilizar las compilaciones.
+
+Desde la carpeta del repositorio:
+
+```powershell
+bun install --frozen-lockfile
 bun run tauri dev
 ```
 
@@ -22,11 +40,28 @@ La ventana de desarrollo se recompila mientras editas. Sal de ella antes de
 iniciar la Bloom instalada. Para comprobar una compilación:
 
 ```powershell
+bun run test
 bun run build
 cd src-tauri
 cargo check --locked
+cargo clippy --locked --all-targets
 cargo test --locked
 ```
+
+CI de Windows también ejecuta `bun run test` y `cargo test --locked`, además
+del build, `cargo check` y Clippy. Un resultado local correcto no demuestra que
+se haya ejecutado el workflow remoto: comprobar ambos estados al publicar.
+
+Para comprobar herramientas y plataforma, usa `bun run tauri info` desde la
+raíz. La primera compilación Rust descarga y compila dependencias; las
+siguientes aprovechan la caché.
+
+Antes de iniciar el modo de desarrollo, sal de la Bloom instalada desde su
+menú de bandeja y comprueba que reaparece la barra de Windows. La instalada y
+la de desarrollo comparten bloqueo de instancia y configuración. Cierra la
+sesión de desarrollo desde el menú de Bloom antes de volver a abrir la
+instalada; comprueba también la restauración de la barra al salir. No declarar
+validado ese comportamiento solo porque la compilación y los tests pasen.
 
 ## Primera versión instalable del fork
 
@@ -56,6 +91,16 @@ Antes del primer Release no hay un `latest.json` del fork que se pueda
 verificar; la comprobación previa del canal se aplica desde el segundo Release.
 
 ## Actualizaciones posteriores
+
+El flujo acordado deja cada commit local con **Summary** y **Description**
+para que el propietario lo envíe desde GitHub Desktop. El Summary es la primera
+línea del mensaje (`fix:`, `feat:`, `chore:`, etc.); después de una línea en
+blanco, la descripción breve explica el cambio, su propósito y la validación.
+Así, el historial de commits funciona como bitácora.
+
+`bun run release` también hace push de commit y tag; usarlo únicamente si el
+propietario autoriza expresamente ese envío. Preparar commits locales no
+publica una versión instalable.
 
 Enviar commits a GitHub **no** actualiza una instalación. Cada nueva versión
 instalable requiere un número de versión nuevo, un tag y un Release firmado.
