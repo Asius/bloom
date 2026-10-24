@@ -595,6 +595,24 @@ const Dock = memo(function Dock() {
 		}
 	};
 
+	const handlePreviewClick = async (e: React.MouseEvent, hwnd: number) => {
+		// The preview is inside the dock item. Do not also toggle/cycle its icon.
+		e.stopPropagation();
+		try {
+			if (!(await invoke<boolean>("activate_window", { hwnd }))) {
+				throw new Error("Windows could not activate this window. Try again.");
+			}
+			isPreviewHoveredRef.current = false;
+			setPreviewData(null);
+			setHoveredApp(null);
+			setPressedApp(null);
+		} catch (error) {
+			showActionError(error instanceof Error ? error.message : error);
+		} finally {
+			void refreshDockAppsRef.current().catch(console.error);
+		}
+	};
+
 	const handleClosePreview = async (e: React.MouseEvent, hwnd: number) => {
 		e.stopPropagation();
 		try {
@@ -1301,7 +1319,7 @@ const Dock = memo(function Dock() {
 																		<div
 																			key={prev.hwnd}
 																			className="preview-item"
-																			onClick={() => invoke("focus_window", { hwnd: prev.hwnd })}
+																			onClick={(e) => void handlePreviewClick(e, prev.hwnd)}
 																		>
 																			<img src={prev.image} alt={`Preview ${idx}`} />
 																			<div className="preview-label">{prev.title || app.name}</div>
@@ -1465,7 +1483,7 @@ const Dock = memo(function Dock() {
 																<div
 																	key={prev.hwnd}
 																	className="preview-item"
-																	onClick={() => invoke("focus_window", { hwnd: prev.hwnd })}
+																	onClick={(e) => void handlePreviewClick(e, prev.hwnd)}
 																>
 																	<img src={prev.image} alt={`Preview ${idx}`} />
 																	<div className="preview-label">{prev.title || app.name}</div>

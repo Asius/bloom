@@ -1046,6 +1046,16 @@ fn last_focused_window() -> Option<HWND> {
         .then_some(last)
 }
 
+/// A preview selects a particular window; selecting it again never minimizes it.
+#[tauri::command]
+pub async fn activate_window(hwnd: isize) -> bool {
+    tauri::async_runtime::spawn_blocking(move || unsafe {
+        restore_and_focus_window(HWND(hwnd as *mut _))
+    })
+    .await
+    .unwrap_or(false)
+}
+
 #[tauri::command]
 pub async fn focus_window(app: AppHandle, hwnd: isize) -> bool {
     let dock = app
