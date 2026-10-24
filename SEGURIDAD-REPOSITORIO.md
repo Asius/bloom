@@ -1,6 +1,6 @@
 # Seguridad de Asius/bloom
 
-Configuración revisada el 24 de octubre de 2026. El propietario eligió conservar el push directo a `main` desde GitHub Desktop. Las reglas de GitHub se guardan en el servidor; clonar el código no las reproduce automáticamente.
+Configuración revisada el 24 de octubre de 2026. Se conserva el push directo a `main`; el propietario autorizó al agente a gestionar push, PR y publicaciones. GitHub Desktop continúa disponible y sincronizado con esa rama. Las reglas de GitHub se guardan en el servidor; clonar el código no las reproduce automáticamente.
 
 ## Protecciones activas en GitHub
 
@@ -27,12 +27,12 @@ Consultar las reglas en [Settings → Rulesets](https://github.com/Asius/bloom/s
 - `.gitignore` excluye archivos habituales de claves, `.env` locales y bundles de recuperación. No elimina secretos ya registrados ni reemplaza una revisión del diff.
 - Las tres automatizaciones de IA heredadas (`AI triage`, `AI triage digest`, `opencode`) permanecen desactivadas en GitHub. Sus jobs requieren además la variable `BLOOM_ENABLE_AI_AUTOMATIONS=true`; no se ha creado esa variable. `opencode` exige también que el comentario provenga del propietario. Su instalador externo y sus permisos deben revisarse antes de una futura activación.
 
-Estos cambios de archivos comienzan a usarse en GitHub cuando el propietario hace push. Las reglas del servidor ya están activas.
+Los cambios de archivos comienzan a usarse en GitHub tras el push. Las reglas del servidor ya están activas; la autorización de gestión no las desactiva.
 
 ## Flujo de trabajo y recuperación
 
 1. Revisar el diff, ejecutar las comprobaciones pertinentes y crear el commit con Summary y descripción breve.
-2. Usar **Push origin** en GitHub Desktop sobre `main`. CI y CodeQL analizan después de subir: no bloquean previamente un push directo.
+2. El agente puede enviar `main`; el propietario también puede usar **Push origin** en GitHub Desktop. CI y CodeQL analizan después de subir: no bloquean previamente un push directo. Comprobar la revisión exacta antes de publicar una versión.
 3. Revisar Actions y las alertas antes de publicar un instalador. Una alerta o PR de Dependabot necesita revisión; no implica que deba integrarse sin pruebas.
 4. Para deshacer un cambio publicado, crear un commit de reversión. No usar force push ni mover una etiqueta ya publicada. Una corrección distribuida debe tener una versión nueva.
 5. Mantener una copia Git recuperable fuera de `bloom/`. `git bundle create <ruta-nueva>.bundle --all` guarda el historial y referencias locales; comprobarla con `git bundle verify <ruta>.bundle`. Se puede clonar ese bundle en una carpeta nueva y vacía. Un bundle no incluye archivos sin commit, secretos externos, configuración del servidor, issues, PR ni instaladores de Releases.

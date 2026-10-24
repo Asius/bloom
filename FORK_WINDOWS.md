@@ -78,11 +78,13 @@ validado ese comportamiento solo porque la compilación y los tests pasen.
    clave se generó con contraseña, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. La
    clave preparada para este fork no tiene contraseña. No subas el archivo
    privado al repositorio.
-4. Confirma y envía los cambios de configuración con GitHub Desktop. Aumenta
-   la versión por encima de la Bloom instalada. Para publicar desde `main`, usa
-   `bun run release X.Y.Z`. Este comando cambia los archivos de versión, crea
-   el commit y el tag, y los envía. El flujo `Release` de GitHub Actions genera
-   el instalador NSIS (`bloom_X.Y.Z_x64-setup.exe`), su firma y `latest.json`.
+4. Aumenta la versión por encima de la Bloom instalada con `bun run bump X.Y.Z`,
+   guarda los cuatro archivos de versión con Summary y descripción en español
+   y envía `main`. Comprueba CI y CodeQL de esa revisión antes de crear y enviar
+   una etiqueta nueva `vX.Y.Z`. El agente está autorizado a gestionar esos pasos.
+   El flujo `Release` genera el instalador NSIS (`bloom_X.Y.Z_x64-setup.exe`),
+   su firma y `latest.json`. Sigue `RELEASE_CHECKLIST.md`; el script automático
+   `release` no espera los checks ni añade el cuerpo de commit acordado.
 5. Comprueba que el flujo terminó correctamente y ejecuta
    `bun scripts/verify-updater.mjs vX.Y.Z`. Descarga el `.exe` desde
    **Releases** de `Asius/bloom`, cierra la Bloom original e instálalo una vez.
@@ -92,15 +94,22 @@ verificar; la comprobación previa del canal se aplica desde el segundo Release.
 
 ## Actualizaciones posteriores
 
-El flujo acordado deja cada commit local con **Summary** y **Description**
-para que el propietario lo envíe desde GitHub Desktop. El Summary es la primera
+El propietario autorizó al agente el 24 de octubre de 2026 a gestionar push,
+PR y publicaciones de `Asius/bloom` sin otra aprobación rutinaria. El propietario
+realiza las pruebas físicas en su PC; el agente verifica código, CI, compilación
+y distribución. GitHub Desktop puede seguir usándose sobre `main`, sincronizado
+con `origin/main`. Cada commit conserva **Summary** y **Description** en español.
+El Summary es la primera
 línea del mensaje (`fix:`, `feat:`, `chore:`, etc.); después de una línea en
 blanco, la descripción breve explica el cambio, su propósito y la validación.
 Así, el historial de commits funciona como bitácora.
 
-`bun run release` también hace push de commit y tag; usarlo únicamente si el
-propietario autoriza expresamente ese envío. Preparar commits locales no
-publica una versión instalable.
+Para publicar, usar los pasos separados de la checklist: versiones coherentes,
+commit, push, CI/CodeQL de la revisión exacta, etiqueta nueva, workflow y
+verificación de manifiesto/descargas/hashes/firmas. El script `bun run release`
+hace push de commit y tag automáticamente y no conserva todo ese recorrido.
+Las pruebas instaladas pendientes se entregan al propietario y se registran
+como pendientes; no se dan por hechas al pasar tests o publicar.
 
 Enviar commits a GitHub **no** actualiza una instalación. Cada nueva versión
 instalable requiere un número de versión nuevo, un tag y un Release firmado.
