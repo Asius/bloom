@@ -1,7 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { TRAY_PLACEMENT_KEY, trayPlacement, type TrayPlacement } from "../tray";
+import {
+	TRAY_PLACEMENT_KEY,
+	trayPlacement,
+	mirrorTrayPlacement,
+	type TrayPlacement
+} from "../tray";
 
 /** This setting also handles deletion: null/invalid values restore the default. */
 export function useTrayPlacement() {
@@ -15,9 +20,7 @@ export function useTrayPlacement() {
 	useEffect(() => {
 		let disposed = false;
 		const apply = (value: unknown) => {
-			const normalized = trayPlacement(value);
-			localStorage.setItem(TRAY_PLACEMENT_KEY, normalized);
-			setPlacement(normalized);
+			setPlacement(mirrorTrayPlacement(value, localStorage));
 		};
 		const changed = (event: { payload: { key: string; value: unknown } }) => {
 			if (!disposed && event.payload.key === TRAY_PLACEMENT_KEY) {

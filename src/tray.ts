@@ -18,6 +18,16 @@ export const TRAY_PLACEMENT_KEY = "bloom-tray-placement";
 export const trayPlacement = (value: unknown): TrayPlacement =>
 	value === "right" ? "right" : "notch";
 
+/** Do not invent a persisted key when settings.json uses the default. */
+export function mirrorTrayPlacement(
+	value: unknown,
+	storage: Pick<Storage, "setItem" | "removeItem">
+): TrayPlacement {
+	if (value === null || value === undefined) storage.removeItem(TRAY_PLACEMENT_KEY);
+	else storage.setItem(TRAY_PLACEMENT_KEY, String(value));
+	return trayPlacement(value);
+}
+
 /** Keep the strip's viewport within the compact dock's configured dimensions. */
 export function trayStripSize(width: number, height: number, scale: number) {
 	const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;

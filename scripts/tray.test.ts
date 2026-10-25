@@ -1,5 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import { createNativeTrayAction, trayPlacement, trayStripSize } from "../src/tray";
+import {
+	createNativeTrayAction,
+	trayPlacement,
+	trayStripSize,
+	mirrorTrayPlacement,
+	TRAY_PLACEMENT_KEY
+} from "../src/tray";
+
+test("default/deleted placement does not recreate a mirror-only key and trigger startup reloads", () => {
+	const values = new Map<string, string>();
+	const storage = {
+		setItem: (key: string, value: string) => {
+			values.set(key, value);
+		},
+		removeItem: (key: string) => {
+			values.delete(key);
+		}
+	};
+	expect(mirrorTrayPlacement(undefined, storage)).toBe("notch");
+	expect(values.has(TRAY_PLACEMENT_KEY)).toBe(false);
+	expect(mirrorTrayPlacement("right", storage)).toBe("right");
+	expect(values.get(TRAY_PLACEMENT_KEY)).toBe("right");
+	expect(mirrorTrayPlacement(null, storage)).toBe("notch");
+	expect(values.has(TRAY_PLACEMENT_KEY)).toBe(false);
+	expect(mirrorTrayPlacement("invalid", storage)).toBe("notch");
+	expect(values.get(TRAY_PLACEMENT_KEY)).toBe("invalid");
+});
 
 test("missing, deleted and invalid placement values restore the notch", () => {
 	for (const value of [null, undefined, "", "off", "bottom"])

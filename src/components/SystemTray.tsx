@@ -66,7 +66,7 @@ export function SystemTray({
 			host.current.style.left = `${(clock ? clock.right : window.innerWidth / 2 + 36 * current.scale) / current.scale + 7}px`;
 			host.current.style.top = `${clock ? (clock.top + clock.height / 2) / current.scale - 13 : 5}px`;
 		}
-		const rects = (current.visible ? [toggle.current, panel.current] : [])
+		const rects = (current.visible ? [host.current, panel.current] : [])
 			.filter(Boolean)
 			.map((el) => {
 				const r = el!.getBoundingClientRect();
@@ -132,7 +132,7 @@ export function SystemTray({
 		};
 		const outside = (event: PointerEvent) => {
 			const target = event.target as Node;
-			if (!busyRef.current && !toggle.current?.contains(target) && !panel.current?.contains(target))
+			if (!busyRef.current && !host.current?.contains(target) && !panel.current?.contains(target))
 				setOpen(false);
 		};
 		document.addEventListener("pointerdown", outside, true);

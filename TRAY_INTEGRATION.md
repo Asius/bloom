@@ -139,7 +139,7 @@ cargo test --locked
 cargo test --locked live_tray_catalog -- --ignored --nocapture
 ```
 
-24 October 2026: 68 Bun tests, 93 Rust tests and build/check/Clippy pass (11 existing
+24 October 2026: 69 Bun tests, 93 Rust tests and build/check/Clippy pass (11 existing
 Clippy warnings; two native tests ignored by default). The optional catalog check
 found eight live icons, three promoted and zero Explorer-hosted in that snapshot.
 It checks uniqueness, stable shell session and readable existing layered attributes.
