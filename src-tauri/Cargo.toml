@@ -1,8 +1,8 @@
 [package]
 name = "bloom"
-version = "3.10.7"
+version = "3.10.8"
 description = ""
-authors = ["sehaz"]
+authors = ["Asius", "Sehajveer Singh (original Bloom)"]
 edition = "2021"
 license = "GPL-3.0-only"
 
@@ -44,7 +44,6 @@ windows = { version = "0.61", features = [
 	"Win32_System_Memory",
 	"Win32_System_Com_StructuredStorage",
 	"Win32_System_SystemInformation",
-	"Win32_System_Wmi",
 	"Win32_Storage_FileSystem",
 	"Win32_System_Ole",
 	"Data_Pdf",
@@ -60,17 +59,10 @@ windows = { version = "0.61", features = [
 	"Win32_Security",
 	"Win32_System_Registry",
 	"Win32_Devices_FunctionDiscovery",
-	"Devices_Radios",
-	"Devices_Bluetooth",
-	"Devices_Enumeration",
 	"Foundation_Collections",
 	"Win32_Media_KernelStreaming",
-	"System_Power",
-	"Devices_Power",
-	"Win32_System_Power",
 	"Win32_NetworkManagement_IpHelper",
 	"Win32_NetworkManagement_Ndis",
-	"Win32_NetworkManagement_WiFi",
 	"Win32_NetworkManagement_WNet"
 ] }
 base64 = "0.22"

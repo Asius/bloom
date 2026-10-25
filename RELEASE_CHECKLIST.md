@@ -20,7 +20,7 @@ replace the owner's installation or control their desktop automatically.
       development smoke test separately). Physical checks assigned to the owner:
   - [ ] notch modes (fixed / smart / peek) and hover expansion
   - [ ] dock modes, pinned apps, Start menu
-  - [ ] volume/brightness overlays and per-app mixer
+  - [ ] desktop volume overlay and per-app mixer
   - [ ] Settings → About: "Check for Updates" reaches the network without erroring
   - [ ] tray → Quit restores the native taskbar (and no crash flag is left behind)
 - [ ] Updater channel health: `bun scripts/verify-updater.mjs v<current>` passes.
@@ -51,9 +51,8 @@ replace the owner's installation or control their desktop automatically.
 - [ ] **Owner: fresh install**: download `bloom_X.Y.Z_x64-setup.exe`, install, confirm it
       launches and About shows the new version.
 - [ ] **Owner:** quit from the tray on the fresh install; confirm the taskbar returns.
-- [ ] If users must be told something (workarounds, known issues), publish
-      `website/public/announcements.json` and pin a GitHub issue with direct
-      installer links.
+- [ ] Record workarounds, known issues and the owner's test cases in Release
+      notes and the delivery log. The desktop app has no remote announcement feed.
 
 ## 4. If something is broken
 
@@ -62,6 +61,5 @@ replace the owner's installation or control their desktop automatically.
       checks fall back to it.
 - [ ] The 24 h age gate before auto-install gives a window to pull a bad
       release before it rolls out widely.
-- [ ] Reach users on 3.9.1+ via `website/public/announcements.json`; reaching
-      older builds requires a pinned issue / website notice, because a broken
-      updater is exactly what they cannot use.
+- [ ] Publish rollback or recovery instructions in the Release/issue with direct
+      installer links; the removed announcement feed cannot notify this build.

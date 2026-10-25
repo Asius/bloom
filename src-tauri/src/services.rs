@@ -18,7 +18,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_RBUTTONDOWN,
     WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
-use wmi::{COMLibrary, WMIConnection};
 
 static KEYBOARD_HOOK_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 /// Physical Win key state, tracked so Win+1-9 can be claimed while the Win key
@@ -1290,65 +1289,6 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
         }
     });
 
-    let handle_brightness = app_handle.clone();
-    std::thread::spawn(move || {
-        let com_lib = match COMLibrary::new() {
-            Ok(lib) => lib,
-            Err(_) => return,
-        };
-        let wmi_con = match WMIConnection::with_namespace_path("root\\WMI", com_lib) {
-            Ok(con) => con,
-            Err(_) => return,
-        };
-        let mut last_brightness = match wmi_con.query::<WmiMonitorBrightness>() {
-            Ok(res) => res
-                .first()
-                .map(|b| b.current_brightness as u32)
-                .unwrap_or(50),
-            Err(_) => 50,
-        };
-        CURRENT_BRIGHTNESS.store(last_brightness, Ordering::Relaxed);
-        // Brightness keys are handled by Windows or the firmware, so follow the
-        // resulting changes as they happen; the overlay then appears at once.
-        // Changes Bloom made itself (its slider) are skipped like the poll did.
-        if let Ok(events) = wmi_con.raw_notification::<WmiMonitorBrightnessEvent>(
-            "SELECT * FROM WmiMonitorBrightnessEvent",
-        ) {
-            for event in events {
-                let Ok(event) = event else { break };
-                let brightness = event.brightness as u32;
-                if get_now_ms() - LAST_BRIGHTNESS_CHANGE.load(Ordering::Relaxed) < 2000
-                    || brightness == last_brightness
-                {
-                    continue;
-                }
-                last_brightness = brightness;
-                CURRENT_BRIGHTNESS.store(brightness, Ordering::Relaxed);
-                let _ = handle_brightness
-                    .emit("brightness-change", BrightnessChangeEvent { brightness });
-            }
-        }
-        // Fall back to polling when the subscription is unavailable or ends.
-        loop {
-            if get_now_ms() - LAST_BRIGHTNESS_CHANGE.load(Ordering::Relaxed) < 2000 {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                continue;
-            }
-            if let Ok(results) = wmi_con.query::<WmiMonitorBrightness>() {
-                if let Some(b) = results.first() {
-                    let brightness = b.current_brightness as u32;
-                    if brightness != last_brightness {
-                        last_brightness = brightness;
-                        CURRENT_BRIGHTNESS.store(brightness, Ordering::Relaxed);
-                        let _ = handle_brightness
-                            .emit("brightness-change", BrightnessChangeEvent { brightness });
-                    }
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(1500));
-        }
-    });
-
     let tx_clone = tx.clone();
     let handle_visibility = app_handle.clone();
     std::thread::spawn(move || {
@@ -1726,7 +1666,9 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
             // changes, so the scan below only runs when something changed
             // (throttled to coalesce bursts of window events).
             let scan_now = now_ms();
-            if CAPTURE_RECHECK.load(Ordering::Relaxed)
+            if (CAPTURE_RECHECK.load(Ordering::Relaxed)
+                || (CAPTURE_UI_ACTIVE.load(Ordering::Relaxed)
+                    && scan_now - CAPTURE_LAST_SCAN_MS.load(Ordering::Relaxed) >= 1000))
                 && scan_now - CAPTURE_LAST_SCAN_MS.load(Ordering::Relaxed) >= 400
             {
                 CAPTURE_RECHECK.store(false, Ordering::Relaxed);
@@ -1742,69 +1684,6 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
     });
 
     tx
-}
-
-fn set_physical_monitors_brightness(brightness: u32) {
-    unsafe {
-        use windows::core::BOOL;
-        use windows::Win32::Foundation::{LPARAM, RECT};
-        use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, HDC, HMONITOR};
-
-        unsafe extern "system" fn monitor_enum_proc(
-            hmonitor: HMONITOR,
-            _: HDC,
-            _: *mut RECT,
-            lparam: LPARAM,
-        ) -> BOOL {
-            let brightness = lparam.0 as u32;
-            #[repr(C)]
-            #[derive(Clone, Copy)]
-            struct PHYSICAL_MONITOR {
-                h_physical_monitor: usize,
-                sz_physical_monitor_description: [u16; 128],
-            }
-            #[link(name = "dxva2")]
-            extern "system" {
-                fn GetNumberOfPhysicalMonitorsFromHMONITOR(
-                    hMonitor: HMONITOR,
-                    pdwNumberOfPhysicalMonitors: *mut u32,
-                ) -> BOOL;
-                fn GetPhysicalMonitorsFromHMONITOR(
-                    hMonitor: HMONITOR,
-                    dwPhysicalMonitorArraySize: u32,
-                    pPhysicalMonitorArray: *mut PHYSICAL_MONITOR,
-                ) -> BOOL;
-                fn DestroyPhysicalMonitors(
-                    dwPhysicalMonitorArraySize: u32,
-                    pPhysicalMonitorArray: *mut PHYSICAL_MONITOR,
-                ) -> BOOL;
-                fn SetMonitorBrightness(hMonitor: usize, dwNewBrightness: u32) -> BOOL;
-            }
-
-            let mut count = 0u32;
-            if GetNumberOfPhysicalMonitorsFromHMONITOR(hmonitor, &mut count).as_bool() && count > 0
-            {
-                let mut monitors = vec![std::mem::zeroed::<PHYSICAL_MONITOR>(); count as usize];
-                if GetPhysicalMonitorsFromHMONITOR(hmonitor, count, monitors.as_mut_ptr()).as_bool()
-                {
-                    for mon in &monitors {
-                        if mon.h_physical_monitor != 0 {
-                            let _ = SetMonitorBrightness(mon.h_physical_monitor, brightness);
-                        }
-                    }
-                    let _ = DestroyPhysicalMonitors(count, monitors.as_mut_ptr());
-                }
-            }
-            true.into()
-        }
-
-        let _ = EnumDisplayMonitors(
-            None,
-            None,
-            Some(monitor_enum_proc),
-            LPARAM(brightness as isize),
-        );
-    }
 }
 
 /// Explorer-owned windows that host the Windows 11 volume/brightness flyout.
@@ -1889,175 +1768,12 @@ pub fn set_native_osd_suppressed(suppress: bool) {
     }
 }
 
-/// The volume and brightness flyouts share one host window, so it is only
-/// suppressed while Bloom replaces both. With either overlay turned off, the
-/// user asked for the native flyout and it must stay visible.
+/// This desktop build replaces the volume HUD. Restore the shared Windows
+/// flyout host whenever that replacement is disabled.
 fn sync_native_osd(app_handle: &AppHandle) {
-    let enabled = |key: &str| {
-        get_setting_str(app_handle, key)
-            .map(|v| v != "false")
-            .unwrap_or(true)
-    };
     set_native_osd_suppressed(
-        enabled("bloom-brightness-overlay-enabled") && enabled("bloom-volume-overlay-enabled"),
+        get_setting_str(app_handle, "bloom-volume-overlay-enabled").as_deref() != Some("false"),
     );
-}
-
-pub fn setup_brightness_worker() {
-    let (tx, rx) = channel::<u32>();
-    let _ = BRIGHTNESS_SENDER.set(tx);
-    std::thread::spawn(move || unsafe {
-        // Direct WMI COM + DXVA2 implementation (zero child processes spawned).
-        use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize, CLSCTX_ALL,
-            COINIT_MULTITHREADED, EOAC_NONE, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
-        };
-        use windows::Win32::System::Variant::{VariantClear, VARENUM, VARIANT};
-        use windows::Win32::System::Wmi::{
-            IWbemClassObject, IWbemLocator, WbemLocator, WBEM_GENERIC_FLAG_TYPE,
-        };
-
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
-        let locator: IWbemLocator = match CoCreateInstance(&WbemLocator, None, CLSCTX_ALL) {
-            Ok(l) => l,
-            Err(_) => {
-                let _ = CoUninitialize();
-                return;
-            }
-        };
-        let ns = windows::core::BSTR::from("root\\WMI");
-        let empty_bstr = windows::core::BSTR::new();
-        let services = match locator.ConnectServer(
-            &ns,
-            &empty_bstr,
-            &empty_bstr,
-            &empty_bstr,
-            0,
-            &empty_bstr,
-            None,
-        ) {
-            Ok(s) => s,
-            Err(_) => {
-                let _ = CoUninitialize();
-                return;
-            }
-        };
-
-        // Without impersonation on the proxy, WMI rejects the query with
-        // WBEM_E_ACCESS_DENIED whenever process-wide COM security was not
-        // initialized for it, so every write was silently dropped.
-        // 10 = RPC_C_AUTHN_WINNT, 0 = RPC_C_AUTHZ_NONE (Win32_System_Rpc is not enabled).
-        let _ = CoSetProxyBlanket(
-            &services,
-            10,
-            0,
-            windows::core::PCWSTR::null(),
-            RPC_C_AUTHN_LEVEL_CALL,
-            RPC_C_IMP_LEVEL_IMPERSONATE,
-            None,
-            EOAC_NONE,
-        );
-
-        // GetMethod only works on the class definition; on an instance it
-        // fails with WBEM_E_ILLEGAL_OPERATION. Resolve the input signature once.
-        let set_brightness_params = {
-            let mut class_def: Option<IWbemClassObject> = None;
-            let mut in_cls: Option<IWbemClassObject> = None;
-            if services
-                .GetObject(
-                    &windows::core::BSTR::from("WmiMonitorBrightnessMethods"),
-                    WBEM_GENERIC_FLAG_TYPE(0),
-                    None,
-                    Some(&mut class_def),
-                    None,
-                )
-                .is_ok()
-            {
-                if let Some(ref class_def) = class_def {
-                    let _ = class_def.GetMethod(
-                        windows::core::w!("WmiSetBrightness"),
-                        0i32,
-                        &mut in_cls,
-                        std::ptr::null_mut(),
-                    );
-                }
-            }
-            in_cls
-        };
-
-        while let Ok(mut brightness) = rx.recv() {
-            // A slider drag queues a value per input event, and each write is
-            // slow (WMI plus DDC/CI per monitor). Only the latest value matters.
-            while let Ok(newer) = rx.try_recv() {
-                brightness = newer;
-            }
-            let brightness = brightness.min(100);
-            // 1. Laptop internal panel via WMI WmiMonitorBrightnessMethods
-            let wql = windows::core::BSTR::from("WQL");
-            let q = windows::core::BSTR::from("SELECT * FROM WmiMonitorBrightnessMethods");
-            if let Ok(enum_obj) = services.ExecQuery(&wql, &q, WBEM_GENERIC_FLAG_TYPE(0), None) {
-                let mut row = [None::<IWbemClassObject>; 1];
-                let mut returned = 0u32;
-                while enum_obj.Next(-1i32, &mut row, &mut returned).is_ok() && returned > 0 {
-                    if let Some(obj) = row[0].take() {
-                        let mut var = VARIANT::default();
-                        if obj
-                            .Get(windows::core::w!("__RELPATH"), 0i32, &mut var, None, None)
-                            .is_ok()
-                        {
-                            let relpath_str = var.Anonymous.Anonymous.Anonymous.bstrVal.to_string();
-                            let _ = VariantClear(&mut var);
-                            if !relpath_str.is_empty() {
-                                let obj_path = windows::core::BSTR::from(relpath_str.as_str());
-                                let method_name = windows::core::BSTR::from("WmiSetBrightness");
-
-                                if let Some(ref in_cls) = set_brightness_params {
-                                    if let Ok(in_params) = in_cls.SpawnInstance(0i32) {
-                                        let mut b_var = VARIANT::default();
-                                        let b_anon = &mut b_var.Anonymous.Anonymous;
-                                        b_anon.vt = VARENUM(17); // VT_UI1
-                                        b_anon.Anonymous.bVal = brightness as u8;
-                                        let _ = in_params.Put(
-                                            windows::core::w!("Brightness"),
-                                            0i32,
-                                            &b_var,
-                                            0,
-                                        );
-
-                                        let mut t_var = VARIANT::default();
-                                        let t_anon = &mut t_var.Anonymous.Anonymous;
-                                        t_anon.vt = VARENUM(3); // VT_I4
-                                        t_anon.Anonymous.lVal = 0i32;
-                                        let _ = in_params.Put(
-                                            windows::core::w!("Timeout"),
-                                            0i32,
-                                            &t_var,
-                                            0,
-                                        );
-
-                                        let _ = services.ExecMethod(
-                                            &obj_path,
-                                            &method_name,
-                                            WBEM_GENERIC_FLAG_TYPE(0),
-                                            None,
-                                            Some(&in_params),
-                                            None,
-                                            None,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Desktop external monitor via Physical Monitor API (DXVA2 DDC/CI)
-            set_physical_monitors_brightness(brightness);
-        }
-        let _ = CoUninitialize();
-    });
 }
 
 static MOUSE_HOOK_UPDATES: OnceLock<SyncSender<()>> = OnceLock::new();
@@ -2069,11 +1785,9 @@ static MH_LAST_OV_IGNORE: AtomicI32 = AtomicI32::new(-1);
 static MH_LAST_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
 static MH_LAST_TOP_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
 static MH_LAST_LEFT_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
-static MH_LAST_RIGHT_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
 static MH_DOCK_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
 static MH_TOPBAR_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
 static MH_LEFT_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
-static MH_RIGHT_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
 static MH_LAST_MONITOR_UPDATE_MS: AtomicI64 = AtomicI64::new(0);
 static MH_CACHED_MON_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static MH_CACHED_MON_SIZE: Mutex<Option<(u32, u32)>> = Mutex::new(None);
@@ -2222,11 +1936,26 @@ pub fn refresh_main_interaction(app_handle: &AppHandle) {
     update_main_interaction(app_handle, pt, now_ms(), fg_fs);
 }
 
-/// True while a screen-capture UI (Windows Snipping Tool) has a visible window.
-/// Bloom's notch sits exactly where that toolbar lives, so it must get out of
-/// the way even if the capture window isn't recognised as fullscreen.
+// The Snipping Tool editor is a normal desktop app. Only its selection overlay
+// should suspend Bloom input; matching the executable alone disabled the dock,
+// tray and notch for as long as an edited screenshot remained visible.
+fn capture_blocks_bloom(process: &str, has_caption: bool, covers_monitor: bool) -> bool {
+    process == "screenclippinghost.exe"
+        || (matches!(process, "snippingtool.exe" | "screensketch.exe")
+            && !has_caption
+            && covers_monitor)
+}
+
 unsafe extern "system" fn capture_ui_enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    use windows::Win32::UI::WindowsAndMessaging::IsIconic;
+    use windows::Win32::{
+        Foundation::RECT,
+        Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        },
+        UI::WindowsAndMessaging::{
+            GetWindowLongPtrW, GetWindowRect, IsIconic, GWL_STYLE, WS_CAPTION,
+        },
+    };
     let found = &mut *(lparam.0 as *mut bool);
     if *found {
         return BOOL(0);
@@ -2251,26 +1980,39 @@ unsafe extern "system" fn capture_ui_enum_proc(hwnd: HWND, lparam: LPARAM) -> BO
             {
                 let path = String::from_utf16_lossy(&buf[..len as usize]).to_lowercase();
                 let name = path.rsplit('\\').next().unwrap_or("");
-                if name == "snippingtool.exe"
-                    || name == "screenclippinghost.exe"
-                    || name == "screensketch.exe"
-                {
-                    *found = true;
+                if matches!(
+                    name,
+                    "snippingtool.exe" | "screenclippinghost.exe" | "screensketch.exe"
+                ) {
+                    let mut cloaked = 0u32;
+                    let is_cloaked = DwmGetWindowAttribute(
+                        hwnd,
+                        windows::Win32::Graphics::Dwm::DWMWA_CLOAKED,
+                        &mut cloaked as *mut _ as *mut _,
+                        std::mem::size_of::<u32>() as u32,
+                    )
+                    .is_ok()
+                        && cloaked != 0;
+                    let mut rect = RECT::default();
+                    let mut monitor = MONITORINFO {
+                        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                        ..Default::default()
+                    };
+                    let covers_monitor = GetWindowRect(hwnd, &mut rect).is_ok()
+                        && GetMonitorInfoW(
+                            MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST),
+                            &mut monitor,
+                        )
+                        .as_bool()
+                        && rect.left <= monitor.rcMonitor.left
+                        && rect.top <= monitor.rcMonitor.top
+                        && rect.right >= monitor.rcMonitor.right
+                        && rect.bottom >= monitor.rcMonitor.bottom;
+                    let has_caption = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_CAPTION.0 != 0;
+                    *found = !is_cloaked && capture_blocks_bloom(name, has_caption, covers_monitor);
                 }
             }
             let _ = CloseHandle(handle);
-        }
-    }
-
-    if !*found {
-        use windows::Win32::UI::WindowsAndMessaging::GetClassNameA;
-        let mut class_buf = [0u8; 256];
-        let len = GetClassNameA(hwnd, &mut class_buf);
-        let class = std::str::from_utf8(&class_buf[..len as usize])
-            .unwrap_or("")
-            .to_lowercase();
-        if class.contains("snipping") {
-            *found = true;
         }
     }
 
@@ -2293,6 +2035,10 @@ fn apply_capture_ui_state(app: &AppHandle, active: bool) {
     if SHUTTING_DOWN.load(Ordering::Relaxed) {
         return;
     }
+    crate::diagnostics::record(
+        "capture-selection",
+        if active { "active" } else { "inactive" },
+    );
     if let Some(main_win) = app.get_webview_window("main") {
         if active {
             if let Ok(hwnd) = main_win.hwnd() {
@@ -2605,7 +2351,8 @@ fn update_main_interaction(
     let main_rect_val = MAIN_WINDOW_RECT.lock().ok().and_then(|g| *g);
 
     if let Some((win_pos, _)) = main_rect_val {
-        is_click_interactive |= crate::tray::surface::hit("main", cursor, (win_pos.x, win_pos.y), scale);
+        is_click_interactive |=
+            crate::tray::surface::hit("main", cursor, (win_pos.x, win_pos.y), scale);
         if let Ok(region) = NOTCH_RECT.try_lock() {
             if let Some(r) = *region {
                 let pad_x = (20.0 * scale) as i32;
@@ -2824,7 +2571,17 @@ fn update_dock_interaction(
         .map(|s| (s.0 as i32, s.1 as i32))
         .unwrap_or((1920, 1080));
 
-    let mut is_click_interactive = false;
+    // The tray is independent of the central dock's reveal/preview rectangle.
+    // Read its current client origin: AppBar/DPI changes can invalidate the
+    // cached outer rectangle while the tray remains visible in the corner.
+    let mut is_click_interactive = dock_win.inner_position().is_ok_and(|origin| {
+        crate::tray::surface::hit(
+            "dock",
+            cursor,
+            (origin.x, origin.y),
+            dock_win.scale_factor().unwrap_or(1.0),
+        )
+    });
     let mut is_hovered = false;
     let mut dock_span: Option<(i32, i32)> = None;
 
@@ -2837,8 +2594,6 @@ fn update_dock_interaction(
             && cursor.y <= (win_pos.y + win_size.height as i32);
 
         if in_window {
-            is_click_interactive |= crate::tray::surface::hit(
-                "dock", cursor, (win_pos.x, win_pos.y), dock_win.scale_factor().unwrap_or(1.0));
             if let Ok(region) = DOCK_RECT.try_lock() {
                 if let Some(r) = *region {
                     let scale = dock_win.scale_factor().unwrap_or(1.0);
@@ -3097,7 +2852,6 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
         let cached_size = MH_CACHED_MON_SIZE.lock().unwrap().unwrap_or((1920, 1080));
         let mon_x = cached_pos.0;
         let mon_y = cached_pos.1;
-        let mon_w = cached_size.0 as i32;
         let mon_h = cached_size.1 as i32;
 
         let fg_fs = CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed);
@@ -3165,40 +2919,6 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
             }
         }
 
-        // --- Right Edge (Brightness) ---
-        if !fg_fs {
-            let at_right_edge =
-                cursor.x >= (mon_x + mon_w - 8) && cursor.y >= mon_y && cursor.y <= (mon_y + mon_h);
-
-            // The tray owns its bottom-right hit region. Its chevron must not
-            // also reveal brightness just because it touches the screen edge.
-            let on_tray = at_right_edge
-                && DOCK_WINDOW_RECT.lock().ok().and_then(|g| *g).is_some_and(|(origin, _)| {
-                    app_handle.get_webview_window("dock").is_some_and(|w| {
-                        crate::tray::surface::hit("dock", cursor, (origin.x, origin.y), w.scale_factor().unwrap_or(1.0))
-                    })
-                });
-            if on_tray { MH_RIGHT_EXPIRY_MS.store(0, Ordering::Relaxed); }
-
-            if at_right_edge && !on_tray {
-                MH_RIGHT_EXPIRY_MS.store(now + 500, Ordering::Relaxed);
-            }
-
-            let final_right_hover = now < MH_RIGHT_EXPIRY_MS.load(Ordering::Relaxed);
-            let prev = MH_LAST_RIGHT_EDGE_HOVER.load(Ordering::Relaxed);
-            let new_val = if final_right_hover { 1 } else { 0 };
-            if prev != new_val {
-                let _ = app_handle.emit("brightness-edge-hover", final_right_hover);
-                MH_LAST_RIGHT_EDGE_HOVER.store(new_val, Ordering::Relaxed);
-            }
-        } else {
-            let prev = MH_LAST_RIGHT_EDGE_HOVER.load(Ordering::Relaxed);
-            if prev != 0 {
-                let _ = app_handle.emit("brightness-edge-hover", false);
-                MH_LAST_RIGHT_EDGE_HOVER.store(0, Ordering::Relaxed);
-            }
-        }
-
         // --- Overlay cursor passthrough ---
         if let Some(ov_win) = app_handle.get_webview_window("overlay") {
             if fg_fs {
@@ -3231,20 +2951,7 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                         false
                     };
 
-                let over_right = if let Ok(Some(m)) = ov_win.primary_monitor() {
-                    let ms = m.size();
-                    let mp = m.position();
-                    let sc = m.scale_factor() * bloom_scale;
-                    let nw = (42.0 * sc) as i32;
-                    let nh = (196.0 * sc) as i32;
-                    let nx = mp.x + ms.width as i32 - nw;
-                    let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
-                    cursor.x >= nx && cursor.x <= nx + nw && cursor.y >= ny && cursor.y <= ny + nh
-                } else {
-                    false
-                };
-
-                let should_ignore = !(over_left || over_right);
+                let should_ignore = !over_left;
                 let prev = MH_LAST_OV_IGNORE.load(Ordering::Relaxed);
                 let new_val = if should_ignore { 1 } else { 0 };
                 if prev != new_val {
@@ -4581,10 +4288,25 @@ fn recover_from_webview_failure(handle: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_helper_name, is_launchable_entry, is_primary_monitor, is_start_menu_process_path,
-        notch_mode_reserves_work_area, pack_cursor, process_exe_name, trim_thumbnail_cache,
-        unpack_cursor, win_number_index,
+        capture_blocks_bloom, is_helper_name, is_launchable_entry, is_primary_monitor,
+        is_start_menu_process_path, notch_mode_reserves_work_area, pack_cursor, process_exe_name,
+        trim_thumbnail_cache, unpack_cursor, win_number_index,
     };
+
+    #[test]
+    fn screenshot_editor_does_not_suspend_dock_tray_or_notch() {
+        assert!(!capture_blocks_bloom("snippingtool.exe", true, false));
+        assert!(!capture_blocks_bloom("snippingtool.exe", true, true));
+        assert!(!capture_blocks_bloom("screensketch.exe", true, false));
+        assert!(!capture_blocks_bloom("snippingtool.exe", false, false));
+    }
+
+    #[test]
+    fn actual_capture_selection_yields_input_and_unrelated_apps_do_not() {
+        assert!(capture_blocks_bloom("snippingtool.exe", false, true));
+        assert!(capture_blocks_bloom("screenclippinghost.exe", false, true));
+        assert!(!capture_blocks_bloom("other.exe", false, true));
+    }
 
     #[test]
     fn names_a_process_from_the_process_list() {

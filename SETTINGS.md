@@ -69,7 +69,7 @@ for Explorer's native overflow fallback.
 
 | Key                         | Type                              | Default  | Description                                                                                              |
 | --------------------------- | --------------------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `bloom-calendar-enabled`    | `"true"` / `"false"`              | `"true"` | Enable calendar/timer mode in the notch.                                                                 |
+| `bloom-calendar-enabled`    | `"true"` / `"false"`              | `"true"` | Show the calendar in the notch.                                                                 |
 | `bloom-music-mode-enabled`  | `"true"` / `"false"`              | `"true"` | Enable interactive music media widget.                                                                   |
 | `bloom-music-compact-notch` | `"true"` / `"false"`              | `"true"` | Show compact music display (visualizer + artwork) in collapsed notch.                                    |
 | `bloom-notch-remember-panel` | `"true"` / `"false"` | `"true"` | Click opens the last-used panel when on; when off, click opens `bloom-notch-default-panel`. |
@@ -99,8 +99,6 @@ for Explorer's native overflow fallback.
 | ---------------------------------- | -------------------- | -------- | ------------------------------------------------------------------------ |
 | `bloom-volume-overlay-enabled`     | `"true"` / `"false"` | `"true"` | Show Bloom volume HUD when volume changes (replaces native Windows OSD). |
 | `bloom-volume-edge-enabled`        | `"true"` / `"false"` | `"true"` | Trigger volume HUD by hovering the left screen edge.                     |
-| `bloom-brightness-overlay-enabled` | `"true"` / `"false"` | `"true"` | Show Bloom brightness HUD when brightness changes.                       |
-| `bloom-brightness-edge-enabled`    | `"true"` / `"false"` | `"true"` | Trigger brightness HUD by hovering the right screen edge.                |
 
 ### Appearance
 
@@ -117,13 +115,13 @@ for Explorer's native overflow fallback.
 
 | Key                    | Type        | Default                                    | Description                                                                                                 |
 | ---------------------- | ----------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `bloom-status-widgets` | JSON string | `{"left":["weather"],"right":["battery"]}` | Widget layout in collapsed notch. Available: `"weather"`, `"battery"`, `"cpu"`, `"ram"`, `"disk"`, `"net"`. |
+| `bloom-status-widgets` | JSON string | `{"left":["weather"],"right":[]}` | Widget layout in collapsed notch. Available: `"weather"`, `"cpu"`, `"ram"`, `"disk"`, `"net"`. |
 
 Example:
 
 ```json
 {
-	"bloom-status-widgets": "{\"left\":[\"cpu\",\"ram\"],\"right\":[\"battery\",\"net\"]}"
+	"bloom-status-widgets": "{\"left\":[\"cpu\",\"ram\"],\"right\":[\"disk\",\"net\"]}"
 }
 ```
 
@@ -131,11 +129,9 @@ Example:
 
 | Key                            | Type                 | Default   | Description                                                                                          |
 | ------------------------------ | -------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
-| `bloom-scale`                  | float string         | `"1.0"`   | UI scale factor (0.8 to 1.3). Changing this re-registers AppBars to resize the reserved screen area. |
-| `bloom-low-battery-threshold`  | integer string       | `"20"`    | Battery percentage that triggers the low-battery alert pulse (5 to 50, step 5).                      |
+| `bloom-scale`                  | float string         | `"1.0"`   | Scale of dock, notch and volume HUD (0.8 to 1.3). Settings keeps its own size and scale. |
 | `bloom-auto-update`            | `"true"` / `"false"` | `"false"` | Check for and download updates automatically on startup.                                             |
 | `bloom-show-update-indicator`  | `"true"` / `"false"` | `"true"`  | Show a green dot on the notch when an update is available.                                           |
-| `bloom-announcement-dismissed` | announcement id      | `""`      | ID of the last dismissed in-app announcement (published via `website/public/announcements.json`).    |
 | `bloom-time-format-24h`        | `"true"` / `"false"` | `"false"` | Use 24-hour clock format in the notch. When `"false"`, displays 12-hour format with AM/PM.           |
 
 ### Internal (Do Not Edit Manually)
@@ -208,3 +204,7 @@ with open(path, 'w') as f: json.dump(settings, f)
 - Changing `bloom-scale` triggers AppBar re-registration to adjust reserved screen space.
 - Settings → General → Reset to Defaults removes every `bloom-` key from `settings.json` and `localStorage` (except the `bloom-first-run` / `bloom-app-version` lifecycle sentinels), then restarts Bloom. Pinned apps (`pinned_apps.json`) and uploaded icons (`custom_icons/`) are preserved.
 - Theme changes (`bloom-theme-*`) are applied by reading all theme values from `localStorage` and calling `applyTheme()` — the theme system depends on all five theme keys being in sync.
+
+## Retired desktop controls
+
+The desktop baseline ignores legacy timer, battery, radio, brightness-HUD and announcement settings. It never uses `bloom-tray-placement`. Existing widget arrays are normalized before display, so a saved `battery` item or an unknown ID cannot crash the widget editor or resurrect a retired control. See [DESKTOP_BASELINE.md](DESKTOP_BASELINE.md).

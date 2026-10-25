@@ -1,4 +1,4 @@
-import { Volume2, Sun, ArrowLeftToLine, ArrowRightToLine } from "lucide-react";
+import { ArrowLeftToLine, Volume2 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 
 interface OverlaysTabProps {
@@ -6,21 +6,13 @@ interface OverlaysTabProps {
 	toggleVolumeOverlay: () => void;
 	volumeEdgeEnabled: boolean;
 	toggleVolumeEdge: () => void;
-	brightnessOverlayEnabled: boolean;
-	toggleBrightnessOverlay: () => void;
-	brightnessEdgeEnabled: boolean;
-	toggleBrightnessEdge: () => void;
 }
 
 export function OverlaysTab({
 	volumeOverlayEnabled,
 	toggleVolumeOverlay,
 	volumeEdgeEnabled,
-	toggleVolumeEdge,
-	brightnessOverlayEnabled,
-	toggleBrightnessOverlay,
-	brightnessEdgeEnabled,
-	toggleBrightnessEdge
+	toggleVolumeEdge
 }: OverlaysTabProps) {
 	return (
 		<>
@@ -41,35 +33,6 @@ export function OverlaysTab({
 					>
 						<label className="toggle-switch">
 							<input type="checkbox" checked={volumeEdgeEnabled} onChange={toggleVolumeEdge} />
-							<span className="slider"></span>
-						</label>
-					</SettingRow>
-				)}
-
-				<SettingRow icon={Sun} label="Brightness HUD" desc="Bloom brightness overlay">
-					<label className="toggle-switch">
-						<input
-							type="checkbox"
-							checked={brightnessOverlayEnabled}
-							onChange={toggleBrightnessOverlay}
-						/>
-						<span className="slider"></span>
-					</label>
-				</SettingRow>
-
-				{brightnessOverlayEnabled && (
-					<SettingRow
-						icon={ArrowRightToLine}
-						label="Show on Edge Hover"
-						desc="Slide in from right edge"
-						divider={false}
-					>
-						<label className="toggle-switch">
-							<input
-								type="checkbox"
-								checked={brightnessEdgeEnabled}
-								onChange={toggleBrightnessEdge}
-							/>
 							<span className="slider"></span>
 						</label>
 					</SettingRow>

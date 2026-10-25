@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-
 * {
 	margin: 0;
 	padding: 0;
@@ -395,82 +393,8 @@ body,
 	opacity: 1;
 }
 
-/* ─── Brightness Notch (Right Edge) ─────────────────────────────────────── */
-
-.brightness-notch-wrapper {
-	position: fixed;
-	right: 0;
-	top: 50%;
-	transform: translateY(-50%);
-	overflow: visible;
-	transform-origin: right center;
-}
-
-.brightness-notch {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: space-between;
-	padding: 16px 0;
-	border-radius: 18px 0 0 18px;
-	width: 42px;
-	height: 196px;
-	position: relative;
-	pointer-events: auto;
-	/* Painted by its EdgeSurface child (see components/EdgeSurface.css). */
-	--surface-bg: var(--bloom-bg, rgba(0, 0, 0, 0.8));
-	isolation: isolate;
-}
-
-.brightness-notch-content-group {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: space-between;
-	height: 100%;
-	width: 100%;
-}
-
-.brightness-notch-bar {
-	width: 10px;
-	height: 136px;
-	background: rgba(255, 255, 255, 0.2);
-	border-radius: 20px;
-	position: relative;
-	overflow: hidden;
-	margin-top: 4px;
-}
-
-.brightness-notch-fill {
-	position: absolute;
-	bottom: 0;
-	left: 0;
-	width: 100%;
-	background: var(--bloom-text, white);
-	border-radius: 20px;
-}
-
-.brightness-notch-icon {
-	width: 20px;
-	height: 20px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	color: var(--bloom-text, rgba(255, 255, 255, 0.95));
-	margin-top: 10px;
-}
-
-.brightness-icon-container {
-	width: 20px;
-	height: 20px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
 /* ─── Light Mode ────────────────────────────────────────────────────────── */
 
-.light-mode .volume-notch-bar,
-.light-mode .brightness-notch-bar {
+.light-mode .volume-notch-bar {
 	background: rgba(0, 0, 0, 0.12);
 }

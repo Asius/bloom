@@ -2,6 +2,8 @@
 
 Windows-only Tauri v2 app: Rust backend + React 19/TypeScript frontend. Replaces the native Windows taskbar (dock) and adds a notch/island UI. Bun is the package manager. CI runs on `windows-latest`.
 
+Current product scope: [DESKTOP_BASELINE.md](DESKTOP_BASELINE.md). The owner approved the simplified personal desktop profile on 25 October 2026. Do not restore timer, battery/radios/brightness, DND or the original announcement feed as incidental fixes. Hardware detection and real notch notifications are deferred. Preserve music, calendar, volume, dock/notch modes, animations and the fork's signed update channel.
+
 ## Commands
 
 Run from the repo root unless noted. Bun 1.4.0, Rust stable.

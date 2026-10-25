@@ -1,4 +1,4 @@
-import { Power, Download, Clock, BatteryWarning, RefreshCw, RotateCcw, LogOut } from "lucide-react";
+import { Clock, Download, LogOut, Power, RefreshCw, RotateCcw } from "lucide-react";
 import { SettingRow } from "./SettingRow";
 
 interface GeneralTabProps {
@@ -8,8 +8,6 @@ interface GeneralTabProps {
 	toggleTimeFormat24h: () => void;
 	showUpdateIndicator: boolean;
 	toggleUpdateIndicator: () => void;
-	lowBatteryThreshold: number;
-	handleThresholdChange: (val: number) => void;
 	restartBloom: () => void;
 	resetToDefaults: () => void;
 	quitBloom: () => void;
@@ -22,8 +20,6 @@ export function GeneralTab({
 	toggleTimeFormat24h,
 	showUpdateIndicator,
 	toggleUpdateIndicator,
-	lowBatteryThreshold,
-	handleThresholdChange,
 	restartBloom,
 	resetToDefaults,
 	quitBloom
@@ -55,23 +51,6 @@ export function GeneralTab({
 						<input type="checkbox" checked={timeFormat24h} onChange={toggleTimeFormat24h} />
 						<span className="slider"></span>
 					</label>
-				</SettingRow>
-
-				<SettingRow
-					icon={BatteryWarning}
-					label="Low Battery Alert"
-					desc={`Trigger at ${lowBatteryThreshold}%`}
-					divider={false}
-				>
-					<input
-						type="range"
-						min="5"
-						max="50"
-						step="5"
-						value={lowBatteryThreshold}
-						onChange={(e) => handleThresholdChange(parseInt(e.target.value))}
-						className="settings-slider"
-					/>
 				</SettingRow>
 			</div>
 

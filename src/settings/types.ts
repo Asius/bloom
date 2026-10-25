@@ -1,9 +1,6 @@
 import type { ComponentType, SVGProps } from "react";
 
-export interface WidgetConfig {
-	left: string[];
-	right: string[];
-}
+export type { WidgetConfig } from "../statusWidgets";
 
 export type SettingsTab = "general" | "appearance" | "notch" | "dock" | "overlays" | "about";
 

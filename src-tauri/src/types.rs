@@ -1,20 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug)]
-#[serde(rename = "WmiMonitorBrightness")]
-#[serde(rename_all = "PascalCase")]
-pub struct WmiMonitorBrightness {
-    pub current_brightness: u8,
-}
-
-/// Raised by Windows whenever a display's brightness changes, by any means.
-#[derive(Deserialize, Debug)]
-#[serde(rename = "WmiMonitorBrightnessEvent")]
-#[serde(rename_all = "PascalCase")]
-pub struct WmiMonitorBrightnessEvent {
-    pub brightness: u8,
-}
-
 #[derive(Clone, Serialize)]
 pub struct AudioVisualizationData {
     pub frequencies: Vec<f32>,
@@ -66,22 +51,9 @@ pub struct AppInfo {
 }
 
 #[derive(Clone, Serialize)]
-pub struct BrightnessChangeEvent {
-    pub brightness: u32,
-}
-
-#[derive(Clone, Serialize)]
 pub struct VolumeChangeEvent {
     pub volume: f32,
     pub is_muted: bool,
-}
-
-#[derive(Clone, Serialize)]
-pub struct WifiStatus {
-    pub enabled: bool,
-    pub connected: bool,
-    /// The connected network's name, for the controls tile.
-    pub ssid: Option<String>,
 }
 
 #[derive(Clone, Serialize)]

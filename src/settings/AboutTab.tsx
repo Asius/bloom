@@ -1,8 +1,6 @@
-import { Download, RefreshCw, FileDown, Upload } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { GithubIcon } from "../icons";
-import { SettingRow } from "./SettingRow";
+import { Download, FileDown, RefreshCw, Upload } from "lucide-react";
 import { isUpdateActive, updateLabel, type UpdateStatus } from "../updater";
+import { SettingRow } from "./SettingRow";
 
 interface AboutTabProps {
 	appVersion: string;
@@ -60,17 +58,7 @@ export function AboutTab({
 				<img src="/bloom.png" className="about-logo" alt="Bloom Logo" draggable={false} />
 				<h1 className="about-title">Bloom</h1>
 				<p className="about-version">Version {appVersion}</p>
-				<p className="about-credit">
-					Made with <span className="about-heart">❤️</span> by{" "}
-					<button
-						className="about-author"
-						onClick={() => openUrl("https://github.com/SehajveerSingh2005")}
-						title="sehaz on GitHub"
-					>
-						<GithubIcon size={12} />
-						<span>sehaz</span>
-					</button>
-				</p>
+				<p className="about-credit">Bloom Florecer · Asius</p>
 			</div>
 
 			<div className="setting-group-label">Software Updates</div>

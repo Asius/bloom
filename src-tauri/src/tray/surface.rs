@@ -35,7 +35,7 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
     if !matches!(window.label(), "main" | "dock") {
         return;
     }
-    let rects = rects
+    let rects: Vec<IntRect> = rects
         .into_iter()
         .take(8)
         .filter(|r| {
@@ -47,10 +47,14 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
                 && r.y.unsigned_abs() <= 32768
         })
         .collect();
+    let ready = ready && !rects.is_empty();
     if let Ok(mut surfaces) = SURFACES.lock() {
-        let changed = surfaces
+        let availability_changed = surfaces
             .get(window.label())
             .is_none_or(|old| old.ready != ready);
+        let interaction_changed = surfaces
+            .get(window.label())
+            .is_none_or(|old| old.ready != ready || old.open != open);
         surfaces.insert(
             window.label().to_string(),
             Surface {
@@ -61,7 +65,13 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
             },
         );
         drop(surfaces);
-        if changed {
+        if interaction_changed {
+            crate::diagnostics::record(
+                "tray-surface",
+                &format!("window={} ready={ready} open={open}", window.label()),
+            );
+        }
+        if availability_changed {
             let _ = window.app_handle().emit("tray-surface-changed", ());
         }
     }

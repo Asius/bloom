@@ -1,3 +1,4 @@
+import { normalizeStatusWidgets } from "../statusWidgets";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
 	DndContext,
@@ -20,7 +21,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
 	CloudSun,
-	BatteryFull,
 	Cpu,
 	MemoryStick,
 	HardDrive,
@@ -32,10 +32,8 @@ import {
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
-export interface WidgetConfig {
-	left: string[];
-	right: string[];
-}
+import type { WidgetConfig } from "../statusWidgets";
+export type { WidgetConfig } from "../statusWidgets";
 
 interface WidgetDef {
 	id: string;
@@ -46,7 +44,6 @@ interface WidgetDef {
 
 const WIDGET_DEFS: WidgetDef[] = [
 	{ id: "weather", label: "Weather", icon: CloudSun, color: "#60a5fa" },
-	{ id: "battery", label: "Battery", icon: BatteryFull, color: "#4ade80" },
 	{ id: "cpu", label: "CPU", icon: Cpu, color: "#f97316" },
 	{ id: "ram", label: "RAM", icon: MemoryStick, color: "#a78bfa" },
 	{ id: "disk", label: "Disk", icon: HardDrive, color: "#38bdf8" },
@@ -55,7 +52,7 @@ const WIDGET_DEFS: WidgetDef[] = [
 
 const DEFAULT_CONFIG: WidgetConfig = {
 	left: ["weather"],
-	right: ["battery"]
+	right: []
 };
 
 const MAX_PER_ZONE = 2;
@@ -197,12 +194,14 @@ interface StatusWidgetConfigProps {
 }
 
 export function StatusWidgetConfig({ value, onChange }: StatusWidgetConfigProps) {
-	const [config, setConfig] = useState<WidgetConfig>(() => value || DEFAULT_CONFIG);
+	const [config, setConfig] = useState<WidgetConfig>(() =>
+		normalizeStatusWidgets(value || DEFAULT_CONFIG)
+	);
 	const [activeId, setActiveId] = useState<string | null>(null);
 	const draggedFromZone = useRef<"left" | "right" | null>(null);
 
 	useEffect(() => {
-		setConfig(value || DEFAULT_CONFIG);
+		setConfig(normalizeStatusWidgets(value || DEFAULT_CONFIG));
 	}, [value]);
 
 	const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));

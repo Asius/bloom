@@ -1,23 +1,21 @@
-import { StrictMode, useState, useEffect } from "react";
-import { createRoot } from "react-dom/client";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Effect } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { X, Settings, Palette, PanelTop, Monitor, Layers, Info, Megaphone } from "lucide-react";
-import {
-	useSettings,
-	GeneralTab,
-	AppearanceTab,
-	NotchTab,
-	DockTab,
-	OverlaysTab,
-	AboutTab
-} from "./settings/index";
-import type { SettingsTab } from "./settings/index";
-import { useAnnouncement } from "./hooks/useAnnouncement";
-import { initTheme } from "./theme";
+import { Info, Layers, Monitor, Palette, PanelTop, Settings, X } from "lucide-react";
+import { StrictMode, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 import "./Settings.css";
+import type { SettingsTab } from "./settings/index";
+import {
+	AboutTab,
+	AppearanceTab,
+	DockTab,
+	GeneralTab,
+	NotchTab,
+	OverlaysTab,
+	useSettings
+} from "./settings/index";
+import { initTheme } from "./theme";
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -33,7 +31,6 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
 function SettingsApp() {
 	const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 	const settings = useSettings();
-	const { announcement, dismissed, dismiss } = useAnnouncement();
 
 	useEffect(() => {
 		return initTheme();
@@ -57,10 +54,10 @@ function SettingsApp() {
 
 	useEffect(() => {
 		invoke("resize_settings_window", {
-			width: 620 * settings.scale,
-			height: 480 * settings.scale
+			width: 620,
+			height: 480
 		}).catch(console.error);
-	}, [settings.scale]);
+	}, []);
 
 	const handleClose = async (e: React.MouseEvent) => {
 		e.preventDefault();
@@ -71,7 +68,7 @@ function SettingsApp() {
 	};
 
 	return (
-		<div className="settings-container" style={{ zoom: settings.scale }}>
+		<div className="settings-container">
 			<div className="title-bar" data-tauri-drag-region>
 				<span className="title-text" data-tauri-drag-region>
 					Settings
@@ -106,28 +103,7 @@ function SettingsApp() {
 							</button>
 						</div>
 					)}
-					{announcement && !dismissed && (
-						<div className={`announcement-banner severity-${announcement.severity}`}>
-							<Megaphone size={14} className="announcement-banner-icon" />
-							<div className="announcement-banner-text">
-								<span className="announcement-banner-title">{announcement.title}</span>
-								{announcement.body && (
-									<span className="announcement-banner-body">{announcement.body}</span>
-								)}
-							</div>
-							{announcement.url && (
-								<button
-									className="announcement-banner-link"
-									onClick={() => openUrl(announcement.url!)}
-								>
-									Learn more
-								</button>
-							)}
-							<button className="announcement-banner-close" onClick={dismiss} title="Dismiss">
-								<X size={12} strokeWidth={2.2} />
-							</button>
-						</div>
-					)}
+
 					{activeTab === "general" && (
 						<GeneralTab
 							autostart={settings.autostart}
@@ -136,8 +112,6 @@ function SettingsApp() {
 							toggleTimeFormat24h={settings.toggleTimeFormat24h}
 							showUpdateIndicator={settings.showUpdateIndicator}
 							toggleUpdateIndicator={settings.toggleUpdateIndicator}
-							lowBatteryThreshold={settings.lowBatteryThreshold}
-							handleThresholdChange={settings.handleThresholdChange}
 							restartBloom={settings.restartBloom}
 							resetToDefaults={settings.resetToDefaults}
 							quitBloom={settings.quitBloom}
@@ -173,8 +147,6 @@ function SettingsApp() {
 							toggleNotchRememberPanel={settings.toggleNotchRememberPanel}
 							notchDefaultPanel={settings.notchDefaultPanel}
 							changeNotchDefaultPanel={settings.changeNotchDefaultPanel}
-							timerSoundEnabled={settings.timerSoundEnabled}
-							toggleTimerSound={settings.toggleTimerSound}
 							musicModeEnabled={settings.musicModeEnabled}
 							toggleMusicMode={settings.toggleMusicMode}
 							musicCompactNotch={settings.musicCompactNotch}
@@ -245,10 +217,6 @@ function SettingsApp() {
 							toggleVolumeOverlay={settings.toggleVolumeOverlay}
 							volumeEdgeEnabled={settings.volumeEdgeEnabled}
 							toggleVolumeEdge={settings.toggleVolumeEdge}
-							brightnessOverlayEnabled={settings.brightnessOverlayEnabled}
-							toggleBrightnessOverlay={settings.toggleBrightnessOverlay}
-							brightnessEdgeEnabled={settings.brightnessEdgeEnabled}
-							toggleBrightnessEdge={settings.toggleBrightnessEdge}
 						/>
 					)}
 					{activeTab === "about" && (

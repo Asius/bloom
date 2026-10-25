@@ -1,19 +1,27 @@
-import { StrictMode, useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from "react";
-import { createRoot } from "react-dom/client";
-import { motion, AnimatePresence } from "framer-motion";
-import { listen, emit } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+	StrictMode,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState
+} from "react";
+import { createRoot } from "react-dom/client";
+import { EdgeSurface } from "./components/EdgeSurface";
+import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
-import { getVersion } from "@tauri-apps/api/app";
-import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { MixerIcon, SpeakerIcon } from "./icons";
 import "./Overlay.css";
-import { EdgeSurface } from "./components/EdgeSurface";
 import { initTheme } from "./theme";
-import { createRegionSender, measureElements, type RegionRect } from "./windowRegion";
 import { isUpdateActive, isUpdateTerminal, type AutoUpdateEvent } from "./updater";
+import { createRegionSender, measureElements, type RegionRect } from "./windowRegion";
 
 // ─── App Volume Mixer ───────────────────────────────────────────────────────
 
@@ -361,11 +369,11 @@ function VolumeNotch({
 	};
 
 	const startDrag = useMouseSliderDrag((clientY) => {
-			if (!barRef.current) return;
-			const rect = barRef.current.getBoundingClientRect();
-			const relativeY = rect.bottom - clientY;
-			const newVolume = Math.max(0, Math.min(1, relativeY / rect.height));
-			onVolumeChange(newVolume);
+		if (!barRef.current) return;
+		const rect = barRef.current.getBoundingClientRect();
+		const relativeY = rect.bottom - clientY;
+		const newVolume = Math.max(0, Math.min(1, relativeY / rect.height));
+		onVolumeChange(newVolume);
 	});
 	const handleMouseDown = (e: React.MouseEvent) => {
 		startDrag(e.clientY);
@@ -498,101 +506,6 @@ function VolumeNotch({
 
 // ─── Brightness Notch ───────────────────────────────────────────────────────
 
-const SunIcon = ({ brightness }: { brightness: number }) => (
-	<motion.div
-		className="brightness-icon-container"
-		animate={{ rotate: (brightness / 100) * 180 }}
-		transition={{ type: "spring", stiffness: 200, damping: 25 }}
-	>
-		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-			<circle cx="12" cy="12" r="5" stroke="currentColor" strokeWidth="2.5" />
-			<path
-				d="M12 2V4M12 20V22M4.93 4.93L6.34 6.34M17.66 17.66L19.07 19.07M2 12H4M20 12H22M4.93 19.07L6.34 17.66M17.66 6.34L19.07 4.93"
-				stroke="currentColor"
-				strokeWidth="2.5"
-				strokeLinecap="round"
-			/>
-		</svg>
-	</motion.div>
-);
-
-function BrightnessNotch({
-	brightness,
-	onBrightnessChange
-}: {
-	brightness: number;
-	onBrightnessChange: (val: number) => void;
-}) {
-	const barRef = useRef<HTMLDivElement>(null);
-
-	const handleBarInteraction = (e: React.MouseEvent | React.TouchEvent) => {
-		if (!barRef.current) return;
-		const rect = barRef.current.getBoundingClientRect();
-		const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
-		const relativeY = rect.bottom - clientY;
-		const newBrightness = Math.max(0, Math.min(100, (relativeY / rect.height) * 100));
-		onBrightnessChange(newBrightness);
-	};
-
-	const startDrag = useMouseSliderDrag((clientY) => {
-			if (!barRef.current) return;
-			const rect = barRef.current.getBoundingClientRect();
-			const relativeY = rect.bottom - clientY;
-			const newBrightness = Math.max(0, Math.min(100, (relativeY / rect.height) * 100));
-			onBrightnessChange(newBrightness);
-	});
-	const handleMouseDown = (e: React.MouseEvent) => {
-		startDrag(e.clientY);
-	};
-
-	return (
-		<motion.div
-			className="brightness-notch-wrapper"
-			style={{ transformOrigin: "right center" }}
-			initial={{ scaleX: 0, scaleY: 0.5, opacity: 0, filter: "blur(12px)", y: "-50%" }}
-			animate={{ scaleX: 1, scaleY: 1, opacity: 1, filter: "blur(0px)", y: "-50%" }}
-			exit={{
-				scaleX: 0,
-				scaleY: 0.8,
-				opacity: 0,
-				filter: "blur(12px)",
-				y: "-50%",
-				transition: { duration: 0.2, ease: [0.32, 0.72, 0, 1] }
-			}}
-			transition={{ type: "spring", stiffness: 450, damping: 25, mass: 0.7 }}
-		>
-			<div className="brightness-notch">
-				<EdgeSurface edge="right" />
-				<motion.div
-					className="brightness-notch-content-group"
-					initial={{ opacity: 0, x: 10 }}
-					animate={{ opacity: 1, x: 0 }}
-					exit={{ opacity: 0, x: 5, transition: { duration: 0.15 } }}
-					transition={{ delay: 0.05, duration: 0.2, ease: "easeOut" }}
-				>
-					<div
-						ref={barRef}
-						className="brightness-notch-bar"
-						onMouseDown={handleMouseDown}
-						onTouchStart={handleBarInteraction}
-						style={{ cursor: "pointer" }}
-					>
-						<motion.div
-							className="brightness-notch-fill"
-							initial={false}
-							animate={{ height: `${brightness}%` }}
-							transition={{ type: "spring", stiffness: 300, damping: 35 }}
-						/>
-					</div>
-					<div className="brightness-notch-icon">
-						<SunIcon brightness={brightness} />
-					</div>
-				</motion.div>
-			</div>
-		</motion.div>
-	);
-}
-
 // ─── Main Overlay Component ─────────────────────────────────────────────────
 
 function OverlayApp() {
@@ -600,7 +513,7 @@ function OverlayApp() {
 		return initTheme();
 	}, []);
 
-	type Mode = "idle" | "volume" | "brightness" | "splash" | "updating";
+	type Mode = "idle" | "volume" | "splash" | "updating";
 	const [mode, setMode] = useState<Mode>("idle");
 	const [updateStatus, setUpdateStatus] = useState<string>("checking");
 	const [updateProgress, setUpdateProgress] = useState(0);
@@ -617,13 +530,6 @@ function OverlayApp() {
 	);
 
 	// Brightness state
-	const [brightness, setBrightness] = useState(50);
-	const [brightnessOverlayEnabled, setBrightnessOverlayEnabled] = useState(
-		() => localStorage.getItem("bloom-brightness-overlay-enabled") !== "false"
-	);
-	const [brightnessEdgeEnabled, setBrightnessEdgeEnabled] = useState(
-		() => localStorage.getItem("bloom-brightness-edge-enabled") !== "false"
-	);
 
 	// Shared state
 	const [scale, setScale] = useState(() =>
@@ -652,9 +558,7 @@ function OverlayApp() {
 				if (settings && settings["bloom-scale"] !== undefined) {
 					setScale(parseFloat(settings["bloom-scale"]));
 				}
-				if (settings && settings["bloom-brightness-overlay-enabled"] !== undefined) {
-					setBrightnessOverlayEnabled(settings["bloom-brightness-overlay-enabled"] === "true");
-				}
+
 				if (settings && settings["bloom-volume-overlay-enabled"] !== undefined) {
 					setVolumeOverlayEnabled(settings["bloom-volume-overlay-enabled"] === "true");
 				}
@@ -749,26 +653,6 @@ function OverlayApp() {
 			}
 		});
 
-		const brightPromise = listen("brightness-change", (event: any) => {
-			if (splashActiveRef.current || !brightnessOverlayEnabled) return;
-			invoke("hide_native_osd");
-			const { brightness: newBrightness } = event.payload;
-			setBrightness(newBrightness);
-			setMode("brightness");
-			resetHideTimeout();
-		});
-
-		const brightEdgePromise = listen<boolean>("brightness-edge-hover", (event) => {
-			if (splashActiveRef.current || !brightnessOverlayEnabled || !brightnessEdgeEnabled) return;
-			if (event.payload) {
-				setMode("brightness");
-				if (timeoutRef.current) clearTimeout(timeoutRef.current);
-			} else {
-				if (timeoutRef.current) clearTimeout(timeoutRef.current);
-				timeoutRef.current = setTimeout(() => setMode("idle"), 1500);
-			}
-		});
-
 		const autoUpdatePromise = listen<AutoUpdateEvent>("auto-update-status", (event) => {
 			const { status, progress } = event.payload;
 			setUpdateStatus(status);
@@ -789,24 +673,15 @@ function OverlayApp() {
 		return () => {
 			volPromise.then((fn) => fn());
 			volEdgePromise.then((fn) => fn());
-			brightPromise.then((fn) => fn());
-			brightEdgePromise.then((fn) => fn());
+
 			autoUpdatePromise.then((fn) => fn());
 			document.removeEventListener("contextmenu", preventContext);
 		};
-	}, [
-		volumeOverlayEnabled,
-		volumeEdgeEnabled,
-		brightnessOverlayEnabled,
-		brightnessEdgeEnabled,
-		resetHideTimeout
-	]);
+	}, [volumeOverlayEnabled, volumeEdgeEnabled, resetHideTimeout]);
 
 	useSettingsSync({
 		"bloom-volume-overlay-enabled": setVolumeOverlayEnabled,
 		"bloom-volume-edge-enabled": setVolumeEdgeEnabled,
-		"bloom-brightness-overlay-enabled": setBrightnessOverlayEnabled,
-		"bloom-brightness-edge-enabled": setBrightnessEdgeEnabled,
 		"bloom-scale": setScale
 	});
 
@@ -815,11 +690,6 @@ function OverlayApp() {
 		if (splashActiveRef.current) return;
 		if (!volumeOverlayEnabled && mode === "volume") setMode("idle");
 	}, [volumeOverlayEnabled, mode]);
-
-	useEffect(() => {
-		if (splashActiveRef.current) return;
-		if (!brightnessOverlayEnabled && mode === "brightness") setMode("idle");
-	}, [brightnessOverlayEnabled, mode]);
 
 	// ── Window Visibility Management ──
 	useEffect(() => {
@@ -905,20 +775,6 @@ function OverlayApp() {
 	}, [mode, mixerExpanded, collapseMixer]);
 
 	// ── Brightness Controls ──
-	const sendBrightness = useTrailingThrottle((newBrightness: number) => {
-		invoke("set_brightness", { brightness: Math.round(newBrightness) }).catch(() => {});
-	}, 50);
-	const handleBrightnessChange = useCallback(
-		(newBrightness: number) => {
-			setBrightness(newBrightness);
-			setMode("brightness");
-			resetHideTimeout();
-			sendBrightness(newBrightness);
-		},
-		[resetHideTimeout, sendBrightness]
-	);
-
-	const isLeft = mode === "volume";
 
 	const sendOverlayRegion = useMemo(
 		() =>
@@ -941,7 +797,6 @@ function OverlayApp() {
 			return;
 		}
 		const pad = 24 * scale;
-		const cardWidth = HUD_CARD_WIDTH * scale;
 		const cardHeight = HUD_CARD_HEIGHT * scale;
 		const leftWidth =
 			(mixerExpanded ? HUD_CARD_WIDTH + MIXER_MAX_PANEL_WIDTH : HUD_CARD_WIDTH) * scale;
@@ -953,11 +808,9 @@ function OverlayApp() {
 		});
 		sendOverlayRegion([
 			zone(0, leftWidth + pad),
-			zone(width - cardWidth - pad, cardWidth + pad),
 			...measureElements([
 				[".volume-notch-wrapper", 24],
-				[".volume-mixer-panel", 24],
-				[".brightness-notch-wrapper", 24]
+				[".volume-mixer-panel", 24]
 			])
 		]);
 	});
@@ -1027,7 +880,7 @@ function OverlayApp() {
 						height: "100%",
 						display: "flex",
 						alignItems: "center",
-						justifyContent: isLeft ? "flex-start" : "flex-end",
+						justifyContent: "flex-start",
 						width: "100%"
 					}}
 				>
@@ -1045,13 +898,6 @@ function OverlayApp() {
 								mixerExpanded={mixerExpanded}
 								onMixerExpandedChange={handleMixerExpandedChange}
 								key="volume-island"
-							/>
-						)}
-						{mode === "brightness" && (
-							<BrightnessNotch
-								brightness={brightness}
-								onBrightnessChange={handleBrightnessChange}
-								key="brightness-island"
 							/>
 						)}
 					</AnimatePresence>

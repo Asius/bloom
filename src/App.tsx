@@ -1,68 +1,51 @@
-import { motion, AnimatePresence, useAnimation } from "framer-motion";
-import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo } from "react";
-import { listen, emit } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { message } from "@tauri-apps/plugin-dialog";
-import { createNativeTrayAction } from "./tray";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { getVersion } from "@tauri-apps/api/app";
-import type { UpdateCheckResult } from "./updater";
-import { batteryTooltip, type BatteryDetails } from "./batteryTooltip";
-import {
-	createRegionSender,
-	measureElements,
-	notchPillBox,
-	type RegionRect
-} from "./windowRegion";
-import "./App.css";
-import { initTheme } from "./theme";
-import {
-	PlayIcon,
-	PauseIcon,
-	SkipBackIcon,
-	SkipForwardIcon,
-	VolumeLowIcon,
-	VolumeHighIcon,
-	MusicNoteIcon,
-	HeadphonesIcon
-} from "./icons";
-import { CompactMediaPlayer } from "./CompactMediaPlayer";
-import { useWeather } from "./hooks/useWeather";
-import { useSettingsSync } from "./hooks/useSettingsSync";
-import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
-import { useAnnouncement } from "./hooks/useAnnouncement";
-import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
-import type { WidgetConfig } from "./components/StatusWidgetConfig";
-import { EdgeSurface } from "./components/EdgeSurface";
-import { ShelfTypeIcon } from "./components/ShelfTypeIcon";
-import { WifiPanel } from "./components/WifiPanel";
-import { BluetoothPanel } from "./components/BluetoothPanel";
+import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { AnimatePresence, motion, useAnimation } from "framer-motion";
 import {
-	Cpu,
-	MemoryStick,
-	HardDrive,
 	ArrowUpDown,
-	BellRing,
-	Play,
-	Pause,
-	RotateCcw,
-	Megaphone,
-	Type,
-	X,
 	ChevronLeft,
 	ChevronRight,
+	Cpu,
+	HardDrive,
 	Inbox,
-	Music
+	MemoryStick,
+	Type,
+	X
 } from "lucide-react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import "./App.css";
+import { CompactMediaPlayer } from "./CompactMediaPlayer";
+import { EdgeSurface } from "./components/EdgeSurface";
+import { ShelfTypeIcon } from "./components/ShelfTypeIcon";
+import type { WidgetConfig } from "./components/StatusWidgetConfig";
+import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
+import { useSettingsSync } from "./hooks/useSettingsSync";
+import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
+import { useWeather } from "./hooks/useWeather";
+import {
+	HeadphonesIcon,
+	MusicNoteIcon,
+	PauseIcon,
+	PlayIcon,
+	SkipBackIcon,
+	SkipForwardIcon,
+	VolumeHighIcon,
+	VolumeLowIcon
+} from "./icons";
+import { initTheme } from "./theme";
+import type { UpdateCheckResult } from "./updater";
+import { createRegionSender, measureElements, notchPillBox, type RegionRect } from "./windowRegion";
 
 /**
  * The notch has two kinds of content:
  * - Panels are tools the user chooses. A click opens the last-used panel by
  *   default, or a selected fixed panel when panel memory is turned off.
- * - Live activities (music, a set timer, a filled shelf) show a compact form in
+ * - Live activities (music and a filled shelf) show a compact form in
  *   the pill or a bubble beside it, and opening one shows its own view, which
  *   stands alone (no panel arrows) and is never remembered as the last panel.
  *   Dragging files onto the notch also opens the shelf. Wheel/swipe switches
@@ -72,199 +55,6 @@ type NotchPanel = "calendar" | "command-center";
 const NOTCH_PANELS: readonly NotchPanel[] = ["calendar", "command-center"];
 const asNotchPanel = (value: unknown): NotchPanel | null =>
 	NOTCH_PANELS.includes(value as NotchPanel) ? (value as NotchPanel) : null;
-
-// Pomodoro timer limit.
-const MAX_TIMER_SECONDS = 180 * 60;
-
-// Inline timer editing: digits fill from the right and the colon is inserted
-// automatically ("130" -> 1:30, "2500" -> 25:00, "45" -> 0:45).
-const timerDigitsToSeconds = (digits: string): number | null => {
-	if (!digits) return null;
-	const secs = parseInt(digits.slice(-2) || "0", 10);
-	const mins = parseInt(digits.slice(0, -2) || "0", 10);
-	const total = mins * 60 + secs;
-	return total > 0 && total <= MAX_TIMER_SECONDS ? total : null;
-};
-
-const timerSecondsToDigits = (seconds: number): string => {
-	const mins = Math.floor(seconds / 60);
-	const secs = seconds % 60;
-	return `${mins}${secs.toString().padStart(2, "0")}`.replace(/^0+(?=\d)/, "");
-};
-
-const formatTimerDigits = (digits: string): string => {
-	if (!digits) return "0:00";
-	const secs = digits.slice(-2).padStart(2, "0");
-	const mins = parseInt(digits.slice(0, -2) || "0", 10);
-	return `${mins}:${secs}`;
-};
-
-// Completion chime for the Pomodoro timer. Synthesized with the Web Audio API
-// so no audio asset is needed; created on the Start click so the webview's
-// autoplay policy lets it play when the timer ends.
-let timerChimeCtx: AudioContext | null = null;
-
-const getTimerChimeCtx = (): AudioContext | null => {
-	try {
-		if (!timerChimeCtx) timerChimeCtx = new AudioContext();
-		if (timerChimeCtx.state === "suspended") timerChimeCtx.resume().catch(() => {});
-		return timerChimeCtx;
-	} catch {
-		return null;
-	}
-};
-
-const playTimerChime = () => {
-	const ctx = getTimerChimeCtx();
-	if (!ctx) return;
-	const start = ctx.currentTime + 0.02;
-	const master = ctx.createGain();
-	master.gain.value = 0.45;
-	master.connect(ctx.destination);
-
-	// Soft rising bell arpeggio (A5–C#6–E6) with a quiet octave harmonic.
-	const notes = [
-		{ freq: 880.0, at: 0 },
-		{ freq: 1108.73, at: 0.18 },
-		{ freq: 1318.51, at: 0.36 }
-	];
-	notes.forEach(({ freq, at }) => {
-		const osc = ctx.createOscillator();
-		const harmonic = ctx.createOscillator();
-		const gain = ctx.createGain();
-		const harmonicGain = ctx.createGain();
-		osc.type = "sine";
-		osc.frequency.value = freq;
-		harmonic.type = "sine";
-		harmonic.frequency.value = freq * 2.01;
-		harmonicGain.gain.value = 0.12;
-		gain.gain.setValueAtTime(0.0001, start + at);
-		gain.gain.exponentialRampToValueAtTime(0.32, start + at + 0.02);
-		gain.gain.exponentialRampToValueAtTime(0.0001, start + at + 1.4);
-		osc.connect(gain);
-		harmonic.connect(harmonicGain);
-		harmonicGain.connect(gain);
-		gain.connect(master);
-		osc.start(start + at);
-		harmonic.start(start + at);
-		osc.stop(start + at + 1.5);
-		harmonic.stop(start + at + 1.5);
-	});
-};
-
-// Simple SVG icons
-function WifiIcon({ enabled, connected }: { enabled: boolean; connected: boolean }) {
-	return (
-		<svg
-			width="18"
-			height="18"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			opacity={!enabled ? 0.4 : connected ? 1 : 0.7}
-		>
-			<path d="M5 12.55a11 11 0 0 1 14.08 0" />
-			<path d="M1.42 9a16 16 0 0 1 21.16 0" />
-			<path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-			<line x1="12" y1="20" x2="12.01" y2="20" />
-		</svg>
-	);
-}
-
-function TrayIcon() {
-	return (
-		<svg
-			width="14"
-			height="14"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<rect x="3" y="3" width="6" height="6" rx="1" />
-			<rect x="15" y="3" width="6" height="6" rx="1" />
-			<rect x="15" y="15" width="6" height="6" rx="1" />
-			<rect x="3" y="15" width="6" height="6" rx="1" />
-		</svg>
-	);
-}
-
-function BatteryIcon({
-	charging,
-	level,
-	threshold = 20
-}: {
-	charging: boolean;
-	level: number;
-	threshold?: number;
-}) {
-	const percentage = Math.min(Math.max(level, 0), 100);
-
-	return (
-		<div
-			style={{
-				display: "flex",
-				alignItems: "center",
-				position: "relative",
-				height: "14px",
-				justifyContent: "center"
-			}}
-		>
-			<svg width="20" height="10" viewBox="0 0 20 10" fill="none">
-				{/* Battery Shell - Centered at 9px within 20px width, ignoring the tip's offset */}
-				<rect
-					x="2"
-					y="0.75"
-					width="14"
-					height="8.5"
-					rx="2.4"
-					stroke="currentColor"
-					strokeOpacity={0.35}
-					strokeWidth="1.1"
-				/>
-				{/* Battery Tip */}
-				<path
-					d="M17.5 3.5V6.5"
-					stroke="currentColor"
-					strokeOpacity={0.35}
-					strokeWidth="1.2"
-					strokeLinecap="round"
-				/>
-				{/* Fill */}
-				<rect
-					x="3.8"
-					y="2.5"
-					width={Math.max(0.5, (percentage / 100) * 10.4)}
-					height="5"
-					rx="1"
-					fill={charging ? "#32D74B" : percentage <= threshold ? "#FF453A" : "white"}
-				/>
-			</svg>
-			{/* Charging Bolt - Centered on the battery body */}
-			{charging && (
-				<div
-					style={{
-						position: "absolute",
-						top: "50%",
-						left: "9px",
-						transform: "translate(-50%, -50%)",
-						color: "white",
-						filter: "drop-shadow(0px 0px 1.5px rgba(0,0,0,0.8))"
-					}}
-				>
-					<svg width="7" height="10" viewBox="0 0 8 12" fill="currentColor">
-						<path d="M4.5 0L0 7H3.5L2.5 12L8 5H4.5L5.5 0H4.5Z" />
-					</svg>
-				</div>
-			)}
-		</div>
-	);
-}
 
 function GreenDownArrowIcon() {
 	return (
@@ -360,40 +150,12 @@ export const Visualizer = memo(function Visualizer({
 // Number of week rows the current month occupies. Calendar mode sizes the
 // notch to the month so five-row months stay compact and six-row months never
 // clip the last row.
-const calendarMonthRows = (() => {
+const calendarMonthRows = () => {
 	const now = new Date();
 	const firstWeekday = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
 	const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 	return Math.ceil((firstWeekday + daysInMonth) / 7);
-})();
-
-// Odometer-style digit for the timer clock. When the value changes the old
-// digit rolls up and out while the new one rolls in from below with a slight
-// 3D tilt — no card chrome, just the numerals.
-const RollDigit = memo(function RollDigit({
-	value,
-	compact = false
-}: {
-	value: string;
-	compact?: boolean;
-}) {
-	return (
-		<span className={`roll-digit ${compact ? "compact" : ""}`}>
-			<AnimatePresence initial={false}>
-				<motion.span
-					key={value}
-					className="roll-num"
-					initial={{ y: "72%", rotateX: -50, opacity: 0 }}
-					animate={{ y: "0%", rotateX: 0, opacity: 1 }}
-					exit={{ y: "-72%", rotateX: 50, opacity: 0 }}
-					transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-				>
-					{value}
-				</motion.span>
-			</AnimatePresence>
-		</span>
-	);
-});
+};
 
 interface MediaInfo {
 	title: string;
@@ -405,12 +167,6 @@ interface MediaInfo {
 	duration_ms?: number;
 	seek_enabled?: boolean;
 	position_updated_at?: number;
-}
-
-interface WifiStatus {
-	enabled: boolean;
-	connected: boolean;
-	ssid: string | null;
 }
 
 // A shelf file's preview from the backend: a picture when one can be made,
@@ -431,15 +187,7 @@ interface ShelfItem {
 	timestamp: number;
 }
 
-type BloomMode =
-	| "music"
-	| "calendar"
-	| "command-center"
-	| "announcement"
-	| "status"
-	| "shelf"
-	| "wifi"
-	| "bluetooth";
+type BloomMode = "music" | "calendar" | "command-center" | "status" | "shelf";
 
 // The shelf is a short-lived stash: one row, newest first, oldest evicted.
 const SHELF_MAX_ITEMS = 10;
@@ -515,10 +263,8 @@ function App() {
 		() => localStorage.getItem("bloom-time-format-24h") === "true"
 	);
 
-	const [batteryLevel, setBatteryLevel] = useState(100);
-	const [isCharging, setIsCharging] = useState(false);
 	// Fetched when the pointer reaches the battery widget, for its tooltip.
-	const [batteryDetails, setBatteryDetails] = useState<BatteryDetails | null>(null);
+
 	// The status widget whose tooltip is open, the side of the pill it hangs
 	// from, and the distance from the widget to just past that edge.
 	const [statusTooltip, setStatusTooltip] = useState<{
@@ -529,14 +275,6 @@ function App() {
 	const statusTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// Width the hovered status strip needs so neither side runs into the clock.
 	const [statusFitWidth, setStatusFitWidth] = useState(0);
-	const [showPowerPulse, setShowPowerPulse] = useState(false);
-	const [showLowBatteryPulse, setShowLowBatteryPulse] = useState(false);
-	const [lowBatteryThreshold, setLowBatteryThreshold] = useState(() =>
-		parseInt(localStorage.getItem("bloom-low-battery-threshold") || "20")
-	);
-	const prevChargingRef = useRef<boolean | null>(null);
-	const powerPulseTimeoutRef = useRef<any>(null);
-	const lowBatteryPulseShownRef = useRef<boolean>(false);
 
 	const [eventPeek, setEventPeek] = useState(false);
 	const eventPeekTimeoutRef = useRef<any>(null);
@@ -552,38 +290,6 @@ function App() {
 		if (raw === "auto-hide") return "smart";
 		return raw;
 	});
-
-	useEffect(() => {
-		if (isReady && prevChargingRef.current !== null && prevChargingRef.current !== isCharging) {
-			setShowPowerPulse(true);
-			if (notchMode === "peek") triggerEventPeek(4000);
-			if (powerPulseTimeoutRef.current) clearTimeout(powerPulseTimeoutRef.current);
-			powerPulseTimeoutRef.current = setTimeout(() => {
-				setShowPowerPulse(false);
-			}, 4000);
-		}
-		prevChargingRef.current = isCharging;
-	}, [isCharging, isReady, notchMode, triggerEventPeek]);
-
-	useEffect(() => {
-		// Trigger pulse when dropping below threshold while discharging
-		if (
-			isReady &&
-			batteryLevel <= lowBatteryThreshold &&
-			!isCharging &&
-			!lowBatteryPulseShownRef.current
-		) {
-			setShowLowBatteryPulse(true);
-			if (notchMode === "peek") triggerEventPeek(5000);
-			lowBatteryPulseShownRef.current = true;
-			setTimeout(() => setShowLowBatteryPulse(false), 5000);
-		}
-
-		// Reset the "shown" state if battery is charged or threshold is lowered
-		if (isCharging || batteryLevel > lowBatteryThreshold) {
-			lowBatteryPulseShownRef.current = false;
-		}
-	}, [batteryLevel, isCharging, lowBatteryThreshold, isReady, notchMode, triggerEventPeek]);
 
 	// Weather state (managed by useWeather hook)
 
@@ -603,14 +309,8 @@ function App() {
 	const displayVolume = isMuted ? 0 : volume;
 	// Null until the first successful fetch so the pill can't flash a wrong
 	// default on startup.
-	const [wifiStatus, setWifiStatus] = useState<WifiStatus | null>(null);
-	const wifiEnabled = wifiStatus?.enabled ?? false;
-	const wifiConnected = wifiStatus?.connected ?? false;
-	const [bluetoothEnabled, setBluetoothEnabled] = useState(true);
+
 	// Names of connected Bluetooth devices, for the controls tile.
-	const [btConnectedNames, setBtConnectedNames] = useState<string[]>([]);
-	const [batterySaverEnabled, setBatterySaverEnabled] = useState(false);
-	const [currentBrightness, setCurrentBrightness] = useState(50);
 
 	// System metrics for status widgets
 	const [cpuUsage, setCpuUsage] = useState(0);
@@ -620,7 +320,7 @@ function App() {
 	const [netDownSpeed, setNetDownSpeed] = useState(0);
 	const [statusWidgets, setStatusWidgets] = useState<WidgetConfig>({
 		left: ["weather"],
-		right: ["battery"]
+		right: []
 	});
 
 	const [windowLabel, setWindowLabel] = useState<string>("");
@@ -674,17 +374,6 @@ function App() {
 		};
 	}, [windowLabel, notchMode, triggerEventPeek]);
 
-	// Remote announcement shown as a persistent notch card until dismissed.
-	const {
-		announcement,
-		dismissed: announcementDismissed,
-		dismiss: dismissAnnouncement
-	} = useAnnouncement();
-	const announcementShownRef = useRef<string | null>(null);
-	const announcementOpen = !!announcement && !announcementDismissed;
-	const announcementOpenRef = useRef(false);
-	announcementOpenRef.current = announcementOpen;
-
 	const [isVisible, setIsVisible] = useState(true);
 	const [isImpacted, setIsImpacted] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
@@ -695,7 +384,7 @@ function App() {
 		if (raw === "auto-hide") return "smart";
 		return raw;
 	});
-	const [dndActive, setDndActive] = useState(false);
+
 	const [dockEnabled, setDockEnabled] = useState(
 		() => localStorage.getItem("bloom-dock-enabled") !== "false"
 	);
@@ -709,7 +398,6 @@ function App() {
 	const leftWidgetsRef = useRef<HTMLDivElement>(null);
 	const rightWidgetsRef = useRef<HTMLDivElement>(null);
 	const timeCenterRef = useRef<HTMLDivElement>(null);
-	const musicBubbleRef = useRef<HTMLButtonElement>(null);
 	const shelfBubbleRef = useRef<HTMLButtonElement>(null);
 	const reportNotchRect = useRef<() => void>(() => {});
 	// The pill's target box in window CSS px, and the sender that applies the
@@ -737,7 +425,8 @@ function App() {
 				[".activity-bubble", 16],
 				[".status-tooltip", 28],
 				[".screen-corner", 0],
-				[".bloom-tray-popup", 24], [".bloom-tray-toggle", 4]
+				[".bloom-tray-popup", 24],
+				[".bloom-tray-toggle", 4]
 			])
 		);
 		sendNotchRegion(wanted);
@@ -785,7 +474,7 @@ function App() {
 		const updateRect = () => {
 			if (bloomRef.current && windowLabel === "main") {
 				// Activity bubbles sit beside the pill and must stay clickable too.
-				const rects = [bloomRef.current, musicBubbleRef.current, shelfBubbleRef.current]
+				const rects = [bloomRef.current, shelfBubbleRef.current]
 					.filter((el): el is NonNullable<typeof el> => el !== null)
 					.map((el) => el.getBoundingClientRect());
 				const left = Math.min(...rects.map((r) => r.left));
@@ -921,20 +610,19 @@ function App() {
 	const [settingsCalendarEnabled, setSettingsCalendarEnabled] = useState(
 		() => localStorage.getItem("bloom-calendar-enabled") !== "false"
 	);
-	const [settingsTimerSoundEnabled, setSettingsTimerSoundEnabled] = useState(
-		() => localStorage.getItem("bloom-timer-sound-enabled") !== "false"
-	);
+
 	const [settingsMusicModeEnabled, setSettingsMusicModeEnabled] = useState(
 		() => localStorage.getItem("bloom-music-mode-enabled") !== "false"
 	);
 	const [rememberPanelEnabled, setRememberPanelEnabled] = useState(
-		() => (localStorage.getItem("bloom-notch-remember-panel") ??
-			localStorage.getItem("bloom-notch-click-to-open")) !== "false"
+		() =>
+			(localStorage.getItem("bloom-notch-remember-panel") ??
+				localStorage.getItem("bloom-notch-click-to-open")) !== "false"
 	);
 	const rememberPanelEnabledRef = useRef(rememberPanelEnabled);
 	rememberPanelEnabledRef.current = rememberPanelEnabled;
-	const [defaultPanel, setDefaultPanel] = useState<NotchPanel>(() =>
-		asNotchPanel(localStorage.getItem("bloom-notch-default-panel")) ?? "calendar"
+	const [defaultPanel, setDefaultPanel] = useState<NotchPanel>(
+		() => asNotchPanel(localStorage.getItem("bloom-notch-default-panel")) ?? "calendar"
 	);
 	// The panel the open notch was last left on. Opening the notch returns to it,
 	// across restarts too (bloom-notch-last-panel).
@@ -994,10 +682,10 @@ function App() {
 
 				setSettingsWeatherEnabled(getVal("bloom-weather-enabled", "true") !== "false");
 				setSettingsCalendarEnabled(getVal("bloom-calendar-enabled", "true") !== "false");
-				setSettingsTimerSoundEnabled(getVal("bloom-timer-sound-enabled", "true") !== "false");
 				setSettingsMusicModeEnabled(getVal("bloom-music-mode-enabled", "true") !== "false");
 				setRememberPanelEnabled(
-					(getVal("bloom-notch-remember-panel") ?? getVal("bloom-notch-click-to-open", "true")) !== "false"
+					(getVal("bloom-notch-remember-panel") ?? getVal("bloom-notch-click-to-open", "true")) !==
+						"false"
 				);
 				setDefaultPanel(asNotchPanel(getVal("bloom-notch-default-panel")) ?? "calendar");
 				setShelfPersist(getVal("bloom-shelf-persist", "false") === "true");
@@ -1013,9 +701,6 @@ function App() {
 				);
 				setSettingsCornersEnabled(getVal("bloom-corners-enabled", "false") === "true");
 				setTimeFormat24h(getVal("bloom-time-format-24h") === "true");
-
-				const thresholdStr = getVal("bloom-low-battery-threshold", "20");
-				if (thresholdStr) setLowBatteryThreshold(parseInt(thresholdStr as string));
 
 				const nMode = getVal("bloom-notch-mode", "fixed");
 				if (nMode) {
@@ -1058,9 +743,7 @@ function App() {
 				if (widgetsVal) {
 					try {
 						const parsed = JSON.parse(widgetsVal);
-						if (parsed && Array.isArray(parsed.left) && Array.isArray(parsed.right)) {
-							setStatusWidgets(parsed);
-						}
+						setStatusWidgets(normalizeStatusWidgets(parsed));
 					} catch {}
 				}
 			})
@@ -1111,11 +794,10 @@ function App() {
 		{
 			"bloom-weather-enabled": setSettingsWeatherEnabled,
 			"bloom-calendar-enabled": setSettingsCalendarEnabled,
-			"bloom-timer-sound-enabled": setSettingsTimerSoundEnabled,
+
 			"bloom-music-mode-enabled": setSettingsMusicModeEnabled,
 			"bloom-notch-remember-panel": setRememberPanelEnabled,
-			"bloom-notch-default-panel": (v: unknown) =>
-				setDefaultPanel(asNotchPanel(v) ?? "calendar"),
+			"bloom-notch-default-panel": (v: unknown) => setDefaultPanel(asNotchPanel(v) ?? "calendar"),
 			"bloom-shelf-persist": setShelfPersist,
 			"bloom-music-compact-notch": setSettingsMusicCompactNotch,
 			"bloom-notch-last-panel": (v: unknown) => setLastPanel(asNotchPanel(v)),
@@ -1127,16 +809,13 @@ function App() {
 			"bloom-media-layout": setMediaLayout,
 			"bloom-corners-enabled": setSettingsCornersEnabled,
 			"bloom-scale": setScale,
-			"bloom-low-battery-threshold": setLowBatteryThreshold,
 			"bloom-dock-enabled": setDockEnabled,
 			"bloom-dock-mode": setDockMode,
 			"bloom-notch-mode": setNotchMode,
 			"bloom-status-widgets": (value) => {
 				try {
 					const parsed = JSON.parse(value);
-					if (parsed && Array.isArray(parsed.left) && Array.isArray(parsed.right)) {
-						setStatusWidgets(parsed);
-					}
+					setStatusWidgets(normalizeStatusWidgets(parsed));
 				} catch {}
 			},
 			"bloom-show-update-indicator": (value) => setShowUpdateIndicator(String(value) === "true"),
@@ -1237,7 +916,7 @@ function App() {
 		};
 	}, [windowLabel, systemSettingsReady, waitForStartupSplash, dockEnabled, dockMode, notchMode]);
 
-	// Bloom mode state: 'music', 'calendar', 'command-center', 'announcement', 'shelf', or 'status'
+	// User panels and live activities share the notch's animation state.
 	const [bloomMode, setBloomMode] = useState<BloomMode>("status");
 
 	// Shelf: files and selected text stashed in the notch via drag-and-drop.
@@ -1477,19 +1156,11 @@ function App() {
 	const restingModeRef = useRef<BloomMode>("status");
 	const bloomModeRef = useRef<BloomMode>("status");
 	const rememberPanelRef = useRef<(panel: NotchPanel) => void>(() => {});
-	const notchPinnedRef = useRef(false);
-	const releaseDeferredRef = useRef(false);
 
 	// Shared hover-release, called on DOM hover end and when the backend
 	// reports the pointer left the (now click-through) notch window. Closes an
 	// open notch, remembering its panel, and returns to the resting mode.
 	const releaseNotchHover = () => {
-		// A view being typed into (a Wi-Fi password) keeps the notch open; the
-		// release happens once it lets go, if the pointer is still away.
-		if (notchPinnedRef.current) {
-			releaseDeferredRef.current = true;
-			return;
-		}
 		setIsHovered(false);
 		setIsNotchHovered(false);
 		if (isOpenRef.current) {
@@ -1502,9 +1173,7 @@ function App() {
 			prev === "command-center" ||
 			prev === "calendar" ||
 			prev === "status" ||
-			prev === "shelf" ||
-			prev === "wifi" ||
-			prev === "bluetooth"
+			prev === "shelf"
 				? restingModeRef.current
 				: prev
 		);
@@ -1660,7 +1329,7 @@ function App() {
 			console.info("[shelf] drag-enter:", event.payload.paths ?? event.payload.text);
 			setIsDragHovering(true);
 			const prev = bloomModeRef.current;
-			if (prev === "announcement" || prev === "shelf") return;
+			if (prev === "shelf") return;
 			shelfPrevModeRef.current = prev;
 			shelfPrevOpenRef.current = isOpenRef.current;
 			shelfDragActiveRef.current = true;
@@ -1687,10 +1356,8 @@ function App() {
 			if (paths.length === 0 && !text) return;
 			if (paths.length > 0) addShelfItems(paths);
 			if (text) addShelfText(text);
-			if (bloomModeRef.current !== "announcement") {
-				setIsOpen(true);
-				setBloomMode("shelf");
-			}
+			setIsOpen(true);
+			setBloomMode("shelf");
 			collapseShelfSoon();
 		};
 
@@ -1716,22 +1383,6 @@ function App() {
 		};
 	}, []);
 
-	// Open the notch on an unseen announcement; stays open until dismissed.
-	useEffect(() => {
-		if (!announcement || announcementDismissed) return;
-		if (announcementShownRef.current === announcement.id) return;
-		announcementShownRef.current = announcement.id;
-		setBloomMode("announcement");
-		if (notchMode === "peek") triggerEventPeek(6000);
-	}, [announcement, announcementDismissed, notchMode, triggerEventPeek]);
-
-	// Leave the announcement view once it is dismissed (or gone).
-	useEffect(() => {
-		if (bloomMode === "announcement" && (!announcement || announcementDismissed)) {
-			setBloomMode(mediaInfo.has_media && isPlaying ? "music" : "status");
-		}
-	}, [bloomMode, announcement, announcementDismissed, mediaInfo.has_media, isPlaying]);
-
 	// Window height is now kept constant to prevent rendering layout lag and sharp corners
 
 	const lastScrollTime = useRef(0);
@@ -1739,7 +1390,6 @@ function App() {
 		const target = e.target as HTMLElement;
 		if (
 			target.closest(".calendar-grid") ||
-			target.closest(".timer-column") ||
 			target.closest(".shelf-content") ||
 			target.closest(".qp-list")
 		) {
@@ -1764,12 +1414,12 @@ function App() {
 	// Wheel and swipe navigate panels, even from a collapsed live activity.
 	// Music and shelf remain entry points through their activity affordances.
 	const cycleBloomMode = (direction: 1 | -1) => {
-		if (bloomMode === "announcement") return false;
 		const panels = NOTCH_PANELS.filter(panelAvailable);
 		const currentIndex = panels.indexOf(bloomMode as NotchPanel);
-		const nextMode = currentIndex === -1
-			? openingPanel()
-			: panels[(currentIndex + direction + panels.length) % panels.length];
+		const nextMode =
+			currentIndex === -1
+				? openingPanel()
+				: panels[(currentIndex + direction + panels.length) % panels.length];
 		setIsOpen(true);
 		setBloomMode(nextMode);
 		return true;
@@ -1782,165 +1432,6 @@ function App() {
 		if (index === -1 || panels.length < 2) return;
 		setBloomMode(panels[(index + direction + panels.length) % panels.length]);
 	};
-
-	// Timer state
-	const [timerSeconds, setTimerSeconds] = useState(0);
-	const [isTimerRunning, setIsTimerRunning] = useState(false);
-	const [isTimerFinished, setIsTimerFinished] = useState(false);
-	const [isEditingTimer, setIsEditingTimer] = useState(false);
-	const [timerEditDigits, setTimerEditDigits] = useState("");
-	const [lastDurationSeconds, setLastDurationSeconds] = useState(() => {
-		const stored = parseInt(localStorage.getItem("bloom-timer-last-duration") || "", 10);
-		return Number.isFinite(stored) && stored > 0 ? stored : 25 * 60;
-	});
-	const timerInputRef = useRef<HTMLInputElement>(null);
-	const timerEditActiveRef = useRef(false);
-	const timerIntervalRef = useRef<any>(null);
-	const prevTimerFinishedRef = useRef(false);
-
-	const formatTimerTime = (totalSeconds: number) => {
-		const mins = Math.floor(Math.abs(totalSeconds) / 60);
-		const secs = Math.abs(totalSeconds) % 60;
-		return `${mins}:${secs.toString().padStart(2, "0")}`;
-	};
-
-	const startTimer = (seconds: number) => {
-		// Unlock audio here (user gesture) so the completion chime can play later.
-		getTimerChimeCtx();
-		timerEditActiveRef.current = false;
-		setIsEditingTimer(false);
-		setTimerSeconds(seconds);
-		setLastDurationSeconds(seconds);
-		localStorage.setItem("bloom-timer-last-duration", String(seconds));
-		setIsTimerRunning(true);
-		setIsTimerFinished(false);
-	};
-
-	const resetTimer = () => {
-		timerEditActiveRef.current = false;
-		setIsEditingTimer(false);
-		setIsTimerRunning(false);
-		setTimerSeconds(0);
-		setIsTimerFinished(false);
-	};
-
-	// Idle/finished play restarts the last duration; paused play resumes.
-	const handlePrimaryTimerAction = () => {
-		if (isEditingTimer) {
-			commitTimerEdit(true);
-		} else if (isTimerRunning) {
-			setIsTimerRunning(false);
-		} else if (timerSeconds > 0) {
-			getTimerChimeCtx();
-			setIsTimerRunning(true);
-		} else {
-			startTimer(lastDurationSeconds);
-		}
-	};
-
-	// Clicking the big time turns it into a masked editor. Digits fill from the
-	// right, so the colon never has to be typed.
-	const beginTimerEdit = () => {
-		if (isTimerRunning || isEditingTimer) return;
-		if (isTimerFinished) resetTimer();
-		const base = timerSeconds > 0 ? timerSeconds : lastDurationSeconds;
-		setTimerEditDigits(timerSecondsToDigits(base));
-		timerEditActiveRef.current = true;
-		setIsEditingTimer(true);
-	};
-
-	const commitTimerEdit = (start: boolean) => {
-		if (!timerEditActiveRef.current) return;
-		timerEditActiveRef.current = false;
-		setIsEditingTimer(false);
-		const total = timerDigitsToSeconds(timerEditDigits);
-		if (total === null) return;
-		const base = timerSeconds > 0 ? timerSeconds : lastDurationSeconds;
-		// A tap that changes nothing (e.g. paused timer) must not reset the state.
-		if (!start && total === base) return;
-		localStorage.setItem("bloom-timer-last-duration", String(total));
-		setLastDurationSeconds(total);
-		setTimerSeconds(start ? total : 0);
-		setIsTimerRunning(start);
-		setIsTimerFinished(false);
-		if (start) getTimerChimeCtx();
-	};
-
-	useEffect(() => {
-		if (isEditingTimer) {
-			timerInputRef.current?.focus();
-			timerInputRef.current?.select();
-		}
-	}, [isEditingTimer]);
-
-	const timerEditValid = timerDigitsToSeconds(timerEditDigits) !== null;
-
-	const timerState: "idle" | "running" | "paused" | "finished" = isEditingTimer
-		? "idle"
-		: isTimerFinished
-			? "finished"
-			: isTimerRunning
-				? "running"
-				: timerSeconds > 0
-					? "paused"
-					: "idle";
-	const timerDisplaySeconds =
-		timerSeconds > 0 || isTimerFinished ? timerSeconds : lastDurationSeconds;
-	const primaryTimerLabel = isTimerRunning
-		? "Pause"
-		: timerSeconds > 0
-			? "Resume"
-			: isTimerFinished
-				? "Restart"
-				: "Start";
-	const timerEndTime =
-		timerSeconds > 0 && !isTimerFinished
-			? new Date(Date.now() + timerSeconds * 1000).toLocaleTimeString([], {
-					hour: "2-digit",
-					minute: "2-digit",
-					hour12: !timeFormat24h
-				})
-			: null;
-
-	// Split the display time into individual flip-clock digits. Keys are counted
-	// from the right so existing digits keep their identity when minutes grow
-	// from two digits to three. While editing, the same clock renders the digits
-	// being typed so the layout never changes.
-	const clockText = isEditingTimer
-		? formatTimerDigits(timerEditDigits)
-		: formatTimerTime(timerDisplaySeconds);
-	const [clockMinutesText, clockSecondsText] = clockText.split(":");
-	const clockMinutesPadded = clockMinutesText.padStart(2, "0");
-	const clockCompact = clockMinutesPadded.length > 2;
-	const minuteDigitItems = clockMinutesPadded
-		.split("")
-		.map((digit, i, arr) => ({ digit, key: `m${arr.length - i}` }));
-	const secondDigitItems = clockSecondsText
-		.split("")
-		.map((digit, i, arr) => ({ digit, key: `s${arr.length - i}` }));
-
-	useEffect(() => {
-		if (isTimerRunning && timerSeconds > 0) {
-			timerIntervalRef.current = setInterval(() => {
-				setTimerSeconds((s) => s - 1);
-			}, 1000);
-		} else if (isTimerRunning && timerSeconds === 0) {
-			setIsTimerRunning(false);
-			setIsTimerFinished(true);
-		}
-		return () => {
-			if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-		};
-	}, [isTimerRunning, timerSeconds === 0]);
-
-	// Completion moment: chime once and reveal the notch in peek mode.
-	useEffect(() => {
-		if (isTimerFinished && !prevTimerFinishedRef.current) {
-			if (settingsTimerSoundEnabled) playTimerChime();
-			if (notchMode === "peek") triggerEventPeek(6000);
-		}
-		prevTimerFinishedRef.current = isTimerFinished;
-	}, [isTimerFinished, settingsTimerSoundEnabled, notchMode, triggerEventPeek]);
 
 	const lastTrackRef = useRef<string | null>(null);
 	const lastPlayingRef = useRef<boolean>(false);
@@ -1960,29 +1451,28 @@ function App() {
 	}, [settingsMusicModeEnabled, mediaInfo.has_media, isPlaying]);
 
 	// Like the Dynamic Island, the collapsed notch shows one live activity at a
-	// time. Music fades a few seconds after playback stops. A set timer
-	// (running, paused or just finished) takes the pill, and music then moves to
-	// its own bubble beside it.
-	const timerActive = timerSeconds > 0 || isTimerFinished;
+	// time. Music fades a few seconds after playback stops.
+
 	const musicActivity =
-		settingsMusicModeEnabled && settingsMusicCompactNotch && mediaInfo.has_media && musicActivityVisible;
-	const collapsedMode = musicActivity && !timerActive ? "music" : "status";
-	const showMusicBubble = musicActivity && timerActive && !isOpen && isVisible && !isHidden;
-	const showShelfBubble =
-		shelfItems.length > 0 && !isOpen && isVisible && !isHidden && bloomMode !== "announcement";
+		settingsMusicModeEnabled &&
+		settingsMusicCompactNotch &&
+		mediaInfo.has_media &&
+		musicActivityVisible;
+	const collapsedMode = musicActivity ? "music" : "status";
+
+	const showShelfBubble = shelfItems.length > 0 && !isOpen && isVisible && !isHidden;
 	restingModeRef.current = collapsedMode;
 	bloomModeRef.current = bloomMode;
 
 	// A click opens the last-used panel when memory is enabled, otherwise the
 	// selected default. The controls panel is always available as a fallback.
 	const openingPanel = (): NotchPanel => {
-		const preferred = rememberPanelEnabled ? lastPanel ?? defaultPanel : defaultPanel;
+		const preferred = rememberPanelEnabled ? (lastPanel ?? defaultPanel) : defaultPanel;
 		return panelAvailable(preferred) ? preferred : "command-center";
 	};
 
 	// Expands the notch into a panel, or into an activity's own view.
 	const openNotch = (view: NotchPanel | "music" | "shelf") => {
-		if (bloomMode === "announcement") return;
 		setIsOpen(true);
 		setBloomMode(view);
 	};
@@ -1996,15 +1486,6 @@ function App() {
 	rememberPanelRef.current = rememberPanel;
 
 	// Called by views that take typed input; see releaseNotchHover.
-	const setNotchPinned = useCallback((pinned: boolean) => {
-		notchPinnedRef.current = pinned;
-		if (!pinned && releaseDeferredRef.current) {
-			releaseDeferredRef.current = false;
-			releaseNotchHover();
-		}
-		// releaseNotchHover only touches refs and state setters.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
 
 	// In peek mode, briefly show the notch when a new track starts or playback
 	// resumes. The notch itself never switches views for media; the collapsed
@@ -2038,10 +1519,9 @@ function App() {
 	}, [settingsMusicModeEnabled, mediaInfo.has_media, bloomMode, isOpen]);
 
 	// The collapsed notch always shows its current live activity: music while a
-	// session exists, the timer (with music in its bubble) once one is set, and
-	// the clock otherwise. An open notch is left alone.
+	// session exists, and the clock otherwise. An open notch is left alone.
 	useEffect(() => {
-		if (isOpen || announcementOpenRef.current) return;
+		if (isOpen) return;
 		if ((bloomMode === "status" || bloomMode === "music") && bloomMode !== collapsedMode) {
 			setBloomMode(collapsedMode);
 		}
@@ -2068,152 +1548,25 @@ function App() {
 		};
 	}, [timeFormat24h]);
 
-	// Battery API
-	useEffect(() => {
-		let battery: any = null;
-
-		const initBattery = async () => {
-			try {
-				battery = await (navigator as any).getBattery();
-
-				const updateBattery = () => {
-					setBatteryLevel(Math.round(battery.level * 100));
-					setIsCharging(battery.charging);
-				};
-
-				updateBattery();
-
-				battery.addEventListener("levelchange", updateBattery);
-				battery.addEventListener("chargingchange", updateBattery);
-
-				return () => {
-					battery.removeEventListener("levelchange", updateBattery);
-					battery.removeEventListener("chargingchange", updateBattery);
-				};
-			} catch (e) {
-				// Battery API not supported
-			}
-		};
-
-		initBattery();
-	}, []);
-
 	// Listen for Volume Changes
 	useEffect(() => {
+		let mounted = true;
+		void invoke<{ volume: number; is_muted: boolean }>("get_volume_state")
+			.then((state) => {
+				if (!mounted) return;
+				setVolume(state.volume);
+				setIsMuted(state.is_muted);
+			})
+			.catch(console.error);
 		const unlisten = listen<{ volume: number; is_muted: boolean }>("volume-change", (event) => {
 			setVolume(event.payload.volume);
 			setIsMuted(event.payload.is_muted);
 		});
 		return () => {
+			mounted = false;
 			unlisten.then((fn) => fn());
 		};
 	}, []);
-
-	// Wi-Fi is a three-state control: Off, on-but-not-connected, Connected.
-	// The radio state alone can't tell those apart, so get_wifi_status returns
-	// both flags, plus the connected network's name. Returns false so the startup loader knows to retry.
-	const refreshWifiStatus = useCallback(async (): Promise<boolean> => {
-		try {
-			setWifiStatus(await invoke<WifiStatus>("get_wifi_status"));
-			return true;
-		} catch {
-			return false;
-		}
-	}, []);
-
-	// Seed the Wi-Fi pill at startup. The first call can fail while the WLAN
-	// service is still coming up, so retry instead of leaving the pill stuck on
-	// its default.
-	useEffect(() => {
-		let cancelled = false;
-		let retryTimer: ReturnType<typeof setTimeout> | undefined;
-		const initializeWifiStatus = async (attempt: number) => {
-			const loaded = await refreshWifiStatus();
-			if (!loaded && !cancelled && attempt < 3) {
-				retryTimer = setTimeout(() => void initializeWifiStatus(attempt + 1), (attempt + 1) * 1000);
-			}
-		};
-		void initializeWifiStatus(0);
-		return () => {
-			cancelled = true;
-			if (retryTimer) clearTimeout(retryTimer);
-		};
-	}, [refreshWifiStatus]);
-
-	// Connected Bluetooth devices for the tile, refreshed whenever the backend
-	// reports a device connecting, disconnecting, pairing or being removed.
-	useEffect(() => {
-		if (!bluetoothEnabled) {
-			setBtConnectedNames([]);
-			return;
-		}
-		const refresh = () =>
-			invoke<{ name: string; connected: boolean }[]>("bluetooth_list_devices")
-				.then((devices) =>
-					setBtConnectedNames(devices.filter((d) => d.connected).map((d) => d.name))
-				)
-				.catch(() => {});
-		let debounce: ReturnType<typeof setTimeout> | undefined;
-		void refresh();
-		const unlisten = listen("bluetooth-changed", () => {
-			clearTimeout(debounce);
-			debounce = setTimeout(() => void refresh(), 400);
-		});
-		return () => {
-			clearTimeout(debounce);
-			unlisten.then((f) => f());
-		};
-	}, [bluetoothEnabled]);
-
-	// The backend reports connection changes and finished scans as they
-	// happen, so the pill follows without waiting for the next poll.
-	useEffect(() => {
-		let debounce: ReturnType<typeof setTimeout> | undefined;
-		const unlisten = listen("wifi-changed", () => {
-			clearTimeout(debounce);
-			debounce = setTimeout(() => void refreshWifiStatus(), 300);
-		});
-		return () => {
-			clearTimeout(debounce);
-			unlisten.then((f) => f());
-		};
-	}, [refreshWifiStatus]);
-
-	// Load bluetooth/volume/brightness state on mount
-	useEffect(() => {
-		invoke<boolean>("get_bluetooth_state")
-			.then(setBluetoothEnabled)
-			.catch(() => {});
-		invoke<boolean>("get_battery_saver_state")
-			.then(setBatterySaverEnabled)
-			.catch(() => {});
-		invoke<{ volume: number; is_muted: boolean }>("get_volume_state")
-			.then((state) => {
-				setVolume(state.volume);
-				setIsMuted(state.is_muted);
-			})
-			.catch(() => {});
-		invoke<number>("get_brightness")
-			.then(setCurrentBrightness)
-			.catch(() => {});
-
-		// Poll battery saver state every 5s (since we can't listen for changes)
-		const interval = setInterval(() => {
-			invoke<boolean>("get_battery_saver_state")
-				.then(setBatterySaverEnabled)
-				.catch(() => {});
-		}, 5000);
-		return () => clearInterval(interval);
-	}, []);
-
-	// Refresh Wi-Fi status while the command center is open so changes made
-	// outside Bloom (keyboard toggle, Windows quick settings) show up.
-	useEffect(() => {
-		if (bloomMode !== "command-center") return;
-		void refreshWifiStatus();
-		const interval = setInterval(() => void refreshWifiStatus(), 5000);
-		return () => clearInterval(interval);
-	}, [bloomMode, refreshWifiStatus]);
 
 	// Poll system metrics for status widgets
 	useEffect(() => {
@@ -2237,16 +1590,6 @@ function App() {
 		fetchMetrics();
 		const interval = setInterval(fetchMetrics, 3000);
 		return () => clearInterval(interval);
-	}, []);
-
-	// Listen for brightness changes
-	useEffect(() => {
-		const unlisten = listen<{ brightness: number }>("brightness-change", (event) => {
-			setCurrentBrightness(event.payload.brightness);
-		});
-		return () => {
-			unlisten.then((fn) => fn());
-		};
 	}, []);
 
 	// Native Windows Media Controls - Listen for updates from background worker
@@ -2361,37 +1704,6 @@ function App() {
 		[sendVolume]
 	);
 
-	// WiFi toggle
-	const toggleWifi = useCallback(async () => {
-		const previous = wifiStatus;
-		const newState = !(previous?.enabled ?? false);
-		setWifiStatus({
-			enabled: newState,
-			connected: newState ? (previous?.connected ?? false) : false,
-			ssid: newState ? (previous?.ssid ?? null) : null
-		});
-		try {
-			await invoke("set_wifi_state", { enabled: newState });
-			// The radio and association take a moment to settle.
-			setTimeout(() => void refreshWifiStatus(), 800);
-		} catch (e) {
-			setWifiStatus(previous);
-			console.error("Failed to toggle WiFi:", e);
-		}
-	}, [wifiStatus, refreshWifiStatus]);
-
-	// Bluetooth toggle
-	const toggleBluetooth = useCallback(async () => {
-		const newState = !bluetoothEnabled;
-		setBluetoothEnabled(newState);
-		try {
-			await invoke("set_bluetooth_state", { enabled: newState });
-		} catch (e) {
-			setBluetoothEnabled(!newState);
-			console.error("Failed to toggle Bluetooth:", e);
-		}
-	}, [bluetoothEnabled]);
-
 	// The notch never takes focus, and native `title` tooltips only show for an
 	// active window, so the status widgets draw their own. A tooltip opens
 	// after a tooltip-like delay, by which time the battery details fetched on
@@ -2457,70 +1769,12 @@ function App() {
 		if (side > 0 && needed > statusFitWidth) setStatusFitWidth(needed);
 	});
 
-	const refreshBatteryDetails = useCallback(() => {
-		invoke<BatteryDetails>("get_battery_details")
-			.then(setBatteryDetails)
-			.catch((err) => console.error("Failed to read battery details:", err));
-	}, []);
-
-	// Battery Saver - opens settings (no public API to toggle without admin)
-	const openBatterySaverSettings = useCallback(async () => {
-		try {
-			await invoke("open_battery_saver_settings");
-		} catch (e) {
-			console.error("Failed to open Battery Saver settings:", e);
-		}
-	}, []);
-
-	// Brightness change with throttling
-	const sendBrightness = useTrailingThrottle((newVal: number) => {
-		invoke("set_brightness", { brightness: newVal }).catch(() => {});
-	}, 50);
-
-	const handleBrightnessChange = useCallback(
-		(newVal: number) => {
-			setCurrentBrightness(newVal);
-			sendBrightness(newVal);
-		},
-		[sendBrightness]
-	);
-
-	const [systemTrayBusy, setSystemTrayBusy] = useState(false);
-	const nativeTrayAction = useMemo(
-		() => createNativeTrayAction(
-			() => invoke<boolean>("open_system_tray"),
-			(text, kind) => message(text, { title: "System Tray", kind }),
-			setSystemTrayBusy
-		),
-		[]
-	);
-	const openSystemTray = useCallback(
-		async (e: React.MouseEvent) => {
-			e.stopPropagation();
-			try {
-				if (await invoke<boolean>("tray_surface_available")) {
-					await emit("tray-toggle");
-				} else {
-					await nativeTrayAction();
-				}
-			} catch (error) { console.error(error); }
-		},
-		[nativeTrayAction]
-	);
-
 	const openSettingsWindow = useCallback(async () => {
 		try {
 			await invoke("open_settings_window");
 		} catch (e) {
 			console.error("Failed to open settings window:", e);
 		}
-	}, []);
-
-	// Right-click opens the tile's own view, the same as its › button.
-	const handleWifiRightClick = useCallback((e: React.MouseEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		setBloomMode("wifi");
 	}, []);
 
 	const toggleDockModeSetting = useCallback(
@@ -2555,18 +1809,8 @@ function App() {
 		[notchMode]
 	);
 
-	const handleBluetoothRightClick = useCallback((e: React.MouseEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		setBloomMode("bluetooth");
-	}, []);
-
 	const toggleCalendarMode = (e: React.MouseEvent) => {
 		e.stopPropagation();
-		if (isTimerFinished) {
-			resetTimer();
-			return;
-		}
 		// The time is part of the notch: a click opens it like anywhere else.
 		// Once open, it is a shortcut to the calendar.
 		if (!isOpen) {
@@ -2648,24 +1892,7 @@ function App() {
 						</span>
 					</>
 				);
-			case "battery":
-				return statusWidget(
-					"battery",
-					batteryTooltip(
-						batteryDetails,
-						{ level: batteryLevel, charging: isCharging },
-						batterySaverEnabled
-					),
-					<>
-						<BatteryIcon
-							charging={isCharging}
-							level={batteryLevel}
-							threshold={lowBatteryThreshold}
-						/>
-						<span className="label">{batteryLevel}%</span>
-					</>,
-					refreshBatteryDetails
-				);
+
 			case "cpu":
 				return statusWidget(
 					"cpu",
@@ -2720,8 +1947,12 @@ function App() {
 	// A media session remains reachable on hover after its activity fades, or
 	// whenever the compact music display is disabled.
 	const showMusicOnStatusHover =
-		!isOpen && isHovered && bloomMode === "status" && settingsMusicModeEnabled &&
-		mediaInfo.has_media && (!musicActivityVisible || !settingsMusicCompactNotch);
+		!isOpen &&
+		isHovered &&
+		bloomMode === "status" &&
+		settingsMusicModeEnabled &&
+		mediaInfo.has_media &&
+		(!musicActivityVisible || !settingsMusicCompactNotch);
 	const showCompactMusicIcons = isMusicMode || showMusicOnStatusHover;
 
 	// The 24-hour clock is ~16px narrower than the 12-hour one.
@@ -2729,11 +1960,9 @@ function App() {
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
-		if (bloomMode === "announcement" && announcement && !announcementDismissed) return 380;
-		if (isCalendarMode) return 480;
+		if (isCalendarMode) return 300;
 		if (bloomMode === "shelf") return 380;
 		if (bloomMode === "command-center" && isOpen) return 350;
-		if (bloomMode === "wifi" || bloomMode === "bluetooth") return 350;
 		if (showMusicOnStatusHover) {
 			return 170 + (settingsVisualizerEnabled ? 30 : 0);
 		}
@@ -2742,7 +1971,7 @@ function App() {
 			return Math.max(Math.min(200 + totalWidgets * 50, 380) - clock24hTrim, statusFitWidth);
 		}
 		if (isMusicMode && isOpen) return mediaLayout === "compact" ? 300 : 340;
-		if ((showPowerPulse || showLowBatteryPulse || showUpdatePulse) && !isHovered) return 200;
+		if (showUpdatePulse && !isHovered) return 200;
 
 		let w = 140 - clock24hTrim;
 		if (isMusicMode) {
@@ -2757,12 +1986,8 @@ function App() {
 		if (!isExpanded || !isVisible || isHidden) {
 			return isImpacted ? 28.9 : 44.2;
 		}
-		// Announcement card: body is line-clamped, so a fixed size fits both cases.
-		if (bloomMode === "announcement" && announcement && !announcementDismissed) {
-			return announcement.url ? 168 : 148;
-		}
-		// Sized to the calendar's week-row count plus the timer's fixed content.
-		if (bloomMode === "calendar") return calendarMonthRows >= 6 ? 305 : 273;
+		// The calendar keeps room for every row of the displayed month.
+		if (bloomMode === "calendar") return calendarMonthRows() >= 6 ? 305 : 273;
 		// Shelf expands on mode alone (no hover needed: there is no cursor
 		// hover during an OS drag) and is sized to exactly one row of tiles,
 		// plus room for the scrollbar once the tiles overflow it.
@@ -2770,8 +1995,7 @@ function App() {
 			if (shelfItems.length === 0) return 130;
 			return shelfOverflowing ? 190 : 176;
 		}
-		if (bloomMode === "command-center") return isOpen ? 230 : 36;
-		if (bloomMode === "wifi" || bloomMode === "bluetooth") return 300;
+		if (bloomMode === "command-center") return isOpen ? 190 : 36;
 		if (bloomMode === "status") return 36;
 		if (isMusicMode && isOpen) {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
@@ -2894,7 +2118,6 @@ function App() {
 						if (!isOpen) openNotch(openingPanel());
 					}}
 					onHoverStart={() => {
-						releaseDeferredRef.current = false;
 						setIsHovered(true);
 						// Hovering the shelf cancels its post-drop auto-close.
 						if (bloomMode === "shelf") clearShelfCollapse();
@@ -3229,48 +2452,19 @@ function App() {
 										>
 											<div className="main-row">
 												<AnimatePresence mode="wait">
-													{(showPowerPulse || showLowBatteryPulse || showUpdatePulse) &&
-													!isHovered ? (
-														showUpdatePulse ? (
-															<motion.div
-																key="update-pulse-view"
-																initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
-																animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-																exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
-																className="power-pulse-content"
-															>
-																<GreenDownArrowIcon />
-																<span className="label" style={{ color: "#32D74B" }}>
-																	Update Available
-																</span>
-															</motion.div>
-														) : (
-															<motion.div
-																key="pulse-view"
-																initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
-																animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-																exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
-																className="power-pulse-content"
-															>
-																{updateAvailable && <GreenDownArrowIcon />}
-																<BatteryIcon
-																	charging={isCharging}
-																	level={batteryLevel}
-																	threshold={lowBatteryThreshold}
-																/>
-																<span
-																	className="label"
-																	style={{ color: showLowBatteryPulse ? "#FF453A" : "inherit" }}
-																>
-																	{showLowBatteryPulse
-																		? "Low Battery"
-																		: isCharging
-																			? "Charging"
-																			: "On Battery"}{" "}
-																	• {batteryLevel}%
-																</span>
-															</motion.div>
-														)
+													{showUpdatePulse && !isHovered ? (
+														<motion.div
+															key="update-pulse-view"
+															initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+															animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+															exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
+															className="power-pulse-content"
+														>
+															<GreenDownArrowIcon />
+															<span className="label" style={{ color: "#32D74B" }}>
+																Update Available
+															</span>
+														</motion.div>
 													) : (
 														<motion.div
 															key="standard-view"
@@ -3294,7 +2488,9 @@ function App() {
 																			</motion.div>
 																		)}
 																	</AnimatePresence>
-																) : !showCompactMusicIcons && isHovered && statusWidgets.left.length > 0 ? (
+																) : !showCompactMusicIcons &&
+																  isHovered &&
+																  statusWidgets.left.length > 0 ? (
 																	<motion.div
 																		key="left-widgets"
 																		ref={leftWidgetsRef}
@@ -3333,25 +2529,7 @@ function App() {
 																</AnimatePresence>
 																<div className="time-flip-container" onClick={toggleCalendarMode}>
 																	<AnimatePresence initial={false}>
-																		{timerSeconds > 0 || isTimerFinished ? (
-																			<motion.span
-																				key="timer"
-																				className={`time compact-timer ${isTimerFinished ? "timer-finished" : ""}`}
-																				initial={{ rotateX: -90, opacity: 0 }}
-																				animate={{ rotateX: 0, opacity: 1 }}
-																				exit={{ rotateX: 90, opacity: 0 }}
-																				transition={{ type: "spring", stiffness: 600, damping: 30 }}
-																			>
-																				{isTimerFinished && (
-																					<BellRing
-																						size={13}
-																						strokeWidth={2.5}
-																						className="timer-bell"
-																					/>
-																				)}
-																				{formatTimerTime(timerSeconds)}
-																			</motion.span>
-																		) : (
+																		{
 																			<motion.span
 																				key="clock"
 																				className="time"
@@ -3362,7 +2540,7 @@ function App() {
 																			>
 																				{time}
 																			</motion.span>
-																		)}
+																		}
 																	</AnimatePresence>
 																</div>
 																<AnimatePresence>
@@ -3392,7 +2570,8 @@ function App() {
 
 															{/* Right: album art on a retained music session, otherwise status widgets */}
 															<div className="side-content right">
-																{showCompactMusicIcons && (settingsAlbumArtEnabled || showMusicOnStatusHover) ? (
+																{showCompactMusicIcons &&
+																(settingsAlbumArtEnabled || showMusicOnStatusHover) ? (
 																	<AnimatePresence mode="wait">
 																		<motion.div
 																			key="album-art"
@@ -3402,14 +2581,16 @@ function App() {
 																			exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
 																			transition={{ duration: 0.12 }}
 																		>
-																			{settingsAlbumArtEnabled && albumArtUrl && settingsCompactGlowEnabled && (
-																				<img
-																					src={albumArtUrl}
-																					alt=""
-																					className="album-art-glow-bg"
-																					draggable={false}
-																				/>
-																			)}
+																			{settingsAlbumArtEnabled &&
+																				albumArtUrl &&
+																				settingsCompactGlowEnabled && (
+																					<img
+																						src={albumArtUrl}
+																						alt=""
+																						className="album-art-glow-bg"
+																						draggable={false}
+																					/>
+																				)}
 																			<button
 																				className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
 																				aria-label="Open music"
@@ -3458,7 +2639,9 @@ function App() {
 																			</button>
 																		</motion.div>
 																	</AnimatePresence>
-																) : !showCompactMusicIcons && isHovered && statusWidgets.right.length > 0 ? (
+																) : !showCompactMusicIcons &&
+																  isHovered &&
+																  statusWidgets.right.length > 0 ? (
 																	<motion.div
 																		key="right-widgets"
 																		ref={rightWidgetsRef}
@@ -3481,44 +2664,8 @@ function App() {
 								</AnimatePresence>
 
 								{/* Wi-Fi networks, opened from the controls panel's Wi-Fi tile */}
-								<AnimatePresence>
-									{bloomMode === "wifi" && (
-										<motion.div
-											key="wifi-view"
-											initial={{ opacity: 0 }}
-											animate={{ opacity: 1 }}
-											exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-											transition={{ type: "spring", stiffness: 400, damping: 30 }}
-										>
-											<WifiPanel
-												enabled={wifiEnabled}
-												onToggle={toggleWifi}
-												onBack={() => setBloomMode("command-center")}
-												onPinChange={setNotchPinned}
-											/>
-										</motion.div>
-									)}
-								</AnimatePresence>
 
 								{/* Bluetooth devices, opened from the controls panel's Bluetooth tile */}
-								<AnimatePresence>
-									{bloomMode === "bluetooth" && (
-										<motion.div
-											key="bluetooth-view"
-											initial={{ opacity: 0 }}
-											animate={{ opacity: 1 }}
-											exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-											transition={{ type: "spring", stiffness: 400, damping: 30 }}
-										>
-											<BluetoothPanel
-												enabled={bluetoothEnabled}
-												onToggle={toggleBluetooth}
-												onBack={() => setBloomMode("command-center")}
-												onPinChange={setNotchPinned}
-											/>
-										</motion.div>
-									)}
-								</AnimatePresence>
 
 								{/* Command Center Panel */}
 								<AnimatePresence>
@@ -3533,44 +2680,6 @@ function App() {
 										>
 											{/* Pills Grid */}
 											<div className="cc-pills-grid">
-												{/* Wi-Fi Pill */}
-												<div
-													className={`cc-pill-tile ${wifiEnabled ? "active" : ""}`}
-													onClick={(e) => {
-														e.stopPropagation();
-														toggleWifi();
-													}}
-													onContextMenu={handleWifiRightClick}
-													title="Left-click to toggle, Right-click for networks"
-												>
-													<div className="cc-pill-icon-wrapper">
-														<WifiIcon enabled={wifiEnabled} connected={wifiConnected} />
-													</div>
-													<div className="cc-pill-info">
-														<span className="cc-pill-title">Wi-Fi</span>
-														<span className="cc-pill-status">
-															{wifiStatus === null
-																? "…"
-																: !wifiEnabled
-																	? "Off"
-																	: wifiConnected
-																		? (wifiStatus?.ssid ?? "Connected")
-																		: "Not connected"}
-														</span>
-													</div>
-													<button
-														className="cc-pill-more"
-														aria-label="Wi-Fi networks"
-														title="Wi-Fi networks"
-														onClick={(e) => {
-															e.stopPropagation();
-															setBloomMode("wifi");
-														}}
-													>
-														<ChevronRight />
-													</button>
-												</div>
-
 												{/* Dock Mode Pill */}
 												<div
 													className={`cc-pill-tile ${dockMode === "fixed" ? "active" : ""}`}
@@ -3590,44 +2699,6 @@ function App() {
 																	: "Peek"}
 														</span>
 													</div>
-												</div>
-
-												{/* Bluetooth Pill */}
-												<div
-													className={`cc-pill-tile ${bluetoothEnabled ? "active" : ""}`}
-													onClick={(e) => {
-														e.stopPropagation();
-														toggleBluetooth();
-													}}
-													onContextMenu={handleBluetoothRightClick}
-													title="Left-click to toggle, Right-click for devices"
-												>
-													<div className="cc-pill-icon-wrapper">
-														<BluetoothIcon />
-													</div>
-													<div className="cc-pill-info">
-														<span className="cc-pill-title">Bluetooth</span>
-														<span className="cc-pill-status">
-															{!bluetoothEnabled
-																? "Off"
-																: btConnectedNames.length === 1
-																	? btConnectedNames[0]
-																	: btConnectedNames.length > 1
-																		? `${btConnectedNames.length} connected`
-																		: "On"}
-														</span>
-													</div>
-													<button
-														className="cc-pill-more"
-														aria-label="Bluetooth devices"
-														title="Bluetooth devices"
-														onClick={(e) => {
-															e.stopPropagation();
-															setBloomMode("bluetooth");
-														}}
-													>
-														<ChevronRight />
-													</button>
 												</div>
 
 												{/* Notch Mode Pill */}
@@ -3654,49 +2725,6 @@ function App() {
 
 											{/* Circular Actions Row */}
 											<div className="cc-circular-actions-row">
-												<button
-													className={`cc-circular-btn ${dndActive ? "active" : ""}`}
-													onClick={(e) => {
-														e.stopPropagation();
-														setDndActive((prev) => !prev);
-													}}
-													title={`Focus / DND: ${dndActive ? "On" : "Off"}`}
-												>
-													<MoonIcon />
-												</button>
-												<button
-													className={`cc-circular-btn ${batterySaverEnabled ? "active" : ""}`}
-													onClick={(e) => {
-														e.stopPropagation();
-														openBatterySaverSettings();
-													}}
-													title={`Energy Saver: ${batterySaverEnabled ? "On" : "Off"} — Click to open Settings`}
-												>
-													<BatterySaverIcon />
-												</button>
-												<button
-													className="cc-circular-btn"
-													onClick={(e) => {
-														e.stopPropagation();
-														openSystemTray(e);
-													}}
-													disabled={systemTrayBusy}
-													title={systemTrayBusy ? "System Tray — close the Windows popup to continue" : "System Tray"}
-													aria-label="System Tray"
-													aria-busy={systemTrayBusy}
-												>
-													<TrayIcon />
-												</button>
-												<button
-													className="cc-circular-btn"
-													onClick={(e) => {
-														e.stopPropagation();
-														invoke("open_notification_center");
-													}}
-													title="Notification Center"
-												>
-													<BellIcon />
-												</button>
 												<button
 													className="cc-circular-btn"
 													onClick={(e) => {
@@ -3748,85 +2776,16 @@ function App() {
 														{Math.round(displayVolume * 100)}%
 													</span>
 												</div>
-
-												{/* Brightness Slider */}
-												<div className="cc-classic-slider-row">
-													<div className="cc-classic-slider-label">
-														<BrightnessLowIcon />
-														<span>Brightness</span>
-													</div>
-													<div className="cc-classic-slider-track">
-														<input
-															type="range"
-															min="0"
-															max="100"
-															step="1"
-															value={currentBrightness}
-															onChange={(e) => handleBrightnessChange(parseInt(e.target.value))}
-															onPointerDown={(e) => e.stopPropagation()}
-															onClick={(e) => e.stopPropagation()}
-															className="cc-classic-input"
-														/>
-														<div
-															className="cc-classic-fill"
-															style={{ width: `${currentBrightness}%` }}
-														/>
-													</div>
-													<span className="cc-classic-percentage">{currentBrightness}%</span>
-												</div>
 											</div>
 										</motion.div>
 									)}
 								</AnimatePresence>
 
-								{/* Announcement Card */}
-								<AnimatePresence>
-									{bloomMode === "announcement" && announcement && !announcementDismissed && (
-										<motion.div
-											className={`announcement-content severity-${announcement.severity}`}
-											onClick={(e) => e.stopPropagation()}
-											initial={{ opacity: 0 }}
-											animate={{ opacity: 1 }}
-											exit={{
-												opacity: 0,
-												filter: "blur(4px)",
-												transition: { duration: 0.1 }
-											}}
-											transition={{ type: "spring", stiffness: 400, damping: 30 }}
-										>
-											<div className="announcement-header">
-												<div className="announcement-heading">
-													<Megaphone size={14} className="announcement-icon" />
-													<span className="announcement-title">{announcement.title}</span>
-												</div>
-												<button
-													className="announcement-close"
-													onClick={dismissAnnouncement}
-													title="Dismiss"
-												>
-													<X size={13} strokeWidth={2.2} />
-												</button>
-											</div>
-											{announcement.body && (
-												<p className="announcement-body">{announcement.body}</p>
-											)}
-											{announcement.url && (
-												<button
-													className="announcement-link"
-													onClick={() => openUrl(announcement.url!)}
-												>
-													Learn more
-												</button>
-											)}
-										</motion.div>
-									)}
-								</AnimatePresence>
-
-								{/* Calendar & Timer Split View */}
+								{/* Calendar */}
 								<AnimatePresence>
 									{settingsCalendarEnabled && isCalendarMode && (
 										<motion.div
-											className="calendar-timer-content split-view"
+											className="calendar-content"
 											onClick={(e) =>
 												e.stopPropagation()
 											} /* Block mode switches when clicking inside */
@@ -3837,96 +2796,6 @@ function App() {
 										>
 											<div className="calendar-column">
 												<Calendar />
-											</div>
-
-											<div className="timer-column">
-												<div className={`timer-section-new state-${timerState}`}>
-													<div className="timer-main">
-														<div className="timer-status">
-															{isEditingTimer
-																? "Set duration"
-																: isTimerFinished
-																	? "Time's up"
-																	: timerEndTime
-																		? `${timerState === "paused" ? "Paused · " : ""}ends ${timerEndTime}`
-																		: "Click to edit"}
-														</div>
-
-														<div className={`timer-clock-row ${isEditingTimer ? "editing" : ""}`}>
-															<div
-																className={`timer-clock ${isEditingTimer && !timerEditValid ? "invalid" : ""}`}
-																onClick={beginTimerEdit}
-																title={isTimerRunning ? undefined : "Click to set a duration"}
-															>
-																{minuteDigitItems.map(({ digit, key }) => (
-																	<RollDigit key={key} value={digit} compact={clockCompact} />
-																))}
-																<span className="timer-colon">:</span>
-																{secondDigitItems.map(({ digit, key }) => (
-																	<RollDigit key={key} value={digit} compact={clockCompact} />
-																))}
-															</div>
-															<span className="timer-edit-underline" aria-hidden="true" />
-															{isEditingTimer && (
-																<input
-																	ref={timerInputRef}
-																	className="timer-edit-input"
-																	type="text"
-																	inputMode="numeric"
-																	aria-label="Set timer duration"
-																	value={formatTimerDigits(timerEditDigits)}
-																	onChange={(e) =>
-																		setTimerEditDigits(
-																			e.target.value.replace(/\D/g, "").slice(0, 5)
-																		)
-																	}
-																	onKeyDown={(e) => {
-																		if (e.key === "Enter") commitTimerEdit(true);
-																	}}
-																	onBlur={() => commitTimerEdit(false)}
-																	onWheel={(e) => e.stopPropagation()}
-																/>
-															)}
-														</div>
-													</div>
-
-													<div className="timer-controls-row">
-														<span className="timer-controls-spacer" aria-hidden="true" />
-														<button
-															onClick={handlePrimaryTimerAction}
-															onMouseDown={(e) => e.preventDefault()}
-															className="timer-btn-play"
-															title={primaryTimerLabel}
-														>
-															{isTimerRunning ? (
-																<Pause size={14} strokeWidth={2} fill="currentColor" />
-															) : (
-																<Play size={14} strokeWidth={2} fill="currentColor" />
-															)}
-															<span>{primaryTimerLabel}</span>
-														</button>
-														<button
-															onClick={resetTimer}
-															className="timer-btn-reset"
-															disabled={timerSeconds === 0 && !isTimerFinished}
-															title="Reset"
-														>
-															<RotateCcw size={14} strokeWidth={2.5} />
-														</button>
-													</div>
-
-													<div className="timer-preset-group">
-														{[5, 15, 25, 50].map((mins) => (
-															<button
-																key={mins}
-																onClick={() => startTimer(mins * 60)}
-																className={`timer-preset-segment ${lastDurationSeconds === mins * 60 && !isTimerFinished ? "active" : ""}`}
-															>
-																{mins}m
-															</button>
-														))}
-													</div>
-												</div>
 											</div>
 										</motion.div>
 									)}
@@ -4085,48 +2954,15 @@ function App() {
 						</motion.button>
 					)}
 				</AnimatePresence>
-				{/* Music in its own bubble while a timer holds the collapsed pill */}
-				<AnimatePresence onExitComplete={() => reportNotchRect.current()}>
-					{showMusicBubble && (
-						<motion.button
-							key="music-bubble"
-							ref={musicBubbleRef}
-							type="button"
-							className={`activity-bubble ${isHovered ? "expanded" : ""}`}
-							aria-label={mediaInfo.title ? `Open music: ${mediaInfo.title}` : "Open music"}
-							// Anchored at the pill's centre, offset past its right edge.
-							style={{ left: "50%" }}
-							initial={{ opacity: 0, scale: 0.4, x: -28, marginLeft: getDynamicWidth() / 2 + 8 }}
-							animate={{ opacity: 1, scale: 1, x: 0, marginLeft: getDynamicWidth() / 2 + 8 }}
-							exit={{ opacity: 0, scale: 0.4, x: -28 }}
-							transition={{
-								type: "spring",
-								stiffness: 400,
-								damping: 31,
-								opacity: { duration: 0.15 }
-							}}
-							onAnimationComplete={() => reportNotchRect.current()}
-							onClick={(e) => {
-								e.stopPropagation();
-								setIsHovered(true);
-								openNotch("music");
-							}}
-						>
-							{settingsAlbumArtEnabled && albumArtUrl ? (
-								<img src={albumArtUrl} alt="" draggable={false} />
-							) : (
-								<Music size={14} strokeWidth={2.2} />
-							)}
-						</motion.button>
-					)}
-				</AnimatePresence>
+
+				<AnimatePresence onExitComplete={() => reportNotchRect.current()}></AnimatePresence>
 			</div>
 		</div>
 	);
 }
 
 function Calendar() {
-	const [date] = useState(new Date());
+	const date = new Date();
 
 	const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
 	const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
@@ -4176,23 +3012,6 @@ function Calendar() {
 	);
 }
 
-function BluetoothIcon() {
-	return (
-		<svg
-			width="18"
-			height="18"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<path d="M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11" />
-		</svg>
-	);
-}
-
 function SettingsIcon() {
 	return (
 		<svg
@@ -4208,41 +3027,6 @@ function SettingsIcon() {
 		>
 			<circle cx="12" cy="12" r="3" />
 			<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-		</svg>
-	);
-}
-
-function BrightnessLowIcon() {
-	return (
-		<svg
-			width="12"
-			height="12"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			style={{ opacity: 0.5 }}
-		>
-			<circle cx="12" cy="12" r="5" fill="currentColor" />
-		</svg>
-	);
-}
-
-function MoonIcon() {
-	return (
-		<svg
-			width="18"
-			height="18"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
 		</svg>
 	);
 }
@@ -4286,24 +3070,6 @@ function NotchIcon() {
 	);
 }
 
-function BellIcon() {
-	return (
-		<svg
-			width="14"
-			height="14"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9z" />
-			<path d="M13.73 21a2 2 0 0 1-3.46 0" />
-		</svg>
-	);
-}
-
 function ReloadIcon() {
 	return (
 		<svg
@@ -4317,25 +3083,6 @@ function ReloadIcon() {
 			strokeLinejoin="round"
 		>
 			<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-		</svg>
-	);
-}
-
-function BatterySaverIcon() {
-	return (
-		<svg
-			width="18"
-			height="18"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<rect x="2" y="7" width="16" height="10" rx="2" />
-			<path d="M22 11v2" />
-			<path d="M6 12h4l2-3v6l-2-3H6" />
 		</svg>
 	);
 }

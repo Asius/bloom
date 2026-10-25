@@ -1,3 +1,4 @@
+import { normalizeStatusWidgets } from "../statusWidgets";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
@@ -35,17 +36,17 @@ export function useSettings() {
 	const [autostart, setAutostart] = useState(false);
 	const [weatherEnabled, setWeatherEnabled] = useState(true);
 	const [calendarEnabled, setCalendarEnabled] = useState(true);
-	const [timerSoundEnabled, setTimerSoundEnabled] = useState(
-		() => localStorage.getItem("bloom-timer-sound-enabled") !== "false"
-	);
+
 	const [musicModeEnabled, setMusicModeEnabled] = useState(true);
 	const [notchRememberPanel, setNotchRememberPanel] = useState(
-		() => (localStorage.getItem("bloom-notch-remember-panel") ??
-			localStorage.getItem("bloom-notch-click-to-open")) !== "false"
+		() =>
+			(localStorage.getItem("bloom-notch-remember-panel") ??
+				localStorage.getItem("bloom-notch-click-to-open")) !== "false"
 	);
-	const [notchDefaultPanel, setNotchDefaultPanel] = useState<"calendar" | "command-center">(
-		() => localStorage.getItem("bloom-notch-default-panel") === "command-center"
-			? "command-center" : "calendar"
+	const [notchDefaultPanel, setNotchDefaultPanel] = useState<"calendar" | "command-center">(() =>
+		localStorage.getItem("bloom-notch-default-panel") === "command-center"
+			? "command-center"
+			: "calendar"
 	);
 	const [musicCompactNotch, setMusicCompactNotch] = useState(true);
 	const [shelfPersist, setShelfPersist] = useState(
@@ -55,12 +56,7 @@ export function useSettings() {
 	const [volumeEdgeEnabled, setVolumeEdgeEnabled] = useState(
 		() => localStorage.getItem("bloom-volume-edge-enabled") !== "false"
 	);
-	const [brightnessOverlayEnabled, setBrightnessOverlayEnabled] = useState(
-		() => localStorage.getItem("bloom-brightness-overlay-enabled") !== "false"
-	);
-	const [brightnessEdgeEnabled, setBrightnessEdgeEnabled] = useState(
-		() => localStorage.getItem("bloom-brightness-edge-enabled") !== "false"
-	);
+
 	const [mediaAmbienceEnabled, setMediaAmbienceEnabled] = useState(true);
 	const [mediaCompactGlowEnabled, setMediaCompactGlowEnabled] = useState(true);
 	const [mediaLayout, setMediaLayout] = useState<"classic" | "compact">(
@@ -83,7 +79,7 @@ export function useSettings() {
 	const [showCityDropdown, setShowCityDropdown] = useState(false);
 	const [statusWidgets, setStatusWidgets] = useState<WidgetConfig>({
 		left: ["weather"],
-		right: ["battery"]
+		right: []
 	});
 	const [dockEnabled, setDockEnabled] = useState(true);
 	const [dockPreviewEnabled, setDockPreviewEnabled] = useState(true);
@@ -139,7 +135,7 @@ export function useSettings() {
 		const val = localStorage.getItem("bloom-notch-edge-delay");
 		return val !== null ? parseInt(val) : 200;
 	});
-	const [lowBatteryThreshold, setLowBatteryThreshold] = useState(20);
+
 	const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
 	const [updateError, setUpdateError] = useState("");
 	const updateRequestRef = useRef(false);
@@ -197,16 +193,20 @@ export function useSettings() {
 
 			apply(getVal("bloom-weather-enabled"), setWeatherEnabled, readBool);
 			apply(getVal("bloom-calendar-enabled"), setCalendarEnabled, readBool);
-			apply(getVal("bloom-timer-sound-enabled"), setTimerSoundEnabled, readBool);
+
 			apply(getVal("bloom-music-mode-enabled"), setMusicModeEnabled, readBool);
-			apply(getVal("bloom-notch-remember-panel") ?? getVal("bloom-notch-click-to-open"),
-				setNotchRememberPanel, readBool);
-			apply(getVal("bloom-notch-default-panel"), setNotchDefaultPanel,
-				(v) => v === "command-center" ? "command-center" : "calendar");
+			apply(
+				getVal("bloom-notch-remember-panel") ?? getVal("bloom-notch-click-to-open"),
+				setNotchRememberPanel,
+				readBool
+			);
+			apply(getVal("bloom-notch-default-panel"), setNotchDefaultPanel, (v) =>
+				v === "command-center" ? "command-center" : "calendar"
+			);
 			apply(getVal("bloom-music-compact-notch"), setMusicCompactNotch, readBool);
 			apply(getVal("bloom-shelf-persist"), setShelfPersist, readBool);
 			apply(getVal("bloom-volume-overlay-enabled"), setVolumeOverlayEnabled, readBool);
-			apply(getVal("bloom-brightness-overlay-enabled"), setBrightnessOverlayEnabled, readBool);
+
 			apply(getVal("bloom-media-ambience-enabled"), setMediaAmbienceEnabled, readBool);
 			apply(getVal("bloom-media-compact-glow-enabled"), setMediaCompactGlowEnabled, readBool);
 			apply(getVal("bloom-corners-enabled"), setCornersEnabled, readBool);
@@ -214,7 +214,7 @@ export function useSettings() {
 			apply(getVal("bloom-show-update-indicator"), setShowUpdateIndicator, readBool);
 			apply(getVal("bloom-auto-update"), setAutoUpdate, readBool);
 			apply(getVal("bloom-volume-edge-enabled"), setVolumeEdgeEnabled, readBool);
-			apply(getVal("bloom-brightness-edge-enabled"), setBrightnessEdgeEnabled, readBool);
+
 			apply(getVal("bloom-dock-enabled"), setDockEnabled, readBool);
 			apply(getVal("bloom-dock-preview-enabled"), setDockPreviewEnabled, readBool);
 			apply(getVal("bloom-dock-icon-only"), setDockIconOnly, readBool);
@@ -232,7 +232,6 @@ export function useSettings() {
 
 			apply(getVal("bloom-temp-unit"), setTempUnitFahrenheit, (v) => v === "fahrenheit");
 			apply(getVal("bloom-scale"), setScale, parseFloat);
-			apply(getVal("bloom-low-battery-threshold"), setLowBatteryThreshold, parseInt);
 
 			apply(getVal("bloom-notch-mode"), setNotchMode, (v) => (v === "auto-hide" ? "smart" : v));
 			apply(getVal("bloom-notch-edge-delay"), setNotchEdgeDelay, parseInt);
@@ -252,9 +251,7 @@ export function useSettings() {
 			if (widgetsVal) {
 				try {
 					const parsed = JSON.parse(widgetsVal);
-					if (parsed && Array.isArray(parsed.left) && Array.isArray(parsed.right)) {
-						setStatusWidgets(parsed);
-					}
+					setStatusWidgets(normalizeStatusWidgets(parsed));
 				} catch {}
 			}
 		} catch (e) {
@@ -296,7 +293,10 @@ export function useSettings() {
 
 	// Coordinates only need the backend settings file. Keep them out of the
 	// browser's localStorage mirror while preserving the same queued/error path.
-	const saveLocation = (key: "bloom-weather-lat" | "bloom-weather-lon", value: string | null): Promise<boolean> => {
+	const saveLocation = (
+		key: "bloom-weather-lat" | "bloom-weather-lon",
+		value: string | null
+	): Promise<boolean> => {
 		const operation = saveQueue.current.then(async () => {
 			if (saveFailed.current) return false;
 			try {
@@ -364,7 +364,6 @@ export function useSettings() {
 		"bloom-dock-extras-custom-folders": setDockExtrasCustomFolders,
 		"bloom-weather-enabled": setWeatherEnabled,
 		"bloom-calendar-enabled": setCalendarEnabled,
-		"bloom-timer-sound-enabled": setTimerSoundEnabled,
 		"bloom-music-mode-enabled": setMusicModeEnabled,
 		"bloom-notch-remember-panel": setNotchRememberPanel,
 		"bloom-notch-default-panel": (v: unknown) =>
@@ -376,14 +375,11 @@ export function useSettings() {
 		"bloom-corners-enabled": setCornersEnabled,
 		"bloom-show-update-indicator": setShowUpdateIndicator,
 		"bloom-time-format-24h": setTimeFormat24h,
-		"bloom-low-battery-threshold": setLowBatteryThreshold,
 		"bloom-scale": setScale,
 		"bloom-temp-unit": (v) => setTempUnitFahrenheit(v === "fahrenheit"),
 		"bloom-auto-update": setAutoUpdate,
 		"bloom-volume-overlay-enabled": setVolumeOverlayEnabled,
 		"bloom-volume-edge-enabled": setVolumeEdgeEnabled,
-		"bloom-brightness-overlay-enabled": setBrightnessOverlayEnabled,
-		"bloom-brightness-edge-enabled": setBrightnessEdgeEnabled,
 		"bloom-theme-mode": setThemeMode,
 		"bloom-theme-color": setThemeColor,
 		"bloom-theme-opacity": setThemeOpacity,
@@ -541,12 +537,6 @@ export function useSettings() {
 		saveSetting("bloom-calendar-enabled", String(next));
 	};
 
-	const toggleTimerSound = () => {
-		const next = !timerSoundEnabled;
-		setTimerSoundEnabled(next);
-		saveSetting("bloom-timer-sound-enabled", String(next));
-	};
-
 	const toggleMusicMode = () => {
 		const next = !musicModeEnabled;
 		setMusicModeEnabled(next);
@@ -591,18 +581,6 @@ export function useSettings() {
 		const next = !volumeEdgeEnabled;
 		setVolumeEdgeEnabled(next);
 		saveSetting("bloom-volume-edge-enabled", String(next));
-	};
-
-	const toggleBrightnessOverlay = () => {
-		const next = !brightnessOverlayEnabled;
-		setBrightnessOverlayEnabled(next);
-		saveSetting("bloom-brightness-overlay-enabled", String(next));
-	};
-
-	const toggleBrightnessEdge = () => {
-		const next = !brightnessEdgeEnabled;
-		setBrightnessEdgeEnabled(next);
-		saveSetting("bloom-brightness-edge-enabled", String(next));
 	};
 
 	const toggleAmbience = () => {
@@ -766,11 +744,6 @@ export function useSettings() {
 	const handleNotchEdgeDelayChange = (val: number) => {
 		setNotchEdgeDelay(val);
 		saveSetting("bloom-notch-edge-delay", val.toString());
-	};
-
-	const handleThresholdChange = (val: number) => {
-		setLowBatteryThreshold(val);
-		saveSetting("bloom-low-battery-threshold", val.toString());
 	};
 
 	const handleScaleChange = (val: number) => {
@@ -939,8 +912,6 @@ export function useSettings() {
 		toggleAutostart,
 		autoUpdate,
 		toggleAutoUpdate,
-		lowBatteryThreshold,
-		handleThresholdChange,
 		timeFormat24h,
 		toggleTimeFormat24h,
 		showUpdateIndicator,
@@ -969,8 +940,6 @@ export function useSettings() {
 		handleNotchEdgeDelayChange,
 		calendarEnabled,
 		toggleCalendar,
-		timerSoundEnabled,
-		toggleTimerSound,
 		musicModeEnabled,
 		toggleMusicMode,
 		notchRememberPanel,
@@ -1045,10 +1014,6 @@ export function useSettings() {
 		toggleVolumeOverlay,
 		volumeEdgeEnabled,
 		toggleVolumeEdge,
-		brightnessOverlayEnabled,
-		toggleBrightnessOverlay,
-		brightnessEdgeEnabled,
-		toggleBrightnessEdge,
 
 		// Updates
 		updateStatus,

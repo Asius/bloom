@@ -1,3 +1,8 @@
+> **Bloom Florecer / Asius:** this fork currently targets a personal Windows
+> desktop baseline. See [current scope and validation](DESKTOP_BASELINE.md) and
+> [attributions](ATTRIBUTIONS.md). The original project presentation below is
+> preserved as history; removed controls are documented in the desktop baseline.
+
 <div align="center">
 
 <img 

@@ -1,7 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod battery;
-mod bluetooth;
 mod commands;
 mod diagnostics;
 mod dock_extras;
@@ -13,7 +11,6 @@ mod tray;
 mod types;
 mod updater;
 mod utils;
-mod wifi;
 mod window_region;
 
 use std::sync::atomic::Ordering;
@@ -99,7 +96,6 @@ fn main() {
     }
 
     diagnostics::initialize();
-    setup_brightness_worker();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -113,9 +109,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             hide_native_osd,
             open_settings_window,
-            open_wifi_settings,
             open_sound_settings,
-            open_notification_center,
             open_system_tray,
             set_ignore_cursor_events,
             set_window_height,
@@ -171,7 +165,6 @@ fn main() {
             restart_bloom,
             get_volume,
             get_volume_state,
-            get_brightness,
             set_volume,
             get_audio_sessions,
             set_app_volume,
@@ -182,16 +175,6 @@ fn main() {
             load_settings,
             settings_file_readable,
             capture_window_thumbnail,
-            get_wifi_status,
-            set_wifi_state,
-            get_bluetooth_state,
-            set_bluetooth_state,
-            open_bluetooth_settings,
-            open_airplane_mode_settings,
-            set_brightness,
-            get_battery_saver_state,
-            open_battery_saver_settings,
-            battery::get_battery_details,
             get_system_accent_color,
             get_cpu_usage,
             get_ram_usage,
@@ -207,18 +190,6 @@ fn main() {
             dock_extras::open_dock_extra,
             dock_extras::eject_dock_extra,
             dock_extras::get_dock_drives,
-            wifi::wifi_list_networks,
-            wifi::wifi_scan,
-            wifi::wifi_connect,
-            wifi::wifi_disconnect,
-            wifi::wifi_forget,
-            wifi::wifi_open_settings,
-            bluetooth::bluetooth_list_devices,
-            bluetooth::bluetooth_set_connected,
-            bluetooth::bluetooth_discovery,
-            bluetooth::bluetooth_pair,
-            bluetooth::bluetooth_pairing_respond,
-            bluetooth::bluetooth_unpair
         ])
         .setup(|app| {
             init_taskbar_marker(app.handle());
@@ -376,8 +347,6 @@ fn main() {
             setup_audio_visualization(app.handle().clone());
             setup_settings_watcher(app.handle().clone());
             diagnostics::record("services_ready", "hooks and settings watcher initialized");
-            wifi::setup_wifi_notifications(app.handle().clone());
-            bluetooth::setup_bluetooth_notifications(app.handle().clone());
 
             // Listen for second-instance signal to open settings
             if let Some(&h_event) = SINGLE_INSTANCE_EVENT_HANDLE.get() {

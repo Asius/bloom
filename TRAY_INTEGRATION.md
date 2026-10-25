@@ -10,8 +10,8 @@ The tray lives at the bottom-right of the Bloom dock. Its chevron opens a dark,
 bounded hidden-icons panel above it; icons promoted by Windows remain visible
 beside the chevron. The notch has no tray button. `get_tray_icons` supplies both
 groups from one catalog. The old `bloom-tray-placement` setting is ignored.
-Command Center opens the custom tray when it is available, or the native
-fallback otherwise. Right-click the chevron for Explorer's native overflow.
+Right-click the chevron for Explorer's native overflow. The desktop baseline
+removes the duplicate Command Center entry.
 
 While a responding tray surface is available, unpinned apps without windows
 leave the dock and remain reachable in the tray. Pinned apps retain a launcher
