@@ -2605,6 +2605,7 @@ fn update_main_interaction(
     let main_rect_val = MAIN_WINDOW_RECT.lock().ok().and_then(|g| *g);
 
     if let Some((win_pos, _)) = main_rect_val {
+        is_click_interactive |= crate::tray::surface::hit("main", cursor, (win_pos.x, win_pos.y), scale);
         if let Ok(region) = NOTCH_RECT.try_lock() {
             if let Some(r) = *region {
                 let pad_x = (20.0 * scale) as i32;
@@ -2836,6 +2837,8 @@ fn update_dock_interaction(
             && cursor.y <= (win_pos.y + win_size.height as i32);
 
         if in_window {
+            is_click_interactive |= crate::tray::surface::hit(
+                "dock", cursor, (win_pos.x, win_pos.y), dock_win.scale_factor().unwrap_or(1.0));
             if let Ok(region) = DOCK_RECT.try_lock() {
                 if let Some(r) = *region {
                     let scale = dock_win.scale_factor().unwrap_or(1.0);
@@ -2975,6 +2978,16 @@ unsafe extern "system" fn mouse_hook_proc(
     // use. A cheap foreground check, and only on presses.
     if code >= 0 && wparam.0 == WM_LBUTTONDOWN as usize {
         START_OPEN_AT_PRESS.store(crate::commands::is_start_menu_open(), Ordering::Relaxed);
+    }
+    if code >= 0
+        && (wparam.0 == WM_LBUTTONDOWN as usize || wparam.0 == WM_RBUTTONDOWN as usize)
+        && crate::tray::surface::any_open()
+        && !TRAY_INTERACTION_ACTIVE.load(Ordering::Relaxed)
+    {
+        let point = (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt;
+        if let Some(app) = WINDOW_CHANGE_APP_HANDLE.get().cloned() {
+            std::thread::spawn(move || crate::tray::surface::dismiss_outside(&app, point));
+        }
     }
     // A dock menu or the Add App popup closes when you press outside it. The
     // dock window's region keeps it from catching that press, so the dock

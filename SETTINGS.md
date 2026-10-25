@@ -19,6 +19,14 @@ Edit `settings.json` with any text editor while Bloom is running. Changes are ap
 
 ### Dock
 
+`bloom-tray-placement` is `"notch"` (default) or `"right"`. Choose it in
+Settings → Dock → System tray. Both use the same live catalog and actions.
+Missing, deleted or invalid values restore the notch. When the dock is disabled,
+the right-hand option uses the notch so the tray remains reachable.
+The right strip follows the compact dock's dimensions; overflow scrolls without
+growing the viewport. Keyboard arrows/Tab reach every icon; Escape closes it.
+Right-click the tray toggle for Explorer's native overflow fallback.
+
 | Key                                | Type                             | Default       | Description                                                                                                                                                                      |
 | ---------------------------------- | -------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bloom-dock-enabled`               | `"true"` / `"false"`             | `"true"`      | Show or hide the Bloom Dock (taskbar replacement).                                                                                                                               |

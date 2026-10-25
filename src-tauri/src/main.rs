@@ -149,6 +149,8 @@ fn main() {
             get_active_windows,
             get_tray_apps,
             get_tray_icons,
+            tray::surface::update_tray_surface,
+            tray::surface::tray_surface_available,
             show_tray_context_menu,
             activate_tray_icon,
             open_system_action,

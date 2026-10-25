@@ -4,14 +4,30 @@ The dock and the future tray placements share discovery and native actions.
 They use different representations: a dock app can own several notification
 icons. A tray icon is not evidence of an open application window.
 
-## Current dock behavior
+## Custom tray and dock behavior
+
+Settings → Dock → System tray selects the approved notch grid (default) or
+bottom-right strip. One `SystemTray` component and `get_tray_icons` supply both;
+inactive placements do not create a second catalog poll. The Command Center
+button opens the configured custom tray when it is available, or the native
+fallback otherwise. Right-click either custom tray toggle for Windows' tray.
+
+While a responding tray surface is available, unpinned apps without windows
+leave the dock and remain reachable in the tray. Pinned apps retain a launcher
+without an open-window/background dot. Real windows continue to use normal dock
+dots/previews. The dock falls back to the previous resident representation if
+the custom catalog fails, its window is hidden or its availability lease expires.
+The surface renews that lease every two seconds (expires after eight); the dock's
+existing ten-second safety poll also converges after a silent failure. Native
+actions still revalidate identifiers independently of this availability signal.
+
+The following rules describe that fallback:
 
 An unpinned app remains after its last window closes only if Bloom observed its
 window in this session and it still has a live notification icon. Other tray-only
 apps do not fill the dock. Pinned apps can show a grey background dot; windowed
-apps keep window dots and previews. This resident representation remains until
-the separate tray UI is available. Closing WhatsApp to the tray therefore still
-leaves its current dock access.
+apps keep window dots and previews. When the custom tray is unavailable, closing
+WhatsApp to the tray therefore still leaves its dock fallback access.
 
 - Click a background app to invoke its notification icon's default action.
 - Right-click for Bloom's menu; "App tray menu" opens its native context menu.
@@ -22,11 +38,14 @@ leaves its current dock access.
 ## Per-icon catalog and action contract
 
 `get_tray_icons` returns `{ shell_id, icons }`; each icon has `id`, `name`, `path`,
-`is_promoted` and `is_shell_icon`. This independent catalog includes attributable
+`is_promoted`, `is_shell_icon` and optional `icon` PNG data URI. This independent catalog includes attributable
 live icons even when Bloom has never seen an app window, including icons hosted
 by Explorer and Bloom itself. `get_tray_apps` preserves the dock's grouped contract.
-`name` is the executable's display name, not a live tooltip. Dynamic tray artwork
-and live tooltip extraction remain work for UI integration.
+`name` is the executable's display name, not a live tooltip. `icon` comes from
+Windows' cached `IconSnapshot`, after PNG validation and limits of 64 KiB and
+128×128 pixels. It can lag behind dynamic status; no unread-count or connection
+state is inferred from it. Unavailable artwork uses a named initial fallback.
+Live tooltip/status extraction remains future work.
 
 `id` is an opaque, transient action token. Pass it unchanged to
 `activate_tray_icon` or `show_tray_context_menu`; do not save or parse it.
@@ -55,7 +74,7 @@ hints. Ambiguous selection fails; the native tray lets the user select manually.
 `InitialTooltip` is only a private matching hint, never a live tooltip or liveness
 test, and is not included in the public catalog or diagnostic output.
 
-The existing Command Center **System Tray** button now calls `open_system_tray`.
+The native fallback calls `open_system_tray`.
 This awaits `Result<bool, String>`: `true` after opening and dismissal, `false`
 when there is no supported hidden-icons button, or an error. It finds one enabled,
 onscreen chevron by AutomationId, class and control type; it never sends Win+B
@@ -90,8 +109,22 @@ returns an error when its registry source is unavailable. Window-based dock
 behavior is preserved. Universal tray coverage, mixed-DPI action correctness and
 shell-restart recovery are not proven by pure tests or read-only discovery.
 
-The approved notch grid and bottom-right horizontal strip are subsequent steps;
-both will consume the same catalog/actions. Neither is added by this foundation.
+The notch keeps a three-column grid with a bounded scrollable viewport. The
+horizontal strip is anchored to the lower right and opens leftward, bounded by
+the compact dock's layout width/height and its scale. Its width uses the layout
+box rather than Framer's temporary transform during an app-closing animation.
+It scrolls horizontally (wheel, arrows or Tab) without growing to fit more icons.
+No new window or dependencies are introduced. Separate per-window hit rectangles
+avoid making the empty desktop between notch/dock and tray intercept input.
+
+Escape, outside press and blur close the custom tray. Default/context actions
+close it before opening the native app/menu. Shift+F10 reaches each icon's native
+menu. A busy native operation blocks repeated actions. Menus near the notch are
+positioned below the pointer; bottom-dock menus remain above the dock.
+Catalog refresh is shared within a surface: every two seconds while open, ten
+while closed, and immediately when opening/after an action. Availability heartbeats
+do not themselves re-enumerate Explorer. Empty/error results use a native notice
+and preserve the native toggle fallback instead of inventing another layout.
 
 ## Validation
 
@@ -106,11 +139,16 @@ cargo test --locked
 cargo test --locked live_tray_catalog -- --ignored --nocapture
 ```
 
-24 October 2026: 64 Bun tests, 89 Rust tests and build/check/Clippy pass (11 existing
+24 October 2026: 68 Bun tests, 93 Rust tests and build/check/Clippy pass (11 existing
 Clippy warnings; two native tests ignored by default). The optional catalog check
 found eight live icons, three promoted and zero Explorer-hosted in that snapshot.
 It checks uniqueness, stable shell session and readable existing layered attributes.
-It does not prove native activation, complete coverage or restoration.
+It does not prove native activation, complete coverage or restoration. Browser
+checks with mocked IPC additionally exercise real Dock/SystemTray components:
+resident removal and fallback, retained pinned launcher, one default action,
+context-menu busy state, location changes, Escape, outside press, 18-icon keyboard
+overflow and proportional dimensions at scales 1 and 1.3. These are not installed
+Windows tests. The owner confirmed only the native overflow opening in 3.10.5.
 
 The owner performs physical installed tests; these remain pending until reported:
 

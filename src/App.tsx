@@ -1,9 +1,11 @@
 import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, memo } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { message } from "@tauri-apps/plugin-dialog";
 import { createNativeTrayAction } from "./tray";
+import { SystemTray } from "./components/SystemTray";
+import { useTrayPlacement } from "./hooks/useTrayPlacement";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
 import type { UpdateCheckResult } from "./updater";
@@ -497,6 +499,8 @@ const TitleMarquee = ({ title }: { title: string }) => {
 };
 
 function App() {
+	const trayPreferences = useTrayPlacement();
+	const [trayNotchOpen, setTrayNotchOpen] = useState(false);
 	useEffect(() => {
 		return initTheme();
 	}, []);
@@ -736,7 +740,8 @@ function App() {
 			...measureElements([
 				[".activity-bubble", 16],
 				[".status-tooltip", 28],
-				[".screen-corner", 0]
+				[".screen-corner", 0],
+				[".bloom-tray-popup", 24], [".bloom-tray-toggle", 4]
 			])
 		);
 		sendNotchRegion(wanted);
@@ -749,7 +754,7 @@ function App() {
 	const appliedDock = useRef<{ enabled: boolean; mode: string } | null>(null);
 	const appliedNotchMode = useRef<string | null>(null);
 
-	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
+	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered || trayNotchOpen;
 	const isHidden =
 		!startupAnimating &&
 		((notchMode === "smart" && isOverlapped && interactionState === "none") ||
@@ -2494,9 +2499,15 @@ function App() {
 		[]
 	);
 	const openSystemTray = useCallback(
-		(e: React.MouseEvent) => {
+		async (e: React.MouseEvent) => {
 			e.stopPropagation();
-			void nativeTrayAction().catch(console.error);
+			try {
+				if (await invoke<boolean>("tray_surface_available")) {
+					await emit("tray-toggle");
+				} else {
+					await nativeTrayAction();
+				}
+			} catch (error) { console.error(error); }
 		},
 		[nativeTrayAction]
 	);
@@ -2821,6 +2832,9 @@ function App() {
 
 	return (
 		<div className="screen" style={{ overflow: "hidden" }}>
+			{trayPreferences.ready && isExpanded && (trayPreferences.placement === "notch" || !dockEnabled) && isVisible &&
+				<SystemTray placement="notch" scale={scale} anchorRef={timeCenterRef} onGeometry={updateNotchRegion}
+					visible={!isHidden} onOpenChange={setTrayNotchOpen} />}
 			{/* Screen Corners (Top) */}
 			<AnimatePresence>
 				{isVisible && settingsCornersEnabled && (

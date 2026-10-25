@@ -5,11 +5,26 @@ export interface TrayIcon {
 	path: string;
 	is_promoted: boolean;
 	is_shell_icon: boolean;
+	icon: string | null;
 }
 
 export interface TraySnapshot {
 	shell_id: string;
 	icons: TrayIcon[];
+}
+
+export type TrayPlacement = "notch" | "right";
+export const TRAY_PLACEMENT_KEY = "bloom-tray-placement";
+export const trayPlacement = (value: unknown): TrayPlacement =>
+	value === "right" ? "right" : "notch";
+
+/** Keep the strip's viewport within the compact dock's configured dimensions. */
+export function trayStripSize(width: number, height: number, scale: number) {
+	const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+	return {
+		width: Math.max(28, Math.min(width / safeScale || 140, 248)),
+		height: Math.max(28, Math.min(height / safeScale || 36, 44))
+	};
 }
 
 type NoticeKind = "info" | "error";

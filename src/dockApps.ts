@@ -168,7 +168,8 @@ export function selectDockTrayApps(
 	windows: AppInfo[],
 	tray: TrayApp[],
 	previouslyOpened: Set<string>,
-	isPinned: (app: TrayApp) => boolean
+	isPinned: (app: TrayApp) => boolean,
+	separateTrayAvailable = false
 ): { visible: TrayApp[]; observed: Set<string> } {
 	const observed = new Set<string>();
 	for (const app of tray) {
@@ -178,7 +179,11 @@ export function selectDockTrayApps(
 		}
 	}
 	return {
-		visible: tray.filter((app) => observed.has(trayPath(app)) || isPinned(app)),
+		// Keep observation history for recovery, but represent residents in the
+		// responding custom tray instead of inventing open dock windows.
+		visible: separateTrayAvailable
+			? []
+			: tray.filter((app) => observed.has(trayPath(app)) || isPinned(app)),
 		observed
 	};
 }

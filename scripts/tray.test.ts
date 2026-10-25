@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { createNativeTrayAction } from "../src/tray";
+import { createNativeTrayAction, trayPlacement, trayStripSize } from "../src/tray";
+
+test("missing, deleted and invalid placement values restore the notch", () => {
+	for (const value of [null, undefined, "", "off", "bottom"])
+		expect(trayPlacement(value)).toBe("notch");
+	expect(trayPlacement("right")).toBe("right");
+});
+test("the strip follows dock dimensions and does not grow with icon count", () => {
+	expect(trayStripSize(210, 54, 1.5)).toEqual({ width: 140, height: 36 });
+	expect(trayStripSize(120, 32, 1)).toEqual({ width: 120, height: 32 });
+	expect(trayStripSize(1600, 100, 1)).toEqual({ width: 248, height: 44 });
+});
 
 describe("native tray control", () => {
 	test("repeated clicks do not issue overlapping native requests", async () => {

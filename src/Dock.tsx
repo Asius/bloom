@@ -4,6 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./Dock.css";
 import { EdgeSurface } from "./components/EdgeSurface";
+import { SystemTray } from "./components/SystemTray";
+import { useTrayPlacement } from "./hooks/useTrayPlacement";
+import { trayStripSize } from "./tray";
 import { initTheme } from "./theme";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
@@ -94,6 +97,9 @@ function WindowDots({ count, background }: { count: number; background?: boolean
 }
 
 const Dock = memo(function Dock() {
+	const trayPreferences = useTrayPlacement();
+	const [traySize, setTraySize] = useState({ width: 140, height: 36 });
+	const [dockEnabled, setDockEnabled] = useState(() => localStorage.getItem("bloom-dock-enabled") !== "false");
 	useEffect(() => {
 		return initTheme();
 	}, []);
@@ -269,6 +275,12 @@ const Dock = memo(function Dock() {
 		const updateRect = () => {
 			if (dockRef.current) {
 				const rect = dockRef.current.getBoundingClientRect();
+				if (isExpanded && !isHidden && rect.width > 40) {
+					// Framer's layout transform briefly retains the previous visual
+					// width. Use the settled layout box so closing an app also shrinks the tray.
+					const next = trayStripSize(dockRef.current.offsetWidth * scale, dockRef.current.offsetHeight * scale, scale);
+					setTraySize(old => Math.abs(old.width - next.width) < .5 && Math.abs(old.height - next.height) < .5 ? old : next);
+				}
 				const hasPreview = !!previewData;
 				invoke("update_dock_rect", {
 					rect: {
@@ -290,7 +302,7 @@ const Dock = memo(function Dock() {
 			window.removeEventListener("resize", updateRect);
 			observer.disconnect();
 		};
-	}, [pinnedApps, activeApps, isHidden, previewData, scale]);
+	}, [pinnedApps, activeApps, isHidden, previewData, scale, isExpanded]);
 
 	useEffect(() => {
 		const init = async () => {
@@ -305,6 +317,7 @@ const Dock = memo(function Dock() {
 			};
 
 			const dMode = getVal("bloom-dock-mode", "smart");
+			setDockEnabled(getVal("bloom-dock-enabled", "true") !== "false");
 			if (dMode) {
 				const mapped = dMode === "auto-hide" ? "smart" : dMode;
 				setDockMode(mapped);
@@ -395,6 +408,7 @@ const Dock = memo(function Dock() {
 		"bloom-dock-mode": setDockMode,
 		"bloom-dock-preview-enabled": setDockPreviewEnabled,
 		"bloom-dock-icon-only": setDockIconOnly,
+		"bloom-dock-enabled": setDockEnabled,
 		"bloom-dock-separator-enabled": setDockSeparatorEnabled,
 		"bloom-dock-adaptive": setDockAdaptive,
 		"bloom-dock-task-view": setDockTaskView,
@@ -445,10 +459,12 @@ const Dock = memo(function Dock() {
 			const seq = ++pollSeq;
 			let windows: AppInfo[];
 			let tray: TrayApp[];
+			let separateTrayAvailable = false;
 			try {
-				[windows, tray] = await Promise.all([
+				[windows, tray, separateTrayAvailable] = await Promise.all([
 					invoke<AppInfo[]>("get_active_windows"),
-					invoke<TrayApp[]>("get_tray_apps").catch(() => [])
+					invoke<TrayApp[]>("get_tray_apps").catch(() => []),
+					invoke<boolean>("tray_surface_available").catch(() => false)
 				]);
 			} catch (error) {
 				console.error("Failed to refresh dock apps:", error);
@@ -466,7 +482,7 @@ const Dock = memo(function Dock() {
 						is_running: true,
 						executable: fileOf(app.path)
 					})
-				)
+				), separateTrayAvailable
 			);
 			observedTrayPathsRef.current = selected.observed;
 			const running = mergeTrayApps(windows, selected.visible, activeAppsRef.current);
@@ -494,6 +510,7 @@ const Dock = memo(function Dock() {
 		refreshQuietly();
 
 		const unlistenWindowChange = listen("windows-changed", refreshQuietly);
+		const unlistenTraySurface = listen("tray-surface-changed", refreshQuietly);
 
 		// Safety net: even if a window event is missed, converge on the real state
 		const interval = setInterval(refreshQuietly, 10000);
@@ -502,6 +519,7 @@ const Dock = memo(function Dock() {
 			stopped = true;
 			clearInterval(interval);
 			unlistenWindowChange.then((f) => f());
+			unlistenTraySurface.then((f) => f());
 		};
 	}, [isDragging, pinnedApps]);
 
@@ -1078,6 +1096,8 @@ const Dock = memo(function Dock() {
 
 	return (
 		<div className={`dock-container ${isDragging ? "dragging" : ""}`} onClick={closeMenu}>
+			{trayPreferences.ready && trayPreferences.placement === "right" && dockEnabled && isVisible && isReady &&
+				<SystemTray placement="right" scale={scale} width={traySize.width} height={traySize.height} />}
 			<div
 				style={{
 					width: "100%",

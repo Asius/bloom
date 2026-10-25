@@ -2,6 +2,28 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub(super) fn snapshot_png(bytes: &[u8]) -> Option<String> {
+    use base64::Engine;
+    // Bound dimensions before decoding an undocumented registry value.
+    if bytes.len() < 33
+        || bytes.len() > 65536
+        || &bytes[..8] != b"\x89PNG\r\n\x1a\n"
+        || &bytes[12..16] != b"IHDR"
+    {
+        return None;
+    }
+    let width = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
+    let height = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+    if !(1..=128).contains(&width) || !(1..=128).contains(&height) {
+        return None;
+    }
+    image::load_from_memory_with_format(bytes, image::ImageFormat::Png).ok()?;
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
 fn normalized_path(path: &str) -> String {
     path.replace('/', "\\").to_lowercase()
 }
@@ -55,6 +77,22 @@ pub(super) fn normalized_label(label: &str) -> String {
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+pub(super) fn menu_y(
+    anchor: i32,
+    height: i32,
+    top: i32,
+    bottom: i32,
+    dock_top: Option<i32>,
+) -> i32 {
+    let available_above = anchor - top;
+    let desired = if available_above < height && anchor < top + (bottom - top) / 2 {
+        anchor + 8 // Notch: open below the pointer rather than over the header.
+    } else {
+        dock_top.map_or(anchor, |bar| bar.min(anchor)) - height
+    };
+    desired.clamp(top, (bottom - height).max(top))
 }
 
 pub(super) struct IconLabel {
@@ -198,6 +236,30 @@ pub(super) fn restoration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn artwork_rejects_corrupt_and_oversized_registry_values() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2, 2)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let mut png = bytes.into_inner();
+        assert!(snapshot_png(&png)
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
+        assert!(snapshot_png(&png[..32]).is_none());
+        png[16..20].copy_from_slice(&100000u32.to_be_bytes());
+        assert!(snapshot_png(&png).is_none());
+        assert!(snapshot_png(&[0; 65537]).is_none());
+    }
+
+    #[test]
+    fn menus_fit_below_the_notch_and_above_the_bottom_dock_on_negative_monitors() {
+        assert_eq!(menu_y(30, 240, 0, 1080, Some(1030)), 38);
+        assert_eq!(menu_y(1050, 240, 0, 1080, Some(1030)), 790);
+        assert_eq!(menu_y(-1060, 240, -1080, 0, Some(-50)), -1052);
+        assert_eq!(menu_y(10, 2000, 0, 1080, None), 0);
+    }
 
     fn label(path: &str, name: &str, hint: Option<&str>) -> IconLabel {
         IconLabel {

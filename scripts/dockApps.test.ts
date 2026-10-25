@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	matchesPackagedExecutable,
+	buildDockItems,
 	mergeTrayApps,
 	selectDockTrayApps,
 	type AppInfo,
@@ -21,6 +22,22 @@ const windowApp: AppInfo = {
 	all_hwnds: [[11, "Discord"]]
 };
 describe("dock tray lifecycle", () => {
+	test("a responding separate tray removes unpinned residents but retains real windows", () => {
+		const opened = selectDockTrayApps([windowApp], [tray], new Set(), () => false, true);
+		expect(mergeTrayApps([windowApp], opened.visible)).toMatchObject([
+			{ hwnd: 11, is_background: false }
+		]);
+		const closed = selectDockTrayApps([], [tray], opened.observed, () => false, true);
+		expect(mergeTrayApps([], closed.visible)).toEqual([]);
+		const fallback = selectDockTrayApps([], [tray], closed.observed, () => false, false);
+		expect(mergeTrayApps([], fallback.visible)[0].is_background).toBe(true);
+	});
+	test("a pinned resident retains its launcher without a false open-window indicator", () => {
+		const selected = selectDockTrayApps([], [tray], new Set(), () => true, true);
+		const items = buildDockItems([windowApp], mergeTrayApps([], selected.visible), []);
+		expect(items[1]).toMatchObject({ path: windowApp.path, is_pinned: true, is_running: false });
+		expect(items[1].all_hwnds).toBeUndefined();
+	});
 	test("merges a helper-owned Steam window through its resolved executable identity", () => {
 		const steam = { ...tray, path: "C:\\Steam\\steam.exe", window_handles: [22] };
 		const helper = {

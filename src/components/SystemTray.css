@@ -1,0 +1,19 @@
+.bloom-tray { color: white; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+.bloom-tray-notch { display: inline-flex; position: fixed; z-index: 300; }
+.screen:has(.bloom-tray-notch) .time-center { padding-right: 24px; }
+.bloom-tray-toggle { border: 0; background: transparent; color: inherit; padding: 0; width: 24px; height: 26px; display: grid; place-items: center; cursor: pointer; flex-shrink: 0; border-radius: 6px; }
+.bloom-tray-toggle:hover, .bloom-tray-icon:hover { background: #ffffff20; }
+.bloom-tray-toggle:focus-visible, .bloom-tray-icon:focus-visible { outline: 2px solid white; outline-offset: -3px; }
+.bloom-tray-notch-panel { position: fixed; z-index: 500; top: 36px; left: 50%; transform: translateX(-50%); }
+.bloom-tray-popup { display: grid; grid-template-columns: repeat(3, 44px); grid-auto-rows: 44px; gap: 4px; padding: 8px; width: 156px; max-height: 112px; background: #101010f5; border-radius: 12px; box-shadow: 0 8px 22px #0005; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; }
+.bloom-tray-icons { scrollbar-width: none; }
+.bloom-tray-icons::-webkit-scrollbar { display: none; }
+.bloom-tray-icon { display: grid; place-items: center; border: 0; color: white; background: transparent; border-radius: 7px; cursor: pointer; padding: 0; min-width: 0; }
+.bloom-tray-icon img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
+.bloom-tray-right { position: absolute; right: 0; bottom: 0; background: #101010f5; border-radius: 12px 0 0 0; display: flex; align-items: center; padding: 3px; box-shadow: 0 3px 14px #0005; z-index: 150; max-width: 45vw; }
+.bloom-tray-right .bloom-tray-toggle { height: 100%; width: 24px; margin-left: auto; }
+.bloom-tray-right.is-open .bloom-tray-toggle { border-left: 1px solid #ffffff35; border-radius: 0; }
+.bloom-tray-right .bloom-tray-icons { display: flex; flex: 1; height: 100%; overflow-x: auto; min-width: 0; align-items: stretch; overscroll-behavior: contain; }
+.bloom-tray-right .bloom-tray-icon { flex: 0 0 30px; }
+.bloom-tray-right .bloom-tray-icon img { width: 20px; height: 20px; }
+.bloom-tray button:disabled { cursor: wait; opacity: .65; }

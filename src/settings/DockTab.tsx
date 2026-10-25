@@ -21,6 +21,9 @@ import {
 	X
 } from "lucide-react";
 import { SettingRow } from "./SettingRow";
+import { useTrayPlacement } from "../hooks/useTrayPlacement";
+import { trayPlacement } from "../tray";
+import { message } from "@tauri-apps/plugin-dialog";
 import {
 	KNOWN_FOLDER_OPTIONS,
 	driveLetter,
@@ -172,6 +175,7 @@ export function DockTab({
 	startIcon,
 	handleStartIconChange
 }: DockTabProps) {
+	const tray = useTrayPlacement();
 	const handleStartIconUpload = (e: ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
 		if (!file) return;
@@ -187,6 +191,12 @@ export function DockTab({
 		<>
 			<div className="setting-group-label">Dock</div>
 			<div className="setting-group">
+				<SettingRow icon={LayoutPanelLeft} label="System tray" desc="Background apps: choose notch or bottom-right strip. Right-click its button for Windows tray.">
+					<select className="settings-select" aria-label="System tray location" disabled={!tray.ready || tray.saving} value={tray.placement}
+						onChange={e => void tray.save(trayPlacement(e.target.value)).catch(error => message(String(error), { title: "System Tray", kind: "error" }))}>
+						<option value="notch">Notch</option><option value="right">Bottom right</option>
+					</select>
+				</SettingRow>
 				<SettingRow icon={Monitor} label="Bloom Dock" desc="Replace Windows taskbar">
 					<label className="toggle-switch">
 						<input type="checkbox" checked={dockEnabled} onChange={toggleDock} />

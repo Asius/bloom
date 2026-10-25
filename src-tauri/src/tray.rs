@@ -1,6 +1,7 @@
 //! Read-only discovery of live notification icons. Registry entries are only
 //! candidates: Shell_NotifyIconGetRect must confirm each icon before it is used.
 mod model;
+pub(crate) mod surface;
 
 use model::{icon_identity, normalized_label, OperationGuard, Restoration};
 use serde::Serialize;
@@ -31,6 +32,8 @@ pub struct TrayIcon {
     pub path: String,
     pub is_promoted: bool,
     pub is_shell_icon: bool,
+    /// Windows' cached artwork, not a guaranteed live status indicator.
+    pub icon: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -184,6 +187,7 @@ struct Icon {
     identifier: NOTIFYICONIDENTIFIER,
     promoted: bool,
     label_hint: Option<String>,
+    artwork: Option<String>,
 }
 
 impl Icon {
@@ -321,6 +325,8 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<V
             path,
             identifier: id,
             label_hint: string(key.0, "InitialTooltip"),
+            artwork: value(key.0, "IconSnapshot", REG_BINARY)
+                .and_then(|bytes| model::snapshot_png(&bytes)),
             promoted: value(key.0, "IsPromoted", REG_DWORD)
                 .and_then(|v| <[u8; 4]>::try_from(v).ok())
                 .map(u32::from_le_bytes)
@@ -348,6 +354,7 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                     is_shell_icon: is_explorer_hosted_icon(&icon.path),
                     path: icon.path,
                     is_promoted: icon.promoted,
+                    icon: icon.artwork,
                 }
             })
             .collect();
@@ -987,8 +994,7 @@ unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Op
         let x = anchor
             .x
             .clamp(area.left, (area.right - width).max(area.left));
-        let bottom = dock_bar_top().map_or(anchor.y, |top| top.min(anchor.y));
-        let y = (bottom - height).clamp(area.top, (area.bottom - height).max(area.top));
+        let y = model::menu_y(anchor.y, height, area.top, area.bottom, dock_bar_top());
         let _ = SetWindowPos(
             menu,
             None,
