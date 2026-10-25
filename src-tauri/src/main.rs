@@ -145,6 +145,7 @@ fn main() {
             get_tray_icons,
             tray::surface::update_tray_surface,
             tray::surface::tray_surface_available,
+            tray::surface::report_tray_input,
             show_tray_context_menu,
             activate_tray_icon,
             open_system_action,
@@ -307,6 +308,17 @@ fn main() {
             });
 
             sync_overlays(app.handle());
+
+            if let Some(tray) = app.get_webview_window("tray") {
+                // No ignore-cursor flag here: the native region alone bounds input.
+                let handle = app.handle().clone();
+                tray.on_window_event(move |e| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                        api.prevent_close();
+                        restore_taskbar_and_exit(&handle);
+                    }
+                });
+            }
 
             // Initialize the overlay window — on Windows, set_position doesn't
             // take effect on a window that has never been shown. Show it once

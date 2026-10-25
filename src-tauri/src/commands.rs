@@ -294,6 +294,7 @@ fn disable_dock(app: &AppHandle) {
     }
     DOCK_APPBAR_REGISTERED.store(false, Ordering::Relaxed);
     crate::services::reconcile_main_appbar(app);
+    crate::tray::surface::sync_visibility(app);
 }
 
 #[tauri::command]

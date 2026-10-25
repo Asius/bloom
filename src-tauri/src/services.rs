@@ -1610,7 +1610,11 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                 );
                 CURRENT_NOTCH_OVERLAP
                     .store(if should_notch_overlap { 1 } else { 0 }, Ordering::Relaxed);
-                CURRENT_FOREGROUND_FULLSCREEN.store(current_is_fs, Ordering::Relaxed);
+                if CURRENT_FOREGROUND_FULLSCREEN.swap(current_is_fs, Ordering::Relaxed)
+                    != current_is_fs
+                {
+                    crate::tray::surface::sync_visibility(&handle_visibility);
+                }
 
                 if Some(effective_dock_overlap) != last_dock_overlap
                     || last_emit.elapsed() >= Duration::from_secs(3)
@@ -1792,6 +1796,10 @@ static MH_LAST_MONITOR_UPDATE_MS: AtomicI64 = AtomicI64::new(0);
 static MH_CACHED_MON_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static MH_CACHED_MON_SIZE: Mutex<Option<(u32, u32)>> = Mutex::new(None);
 static CAPTURE_UI_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn capture_ui_active() -> bool {
+    CAPTURE_UI_ACTIVE.load(Ordering::Relaxed)
+}
 static CAPTURE_RECHECK: AtomicBool = AtomicBool::new(true);
 static CAPTURE_LAST_SCAN_MS: AtomicI64 = AtomicI64::new(0);
 
@@ -2071,6 +2079,7 @@ fn apply_capture_ui_state(app: &AppHandle, active: bool) {
     MH_TOP_EDGE_ARMED.store(false, Ordering::Relaxed);
     MH_DOCK_EDGE_ENTER_MS.store(0, Ordering::Relaxed);
     MH_DOCK_EDGE_ARMED.store(false, Ordering::Relaxed);
+    crate::tray::surface::sync_visibility(app);
 }
 
 pub fn setup_mouse_hook(app_handle: AppHandle) {
@@ -2351,8 +2360,6 @@ fn update_main_interaction(
     let main_rect_val = MAIN_WINDOW_RECT.lock().ok().and_then(|g| *g);
 
     if let Some((win_pos, _)) = main_rect_val {
-        is_click_interactive |=
-            crate::tray::surface::hit("main", cursor, (win_pos.x, win_pos.y), scale);
         if let Ok(region) = NOTCH_RECT.try_lock() {
             if let Some(r) = *region {
                 let pad_x = (20.0 * scale) as i32;
@@ -2571,17 +2578,7 @@ fn update_dock_interaction(
         .map(|s| (s.0 as i32, s.1 as i32))
         .unwrap_or((1920, 1080));
 
-    // The tray is independent of the central dock's reveal/preview rectangle.
-    // Read its current client origin: AppBar/DPI changes can invalidate the
-    // cached outer rectangle while the tray remains visible in the corner.
-    let mut is_click_interactive = dock_win.inner_position().is_ok_and(|origin| {
-        crate::tray::surface::hit(
-            "dock",
-            cursor,
-            (origin.x, origin.y),
-            dock_win.scale_factor().unwrap_or(1.0),
-        )
-    });
+    let mut is_click_interactive = false;
     let mut is_hovered = false;
     let mut dock_span: Option<(i32, i32)> = None;
 
@@ -3984,6 +3981,7 @@ fn reposition_all_windows(app_handle: &AppHandle) {
         set_taskbar_visibility(false, false);
     }
     sync_overlays(app_handle);
+    crate::tray::surface::sync_visibility(app_handle);
     // Re-assert topmost on all windows after repositioning to recover from any z-order loss
     if let Some(main_win) = app_handle.get_webview_window("main") {
         if let Ok(hwnd) = main_win.hwnd() {

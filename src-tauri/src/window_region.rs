@@ -9,7 +9,7 @@
 //! CSS pixels, whenever they change.
 
 use tauri::Window;
-use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, RGN_OR,
 };
@@ -51,9 +51,14 @@ pub fn set_window_region(window: Window, rects: Vec<IntRect>) {
         GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT.0 != 0
     };
     crate::utils::set_click_through(hwnd, click_through);
+    apply_region(hwnd, &rects, scale);
+}
+
+/// Shared with the hidden-HWND regression test; never operates on Explorer.
+pub(crate) fn apply_region(hwnd: HWND, rects: &[IntRect], scale: f64) -> bool {
     unsafe {
         let region = CreateRectRgn(0, 0, 0, 0);
-        for rect in physical_rects(&rects, scale) {
+        for rect in physical_rects(rects, scale) {
             let part = CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
             CombineRgn(Some(region), Some(region), Some(part), RGN_OR);
             let _ = DeleteObject(part.into());
@@ -62,7 +67,9 @@ pub fn set_window_region(window: Window, rects: Vec<IntRect>) {
         // success. Redraw so the newly uncovered parts paint.
         if SetWindowRgn(hwnd, Some(region), true) == 0 {
             let _ = DeleteObject(region.into());
+            return false;
         }
+        true
     }
 }
 

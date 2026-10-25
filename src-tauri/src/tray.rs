@@ -341,7 +341,17 @@ pub fn catalog() -> Result<TraySnapshot, String> {
         let shell = ShellSession::current()?;
         let windows = process_windows();
         let mut names = HashMap::new();
-        let mut icons: Vec<_> = live_icons(&windows, true)?
+        let order = tray_order().unwrap_or_default();
+        let mut live = live_icons(&windows, true)?;
+        live.sort_by(|a, b| {
+            order
+                .get(&a.key)
+                .copied()
+                .unwrap_or(usize::MAX)
+                .cmp(&order.get(&b.key).copied().unwrap_or(usize::MAX))
+                .then(a.key.cmp(&b.key))
+        });
+        let icons: Vec<_> = live
             .into_iter()
             .map(|icon| {
                 let name = names
@@ -363,7 +373,6 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                 "Windows Explorer restarted while reading the tray. Please try again.".into(),
             );
         }
-        icons.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
         Ok(TraySnapshot {
             shell_id: shell.id(),
             icons,

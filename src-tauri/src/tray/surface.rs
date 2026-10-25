@@ -1,4 +1,4 @@
-//! Small hit regions and an expiring availability lease for the custom tray.
+//! Independent tray HWND with a native region, never dock hover click-through.
 //! Dock residents are removed only while a responding tray surface is available.
 use crate::types::IntRect;
 use std::{
@@ -32,7 +32,7 @@ fn inside(rect: &IntRect, x: f64, y: f64) -> bool {
 
 #[tauri::command]
 pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, open: bool) {
-    if !matches!(window.label(), "main" | "dock") {
+    if window.label() != "tray" {
         return;
     }
     let rects: Vec<IntRect> = rects
@@ -58,7 +58,7 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
         surfaces.insert(
             window.label().to_string(),
             Surface {
-                rects,
+                rects: rects.clone(),
                 ready,
                 open,
                 updated: Instant::now(),
@@ -74,6 +74,67 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
         if availability_changed {
             let _ = window.app_handle().emit("tray-surface-changed", ());
         }
+    }
+    // A dedicated HWND accepts input over its region at all times. Transparent
+    // desktop between the bar and flyout is excluded by SetWindowRgn itself.
+    crate::window_region::set_window_region(window.clone(), rects);
+    sync_visibility(window.app_handle());
+}
+
+pub fn sync_visibility(app: &AppHandle) {
+    use crate::state::{CURRENT_FOREGROUND_FULLSCREEN, NATIVE_TASKBAR_HIDDEN, SHUTTING_DOWN};
+    use std::sync::atomic::Ordering;
+    let Some(window) = app.get_webview_window("tray") else {
+        return;
+    };
+    let has_surface = SURFACES.lock().is_ok_and(|s| {
+        s.get("tray")
+            .is_some_and(|s| live(s) && !s.rects.is_empty())
+    });
+    let visible = has_surface
+        && crate::utils::dock_enabled()
+        && NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed)
+        && !SHUTTING_DOWN.load(Ordering::Relaxed)
+        && !CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed)
+        && !crate::services::capture_ui_active();
+    if !visible {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        }
+        return;
+    }
+    let Ok(Some(monitor)) = window.primary_monitor() else {
+        return;
+    };
+    let size = monitor.size();
+    let height = ((360.0 * monitor.scale_factor()).ceil() as u32).min(size.height);
+    let wanted = tauri::PhysicalSize::new(size.width, height);
+    let position = tauri::PhysicalPosition::new(
+        monitor.position().x,
+        monitor.position().y + (size.height - height) as i32,
+    );
+    if window.inner_size().ok() != Some(wanted) {
+        let _ = window.set_size(wanted);
+    }
+    if window.inner_position().ok() != Some(position) {
+        let _ = window.set_position(position);
+    }
+    if !window.is_visible().unwrap_or(false) {
+        let _ = window.show();
+    }
+    if let Ok(hwnd) = window.hwnd() {
+        // Unlike main/dock, tao's ignore-cursor flag is never enabled for tray.
+        crate::utils::set_click_through(hwnd, false);
+        if !crate::state::TRAY_INTERACTION_ACTIVE.load(Ordering::Relaxed) {
+            crate::utils::re_assert_topmost(hwnd);
+        }
+    }
+}
+
+#[tauri::command]
+pub fn report_tray_input(window: Window, control: String) {
+    if window.label() == "tray" && matches!(control.as_str(), "toggle" | "activate" | "context") {
+        crate::diagnostics::record("tray-input", &control);
     }
 }
 
@@ -164,5 +225,61 @@ mod tests {
         assert!(live(&s));
         s.updated -= LEASE;
         assert!(!live(&s));
+    }
+
+    #[test]
+    fn dedicated_hwnd_takes_tray_and_flyout_but_not_desktop_gap() {
+        use windows::core::w;
+        use windows::Win32::Graphics::Gdi::{
+            CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        // An invisible test-owned window; no clicks or changes to installed Bloom.
+        unsafe {
+            let hwnd = CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("Bloom region test"),
+                WS_POPUP,
+                -32000,
+                -32000,
+                600,
+                400,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            let regions = [
+                IntRect {
+                    x: 360,
+                    y: 360,
+                    width: 240,
+                    height: 40,
+                },
+                IntRect {
+                    x: 360,
+                    y: 220,
+                    width: 140,
+                    height: 120,
+                },
+            ];
+            assert!(crate::window_region::apply_region(hwnd, &regions, 1.0));
+            crate::utils::set_click_through(hwnd, false);
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            assert_eq!(style & WS_EX_TRANSPARENT.0, 0);
+            assert_ne!(style & WS_EX_LAYERED.0, 0);
+            let region = CreateRectRgn(0, 0, 0, 0);
+            GetWindowRgn(hwnd, region);
+            let bar = PtInRegion(region, 380, 380).as_bool();
+            let popup = PtInRegion(region, 380, 240).as_bool();
+            let gap = PtInRegion(region, 380, 350).as_bool();
+            let desktop = PtInRegion(region, 200, 380).as_bool();
+            let _ = DeleteObject(region.into());
+            let _ = DestroyWindow(hwnd);
+            assert!(bar && popup);
+            assert!(!gap && !desktop);
+        }
     }
 }

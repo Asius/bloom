@@ -10,17 +10,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
 import { ChevronUp } from "lucide-react";
+import { EdgeSurface } from "./EdgeSurface";
 import type { TrayIcon, TraySnapshot } from "../tray";
 import "./SystemTray.css";
 
 interface Props {
 	scale: number;
 	height: number;
-	onGeometry?: () => void;
 }
 
 /** Visible icons beside the dock chevron, hidden icons in a bounded flyout. */
-export function SystemTray({ scale, height, onGeometry }: Props) {
+export function SystemTray({ scale, height }: Props) {
 	const [snapshot, setSnapshot] = useState<TraySnapshot | null>(null);
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -35,16 +35,16 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 	const mounted = useRef(true);
 	const state = useRef({ healthy, open });
 	state.current = { healthy, open };
-	const geometry = useRef(onGeometry);
-	geometry.current = onGeometry;
 	const report = useCallback(() => {
 		const rects = [host.current, panel.current].filter(Boolean).map((el) => {
 			const r = el!.getBoundingClientRect();
+			// Include the shared dock flare and popup shadow in the native region.
+			const pad = 13 * scale;
 			return {
-				x: Math.floor(r.x),
-				y: Math.floor(r.y),
-				width: Math.ceil(r.right) - Math.floor(r.x),
-				height: Math.ceil(r.bottom) - Math.floor(r.y)
+				x: Math.floor(r.x - pad),
+				y: Math.floor(r.y - pad),
+				width: Math.ceil(r.right + pad) - Math.floor(r.x - pad),
+				height: Math.ceil(r.bottom + pad) - Math.floor(r.y - pad)
 			};
 		});
 		void invoke("update_tray_surface", {
@@ -52,8 +52,7 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 			ready: state.current.healthy,
 			open: state.current.open
 		}).catch(console.error);
-		geometry.current?.();
-	}, []);
+	}, [scale]);
 	const refresh = useCallback(async () => {
 		if (busyRef.current) return null;
 		if (request.current) return request.current;
@@ -113,7 +112,6 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 			document.removeEventListener("pointerdown", outside, true);
 			window.removeEventListener("resize", report);
 			void invoke("update_tray_surface", { rects: [], ready: false, open: false });
-			geometry.current?.();
 		};
 	}, [refresh, report]);
 	useLayoutEffect(() => {
@@ -128,6 +126,7 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 	}, [open]);
 	const action = async (icon?: TrayIcon, contextMenu = false) => {
 		if (busyRef.current) return;
+		void invoke("report_tray_input", { control: contextMenu ? "context" : "activate" });
 		busyRef.current = true;
 		setBusy(true);
 		setOpen(false);
@@ -156,6 +155,7 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 	};
 	const show = async () => {
 		if (busyRef.current) return;
+		void invoke("report_tray_input", { control: "toggle" });
 		if (open) {
 			setOpen(false);
 			return;
@@ -237,9 +237,9 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 						: e.key === "ArrowLeft"
 							? -1
 							: e.key === "ArrowDown"
-								? 4
+								? 3
 								: e.key === "ArrowUp"
-									? -4
+									? -3
 									: 0;
 				if (step) {
 					e.preventDefault();
@@ -264,6 +264,7 @@ export function SystemTray({ scale, height, onGeometry }: Props) {
 				e.stopPropagation();
 			}}
 		>
+			<EdgeSurface edge="bottom" />
 			{open && list}
 			<button
 				ref={toggle}
