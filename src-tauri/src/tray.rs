@@ -551,7 +551,7 @@ impl TrayExposure {
                 elements.GetElement(index).is_ok_and(|element| {
                     element
                         .CurrentAutomationId()
-                        .is_ok_and(|id| id == "NotifyItemIcon")
+                        .is_ok_and(|id| is_tray_button_id(&id.to_string()))
                         && element.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
                         && element
                             .CurrentIsOffscreen()
@@ -760,7 +760,7 @@ unsafe fn find_overflow_icon(
         };
         if element
             .CurrentAutomationId()
-            .is_ok_and(|id| id == "NotifyItemIcon")
+            .is_ok_and(|id| is_tray_button_id(&id.to_string()))
             && element.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
         {
             buttons.push(element);

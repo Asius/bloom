@@ -1,16 +1,17 @@
 # Windows notification area integration
 
-The dock and the future tray placements share discovery and native actions.
+The dock and the notification area share discovery and native actions.
 They use different representations: a dock app can own several notification
 icons. A tray icon is not evidence of an open application window.
 
 ## Custom tray and dock behavior
 
-Settings → Dock → System tray selects the approved notch grid (default) or
-bottom-right strip. One `SystemTray` component and `get_tray_icons` supply both;
-inactive placements do not create a second catalog poll. The Command Center
-button opens the configured custom tray when it is available, or the native
-fallback otherwise. Right-click either custom tray toggle for Windows' tray.
+The tray lives at the bottom-right of the Bloom dock. Its chevron opens a dark,
+bounded hidden-icons panel above it; icons promoted by Windows remain visible
+beside the chevron. The notch has no tray button. `get_tray_icons` supplies both
+groups from one catalog. The old `bloom-tray-placement` setting is ignored.
+Command Center opens the custom tray when it is available, or the native
+fallback otherwise. Right-click the chevron for Explorer's native overflow.
 
 While a responding tray surface is available, unpinned apps without windows
 leave the dock and remain reachable in the tray. Pinned apps retain a launcher
@@ -66,8 +67,9 @@ re-enumerate and reject stale tokens before invoking UIA. Refresh after errors.
 ## Native selection and fallback
 
 Promoted icons use their screen rectangle and the existing DPI-aware UIA matcher.
-Hidden icons use `UIOrderList` and Explorer's overflow buttons. Distinct name or
-cached-tooltip hints must agree with the order. A changed order/catalog is rejected.
+Hidden icons use `UIOrderList` and Explorer's overflow buttons. Both supported
+Windows UI Automation button IDs are accepted. Distinct names or cached-tooltip
+hints must agree with the order. A changed order/catalog is rejected.
 When counts differ, only one label unambiguously naming one known app is accepted.
 Several icons from the same executable additionally require unique matching
 hints. Ambiguous selection fails; the native tray lets the user select manually.
@@ -109,19 +111,17 @@ returns an error when its registry source is unavailable. Window-based dock
 behavior is preserved. Universal tray coverage, mixed-DPI action correctness and
 shell-restart recovery are not proven by pure tests or read-only discovery.
 
-The notch keeps a three-column grid with a bounded scrollable viewport. The
-horizontal strip is anchored to the lower right and opens leftward, bounded by
-the compact dock's layout width/height and its scale. Its width uses the layout
-box rather than Framer's temporary transform during an app-closing animation.
-It scrolls horizontally (wheel, arrows or Tab) without growing to fit more icons.
-No new window or dependencies are introduced. Separate per-window hit rectangles
-avoid making the empty desktop between notch/dock and tray intercept input.
+The bottom-right area follows the compact dock's height and scale. The flyout
+has a bounded four-column grid that scrolls vertically for more icons. The dock
+window region includes the flyout above its normal bottom band; its own hit
+rectangles keep the rest of the desktop click-through. No new window or
+dependency is introduced. Previously saved notch/right preferences are inert.
 
 Escape, outside press and blur close the custom tray. Default/context actions
 close it before opening the native app/menu. Shift+F10 reaches each icon's native
-menu. A busy native operation blocks repeated actions. Menus near the notch are
-positioned below the pointer; bottom-dock menus remain above the dock.
-Catalog refresh is shared within a surface: every two seconds while open, ten
+menu. A busy native operation blocks repeated actions. Recognized native menus
+stay above the dock, near the clicked icon.
+Catalog refresh is shared within the surface: every two seconds while open, ten
 while closed, and immediately when opening/after an action. Availability heartbeats
 do not themselves re-enumerate Explorer. Empty/error results use a native notice
 and preserve the native toggle fallback instead of inventing another layout.
@@ -150,12 +150,25 @@ context-menu busy state, location changes, Escape, outside press, 18-icon keyboa
 overflow and proportional dimensions at scales 1 and 1.3. These are not installed
 Windows tests. The owner confirmed only the native overflow opening in 3.10.5.
 
+25 October 2026: the owner confirmed that WhatsApp and Slack leave the dock
+after their last window closes, and reported that a Slack tray click can fail
+with a changed-icons error. The accepted revision moves the tray beside the
+dock, displays promoted icons continuously, and opens hidden icons above the
+chevron. It accepts both observed UIA button identifiers and can use a unique
+tooltip when an extra native icon shifts the old order. A mocked-browser check
+covered opening, visible icon action, menu busy state, keyboard overflow,
+catalog failure/recovery and resident fallback. These checks do not demonstrate
+that Slack's real native menu or every Windows icon now works.
+
 The owner performs physical installed tests; these remain pending until reported:
 
-1. System Tray opens; Escape/outside click closes it; repeat the action.
+1. Chevron at bottom-right opens the hidden-icons panel; Escape/outside click
+   closes it. Promoted icons remain beside the chevron. Notch has no tray button.
 2. No hidden icons/all promoted: report absence without opening another app.
 3. Background WhatsApp/Slack: default action and native context menu, then Quit;
    include promoted, hidden, multiple icons and app-defined tooltip names.
+   Compare the native Windows icon set with Bloom's panel and report any missing
+   icon by application name. Open OneDrive and Google Drive flyouts from Bloom.
 4. Exit Bloom with overflow/menu open, disable dock, restart Explorer: recover the
    intended taskbar state without transparency. Check pinned/unpinned access.
 5. Mixed DPI, multiple monitors, scale changes and permission-denied applications.

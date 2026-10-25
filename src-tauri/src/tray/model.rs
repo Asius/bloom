@@ -106,7 +106,11 @@ impl IconLabel {
     fn matches(&self, label: &str) -> bool {
         self.names
             .iter()
-            .any(|name| !name.is_empty() && label.contains(name))
+            .any(|name| name.len() >= 3 && label.contains(name))
+            || self.hint.as_deref().is_some_and(|hint| {
+                let hint = normalized_label(hint);
+                hint.len() >= 3 && label.contains(&hint)
+            })
     }
 }
 
@@ -323,6 +327,28 @@ mod tests {
             &icons,
             1,
             &["Beta 1".into(), "Alpha".into(), "Beta 2".into()]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_distinct_native_tooltip_resolves_an_extra_icon_without_using_its_old_position() {
+        let icons = [
+            label("drive.exe", "GoogleDriveFS", Some("Google Drive")),
+            label("onedrive.exe", "OneDrive", Some("OneDrive")),
+        ];
+        assert_eq!(
+            resolve_overflow_button(
+                &icons,
+                0,
+                &["Other".into(), "OneDrive - Synced".into(), "Google Drive".into()]
+            ),
+            Ok(2)
+        );
+        assert!(resolve_overflow_button(
+            &icons,
+            0,
+            &["Google Drive".into(), "Google Drive".into(), "OneDrive".into()]
         )
         .is_err());
     }

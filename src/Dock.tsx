@@ -5,8 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import "./Dock.css";
 import { EdgeSurface } from "./components/EdgeSurface";
 import { SystemTray } from "./components/SystemTray";
-import { useTrayPlacement } from "./hooks/useTrayPlacement";
-import { trayStripSize } from "./tray";
+import { trayHeight } from "./tray";
 import { initTheme } from "./theme";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
@@ -97,8 +96,7 @@ function WindowDots({ count, background }: { count: number; background?: boolean
 }
 
 const Dock = memo(function Dock() {
-	const trayPreferences = useTrayPlacement();
-	const [traySize, setTraySize] = useState({ width: 140, height: 36 });
+	const [trayBarHeight, setTrayBarHeight] = useState(36);
 	const [dockEnabled, setDockEnabled] = useState(() => localStorage.getItem("bloom-dock-enabled") !== "false");
 	useEffect(() => {
 		return initTheme();
@@ -278,8 +276,8 @@ const Dock = memo(function Dock() {
 				if (isExpanded && !isHidden && rect.width > 40) {
 					// Framer's layout transform briefly retains the previous visual
 					// width. Use the settled layout box so closing an app also shrinks the tray.
-					const next = trayStripSize(dockRef.current.offsetWidth * scale, dockRef.current.offsetHeight * scale, scale);
-					setTraySize(old => Math.abs(old.width - next.width) < .5 && Math.abs(old.height - next.height) < .5 ? old : next);
+					const next = trayHeight(dockRef.current.offsetHeight * scale, scale);
+					setTrayBarHeight(old => Math.abs(old - next) < .5 ? old : next);
 				}
 				const hasPreview = !!previewData;
 				invoke("update_dock_rect", {
@@ -858,6 +856,7 @@ const Dock = memo(function Dock() {
 	// measured, padded for their shadows. While an icon is dragged the whole
 	// window is included so the dragged icon isn't clipped.
 	useEffect(() => {
+		const refreshRegion = () => {
 		const bar = dockRef.current?.getBoundingClientRect();
 		if (bar && isExpanded && !isHidden && isVisible) {
 			dockBandHeightRef.current = Math.max(dockBandHeightRef.current, bar.height);
@@ -874,7 +873,8 @@ const Dock = memo(function Dock() {
 				[".preview-tooltip", 40],
 				[".context-menu", 34],
 				[".submenu", 34],
-				[".dock-toast", 20]
+				[".dock-toast", 20],
+				[".bloom-tray-right .bloom-tray-icons", 12]
 			])
 		);
 		// The Add App popup grows from scaleY 0, and that animation doesn't
@@ -889,6 +889,10 @@ const Dock = memo(function Dock() {
 			wanted.push(padRect({ x: p.left, y: a.top, width: p.width, height: a.height }, 40));
 		}
 		sendDockRegion(wanted);
+		};
+		refreshRegion();
+		window.addEventListener("bloom-tray-geometry", refreshRegion);
+		return () => window.removeEventListener("bloom-tray-geometry", refreshRegion);
 	});
 
 	useEffect(() => {
@@ -1096,8 +1100,9 @@ const Dock = memo(function Dock() {
 
 	return (
 		<div className={`dock-container ${isDragging ? "dragging" : ""}`} onClick={closeMenu}>
-			{trayPreferences.ready && trayPreferences.placement === "right" && dockEnabled && isVisible && isReady &&
-				<SystemTray placement="right" scale={scale} width={traySize.width} height={traySize.height} />}
+			{dockEnabled && isVisible && isReady &&
+				<SystemTray scale={scale} height={trayBarHeight}
+					onGeometry={() => window.dispatchEvent(new Event("bloom-tray-geometry"))} />}
 			<div
 				style={{
 					width: "100%",

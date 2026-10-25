@@ -1,4 +1,4 @@
-/** Shared contract for the two approved tray placements. Action IDs are transient. */
+/** Windows notification icons are distinct from open dock windows. IDs are transient. */
 export interface TrayIcon {
 	id: string;
 	name: string;
@@ -13,28 +13,10 @@ export interface TraySnapshot {
 	icons: TrayIcon[];
 }
 
-export type TrayPlacement = "notch" | "right";
-export const TRAY_PLACEMENT_KEY = "bloom-tray-placement";
-export const trayPlacement = (value: unknown): TrayPlacement =>
-	value === "right" ? "right" : "notch";
-
-/** Do not invent a persisted key when settings.json uses the default. */
-export function mirrorTrayPlacement(
-	value: unknown,
-	storage: Pick<Storage, "setItem" | "removeItem">
-): TrayPlacement {
-	if (value === null || value === undefined) storage.removeItem(TRAY_PLACEMENT_KEY);
-	else storage.setItem(TRAY_PLACEMENT_KEY, String(value));
-	return trayPlacement(value);
-}
-
-/** Keep the strip's viewport within the compact dock's configured dimensions. */
-export function trayStripSize(width: number, height: number, scale: number) {
+/** Keep the tray at the dock's configured height across Bloom scales. */
+export function trayHeight(height: number, scale: number) {
 	const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
-	return {
-		width: Math.max(28, Math.min(width / safeScale || 140, 248)),
-		height: Math.max(28, Math.min(height / safeScale || 36, 44))
-	};
+	return Math.max(28, Math.min(height / safeScale || 36, 44));
 }
 
 type NoticeKind = "info" | "error";

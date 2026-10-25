@@ -19,13 +19,13 @@ Edit `settings.json` with any text editor while Bloom is running. Changes are ap
 
 ### Dock
 
-`bloom-tray-placement` is `"notch"` (default) or `"right"`. Choose it in
-Settings → Dock → System tray. Both use the same live catalog and actions.
-Missing, deleted or invalid values restore the notch. When the dock is disabled,
-the right-hand option uses the notch so the tray remains reachable.
-The right strip follows the compact dock's dimensions; overflow scrolls without
-growing the viewport. Keyboard arrows/Tab reach every icon; Escape closes it.
-Right-click the tray toggle for Explorer's native overflow fallback.
+The notification area is attached to the bottom-right of the Bloom dock. Its
+chevron opens the hidden icons above it; promoted icons remain beside the
+chevron. The old `bloom-tray-placement` value is ignored for compatibility with
+3.10.6 settings. When the dock is disabled, Windows' native taskbar and tray
+return. The hidden-icons panel scrolls vertically without growing indefinitely.
+Keyboard arrows/Tab reach every icon; Escape closes it. Right-click the chevron
+for Explorer's native overflow fallback.
 
 | Key                                | Type                             | Default       | Description                                                                                                                                                                      |
 | ---------------------------------- | -------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

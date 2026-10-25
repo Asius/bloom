@@ -4,8 +4,6 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { message } from "@tauri-apps/plugin-dialog";
 import { createNativeTrayAction } from "./tray";
-import { SystemTray } from "./components/SystemTray";
-import { useTrayPlacement } from "./hooks/useTrayPlacement";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
 import type { UpdateCheckResult } from "./updater";
@@ -499,8 +497,6 @@ const TitleMarquee = ({ title }: { title: string }) => {
 };
 
 function App() {
-	const trayPreferences = useTrayPlacement();
-	const [trayNotchOpen, setTrayNotchOpen] = useState(false);
 	useEffect(() => {
 		return initTheme();
 	}, []);
@@ -754,7 +750,7 @@ function App() {
 	const appliedDock = useRef<{ enabled: boolean; mode: string } | null>(null);
 	const appliedNotchMode = useRef<string | null>(null);
 
-	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered || trayNotchOpen;
+	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
 	const isHidden =
 		!startupAnimating &&
 		((notchMode === "smart" && isOverlapped && interactionState === "none") ||
@@ -2832,9 +2828,6 @@ function App() {
 
 	return (
 		<div className="screen" style={{ overflow: "hidden" }}>
-			{trayPreferences.ready && isExpanded && (trayPreferences.placement === "notch" || !dockEnabled) && isVisible &&
-				<SystemTray placement="notch" scale={scale} anchorRef={timeCenterRef} onGeometry={updateNotchRegion}
-					visible={!isHidden} onOpenChange={setTrayNotchOpen} />}
 			{/* Screen Corners (Top) */}
 			<AnimatePresence>
 				{isVisible && settingsCornersEnabled && (

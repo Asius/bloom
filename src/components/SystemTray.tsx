@@ -4,38 +4,26 @@ import {
 	useLayoutEffect,
 	useRef,
 	useState,
-	type CSSProperties,
-	type RefObject
+	type CSSProperties
 } from "react";
-import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
-import { ChevronLeft, LayoutGrid } from "lucide-react";
+import { ChevronUp } from "lucide-react";
 import type { TrayIcon, TraySnapshot } from "../tray";
 import "./SystemTray.css";
 
 interface Props {
-	placement: "notch" | "right";
 	scale: number;
-	width?: number;
-	height?: number;
+	height: number;
 	onGeometry?: () => void;
-	anchorRef?: RefObject<HTMLElement | null>;
-	visible?: boolean;
-	onOpenChange?: (open: boolean) => void;
 }
 
-/** Both approved placements share catalog, focus rules, native actions and cleanup. */
+/** Visible icons beside the dock chevron, hidden icons in a bounded flyout. */
 export function SystemTray({
-	placement,
 	scale,
-	width = 180,
-	height = 36,
-	onGeometry,
-	anchorRef,
-	visible = true,
-	onOpenChange
+	height,
+	onGeometry
 }: Props) {
 	const [snapshot, setSnapshot] = useState<TraySnapshot | null>(null);
 	const [open, setOpen] = useState(false);
@@ -54,27 +42,16 @@ export function SystemTray({
 	state.current = { healthy, open };
 	const geometry = useRef(onGeometry);
 	geometry.current = onGeometry;
-	const positioning = useRef({ anchorRef, placement, scale, visible });
-	positioning.current = { anchorRef, placement, scale, visible };
 	const report = useCallback(() => {
-		const current = positioning.current;
-		if (current.placement === "notch" && host.current) {
-			const clock = (
-				current.anchorRef?.current?.querySelector(".time-flip-container") ??
-				current.anchorRef?.current
-			)?.getBoundingClientRect();
-			host.current.style.left = `${(clock ? clock.right : window.innerWidth / 2 + 36 * current.scale) / current.scale + 7}px`;
-			host.current.style.top = `${clock ? (clock.top + clock.height / 2) / current.scale - 13 : 5}px`;
-		}
-		const rects = (current.visible ? [host.current, panel.current] : [])
+		const rects = [host.current, panel.current]
 			.filter(Boolean)
 			.map((el) => {
 				const r = el!.getBoundingClientRect();
 				return {
 					x: Math.floor(r.x),
 					y: Math.floor(r.y),
-					width: Math.ceil(r.width),
-					height: Math.ceil(r.height)
+					width: Math.ceil(r.right) - Math.floor(r.x),
+					height: Math.ceil(r.bottom) - Math.floor(r.y)
 				};
 			});
 		void invoke("update_tray_surface", {
@@ -95,7 +72,7 @@ export function SystemTray({
 					setSnapshot(next);
 					setHealthy(true);
 					setFailure("");
-					if (!next.icons.length) setOpen(false);
+					if (!next.icons.some((icon) => !icon.is_promoted)) setOpen(false);
 				}
 				return next;
 			} catch (error) {
@@ -154,13 +131,6 @@ export function SystemTray({
 		report();
 	});
 	useEffect(() => {
-		onOpenChange?.(open);
-		return () => onOpenChange?.(false);
-	}, [open, onOpenChange]);
-	useEffect(() => {
-		if (!visible && !busyRef.current) setOpen(false);
-	}, [visible]);
-	useEffect(() => {
 		if (!open) return;
 		const raf = requestAnimationFrame(() =>
 			panel.current?.querySelector<HTMLButtonElement>("button")?.focus()
@@ -203,29 +173,44 @@ export function SystemTray({
 		}
 		const next = await refresh();
 		if (!mounted.current) return;
-		if (next?.icons.length) setOpen(true);
+		if (next?.icons.some((icon) => !icon.is_promoted)) setOpen(true);
 		else
 			await message(
 				next
-					? "No live notification icons found. Right-click the tray button to access Windows tray."
+					? "No hidden notification icons found."
 					: "Windows tray discovery is unavailable. Right-click the tray button to access Windows tray.",
 				{ title: "System Tray", kind: next ? "info" : "error" }
 			).catch(console.error);
 	};
 	showRef.current = show;
-	const icons = snapshot?.icons ?? [];
+	const liveIcons = healthy ? snapshot?.icons ?? [] : [];
+	const icons = liveIcons.filter((icon) => !icon.is_promoted);
+	const promoted = liveIcons.filter((icon) => icon.is_promoted);
+	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[]) => (
+		<button key={icon.id} type="button" disabled={busy} className="bloom-tray-icon"
+			aria-label={`${icon.name}${group.filter((i) => i.path === icon.path).length > 1 ? ` (${index + 1})` : ""}`}
+			title={`${icon.name} — right-click for its native menu`}
+			onClick={(e) => { e.stopPropagation(); void action(icon); }}
+			onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
+			onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); void action(icon, true); }}
+			onKeyDown={(e) => {
+				if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+					e.preventDefault(); e.stopPropagation(); void action(icon, true);
+				}
+			}}
+		>{icon.icon ? <img src={icon.icon} alt="" draggable={false} /> :
+			<span aria-hidden="true">{icon.name.slice(0, 1)}</span>}</button>
+	);
 	const list = (
 		<div
 			ref={panel}
-			className={`bloom-tray-icons ${placement === "notch" ? "bloom-tray-popup" : ""}`}
+			className="bloom-tray-icons"
 			role="toolbar"
-			aria-label="Background applications"
-			aria-orientation={placement === "right" ? "horizontal" : "vertical"}
+			aria-label="Hidden notification icons"
+			aria-orientation="vertical"
 			onWheel={(e) => {
 				e.stopPropagation();
-				if (placement === "right") {
-					e.currentTarget.scrollLeft += e.deltaY;
-				}
+				// The overflow scrolls vertically, like the Windows hidden-icons panel.
 			}}
 			onKeyDown={(e) => {
 				if (e.key === "Escape") {
@@ -238,10 +223,10 @@ export function SystemTray({
 						? 1
 						: e.key === "ArrowLeft"
 							? -1
-							: placement === "notch" && e.key === "ArrowDown"
-								? 3
-								: placement === "notch" && e.key === "ArrowUp"
-									? -3
+						: e.key === "ArrowDown"
+							? 4
+							: e.key === "ArrowUp"
+								? -4
 									: 0;
 				if (step) {
 					e.preventDefault();
@@ -252,71 +237,32 @@ export function SystemTray({
 				}
 			}}
 		>
-			{icons.map((icon, index) => (
-				<button
-					key={icon.id}
-					type="button"
-					disabled={busy}
-					className="bloom-tray-icon"
-					aria-label={`${icon.name}${icons.filter((i) => i.path === icon.path).length > 1 ? ` (${index + 1})` : ""}`}
-					title={`${icon.name} — right-click for its native menu`}
-					onClick={(e) => {
-						e.stopPropagation();
-						void action(icon);
-					}}
-					onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
-					onContextMenu={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						void action(icon, true);
-					}}
-					onKeyDown={(e) => {
-						if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
-							e.preventDefault();
-							e.stopPropagation();
-							void action(icon, true);
-						}
-					}}
-				>
-					{icon.icon ? (
-						<img src={icon.icon} alt="" draggable={false} />
-					) : (
-						<span aria-hidden="true">{icon.name.slice(0, 1)}</span>
-					)}
-				</button>
-			))}
+			{icons.map((icon, index) => iconButton(icon, index, icons))}
 		</div>
 	);
 	return (
 		<span
 			ref={host}
-			className={`bloom-tray bloom-tray-${placement} ${open ? "is-open" : ""}`}
-			style={
-				placement === "right"
-					? ({ zoom: scale, width: open ? width : height, height } as CSSProperties)
-					: { zoom: scale, visibility: visible ? "visible" : "hidden" }
-			}
+			className={`bloom-tray bloom-tray-right ${open ? "is-open" : ""}`}
+			style={{ zoom: scale, height } as CSSProperties}
 			onClick={(e) => e.stopPropagation()}
-			onContextMenu={(e) => {
-				e.preventDefault();
-				e.stopPropagation();
-				void action();
-			}}
+			onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
 		>
-			{placement === "right" && open && list}
+			{open && list}
 			<button
 				ref={toggle}
 				className="bloom-tray-toggle"
 				type="button"
-				aria-label="Background applications"
+				aria-label="Show hidden icons"
 				aria-expanded={open}
 				aria-haspopup="true"
 				disabled={busy}
-				title={failure || "Background applications — right-click for Windows tray"}
+				title={failure || "Show hidden icons — right-click for Windows tray"}
 				onClick={(e) => {
 					e.stopPropagation();
 					void show();
 				}}
+				onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); void action(); }}
 				onKeyDown={(e) => {
 					if (e.key === "Escape") {
 						e.stopPropagation();
@@ -324,21 +270,11 @@ export function SystemTray({
 					}
 				}}
 			>
-				{placement === "notch" ? (
-					<LayoutGrid size={16} fill="currentColor" strokeWidth={0} />
-				) : (
-					<ChevronLeft size={16} style={{ transform: open ? "rotate(180deg)" : undefined }} />
-				)}
+				<ChevronUp size={16} style={{ transform: open ? "rotate(180deg)" : undefined }} />
 			</button>
-			{placement === "notch" &&
-				visible &&
-				open &&
-				createPortal(
-					<div className="bloom-tray-notch-panel" style={{ zoom: scale }}>
-						{list}
-					</div>,
-					document.body
-				)}
+			<div className="bloom-tray-promoted" role="toolbar" aria-label="Visible notification icons">
+				{promoted.map((icon, index) => iconButton(icon, index, promoted))}
+			</div>
 		</span>
 	);
 }

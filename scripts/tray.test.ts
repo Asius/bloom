@@ -1,41 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import {
-	createNativeTrayAction,
-	trayPlacement,
-	trayStripSize,
-	mirrorTrayPlacement,
-	TRAY_PLACEMENT_KEY
-} from "../src/tray";
-
-test("default/deleted placement does not recreate a mirror-only key and trigger startup reloads", () => {
-	const values = new Map<string, string>();
-	const storage = {
-		setItem: (key: string, value: string) => {
-			values.set(key, value);
-		},
-		removeItem: (key: string) => {
-			values.delete(key);
-		}
-	};
-	expect(mirrorTrayPlacement(undefined, storage)).toBe("notch");
-	expect(values.has(TRAY_PLACEMENT_KEY)).toBe(false);
-	expect(mirrorTrayPlacement("right", storage)).toBe("right");
-	expect(values.get(TRAY_PLACEMENT_KEY)).toBe("right");
-	expect(mirrorTrayPlacement(null, storage)).toBe("notch");
-	expect(values.has(TRAY_PLACEMENT_KEY)).toBe(false);
-	expect(mirrorTrayPlacement("invalid", storage)).toBe("notch");
-	expect(values.get(TRAY_PLACEMENT_KEY)).toBe("invalid");
-});
-
-test("missing, deleted and invalid placement values restore the notch", () => {
-	for (const value of [null, undefined, "", "off", "bottom"])
-		expect(trayPlacement(value)).toBe("notch");
-	expect(trayPlacement("right")).toBe("right");
-});
-test("the strip follows dock dimensions and does not grow with icon count", () => {
-	expect(trayStripSize(210, 54, 1.5)).toEqual({ width: 140, height: 36 });
-	expect(trayStripSize(120, 32, 1)).toEqual({ width: 120, height: 32 });
-	expect(trayStripSize(1600, 100, 1)).toEqual({ width: 248, height: 44 });
+import { createNativeTrayAction, trayHeight } from "../src/tray";
+test("the tray follows dock height and Bloom scale", () => {
+	expect(trayHeight(54, 1.5)).toBe(36);
+	expect(trayHeight(32, 1)).toBe(32);
+	expect(trayHeight(100, 1)).toBe(44);
 });
 
 describe("native tray control", () => {
