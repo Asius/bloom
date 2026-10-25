@@ -30,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Audit frontend dependencies
+        run: bun audit
+
       - name: Test frontend logic
         run: bun run test
 

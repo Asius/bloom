@@ -15,6 +15,9 @@ replace the owner's installation or control their desktop automatically.
 ## 1. Before tagging (on `main`)
 
 - [ ] CI green on `main` (Build, CodeQL) and `bun run build` passes locally.
+- [ ] `bun audit` passes for the application lockfile, including development
+      dependencies. Review security overrides in `DESKTOP_BASELINE.md` before
+      updating their parent packages.
 - [ ] In `src-tauri`: `cargo check --locked`, `cargo clippy --locked --all-targets`, `cargo test --locked`.
 - [ ] Prepare the affected native test cases for the owner (or record a requested
       development smoke test separately). Physical checks assigned to the owner:

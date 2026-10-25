@@ -39,6 +39,16 @@ atribución original permanecen en [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ## Comprobación antes de distribuir
 
+La cadena frontend usa Vite 7.3.7, Babel 7.29.7, picomatch 4.0.7 y
+source-map-js 1.2.2 para cerrar los advisories revisados el 25 de octubre.
+`package.json` fija un override de esbuild 0.28.2: la rama 0.27 que Vite 7 pide
+tiene un aviso de lectura de archivos en su servidor de desarrollo de Windows
+([GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr)). Se
+comprueban build y transformación de desarrollo con ese override; retirarlo
+cuando la versión de Vite elegida ya dependa de una rama corregida. Las demás
+dependencias de producto no se actualizan en bloque. CI ejecuta `bun audit`
+para detectar nuevas regresiones en el lockfile de la aplicación.
+
 Ejecutar suites Bun y Rust, build frontend, check/Clippy, revisión del diff y
 simulación de las vistas modificadas. CI y CodeQL deben pasar en el commit que
 se etiqueta; después se verifican manifiesto, hashes y firmas del instalador.
