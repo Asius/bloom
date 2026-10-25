@@ -3170,7 +3170,17 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
             let at_right_edge =
                 cursor.x >= (mon_x + mon_w - 8) && cursor.y >= mon_y && cursor.y <= (mon_y + mon_h);
 
-            if at_right_edge {
+            // The tray owns its bottom-right hit region. Its chevron must not
+            // also reveal brightness just because it touches the screen edge.
+            let on_tray = at_right_edge
+                && DOCK_WINDOW_RECT.lock().ok().and_then(|g| *g).is_some_and(|(origin, _)| {
+                    app_handle.get_webview_window("dock").is_some_and(|w| {
+                        crate::tray::surface::hit("dock", cursor, (origin.x, origin.y), w.scale_factor().unwrap_or(1.0))
+                    })
+                });
+            if on_tray { MH_RIGHT_EXPIRY_MS.store(0, Ordering::Relaxed); }
+
+            if at_right_edge && !on_tray {
                 MH_RIGHT_EXPIRY_MS.store(now + 500, Ordering::Relaxed);
             }
 
