@@ -7,6 +7,7 @@ use model::{icon_identity, normalized_label, OperationGuard, Restoration};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
 use windows::core::{w, Interface, BOOL, GUID, PCWSTR};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::{
@@ -40,6 +41,52 @@ pub struct TrayIcon {
 pub struct TraySnapshot {
     pub shell_id: String,
     pub icons: Vec<TrayIcon>,
+}
+
+// Native pixels plus their original DPI. Refreshed before the taskbar handoff,
+// not inferred from the width or scaling of Bloom's own icons.
+static NATIVE_INSET: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn native_right_inset(scale: f64, monitor_width: u32) -> u32 {
+    let stored = NATIVE_INSET.load(Ordering::Relaxed);
+    let dpi = (stored >> 32) as u32;
+    let inset = stored as u32;
+    let logical = if dpi > 0 {
+        inset as f64 * 96.0 / dpi as f64
+    } else {
+        120.0
+    };
+    (logical * scale).round().clamp(
+        0.0,
+        monitor_width.saturating_sub(1).min(monitor_width / 3) as f64,
+    ) as u32
+}
+
+pub(crate) fn refresh_native_inset(taskbar: HWND) {
+    unsafe {
+        let mut rect = RECT::default();
+        if !IsWindowVisible(taskbar).as_bool() || GetWindowRect(taskbar, &mut rect).is_err() {
+            return;
+        }
+        let Ok(icons) = live_icons(&process_windows(), true) else {
+            return;
+        };
+        let bounds: Vec<_> = icons
+            .iter()
+            .filter(|i| i.promoted)
+            .filter_map(|i| Shell_NotifyIconGetRect(&i.identifier).ok())
+            .collect();
+        if let Some(inset) = model::reserved_right(&rect, &bounds) {
+            let dpi = GetDpiForWindow(taskbar).max(96);
+            let value = ((dpi as u64) << 32) | inset as u64;
+            if NATIVE_INSET.swap(value, Ordering::Relaxed) != value {
+                crate::diagnostics::record(
+                    "tray-position",
+                    &format!("native_right_inset={inset} dpi={dpi}"),
+                );
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -732,12 +779,9 @@ unsafe fn find_overflow_icon(
     target: &Icon,
     session: &ShellSession,
 ) -> Result<IUIAutomationElement3, String> {
-    let order = tray_order()?;
+    let order = tray_order().unwrap_or_default();
     let mut hidden: Vec<_> = icons.iter().filter(|icon| !icon.promoted).collect();
     hidden.sort_by_key(|icon| order.get(&icon.key).copied().unwrap_or(usize::MAX));
-    if hidden.iter().any(|icon| !order.contains_key(&icon.key)) {
-        return Err("Windows tray order changed. Please try again.".into());
-    }
     let position = hidden
         .iter()
         .position(|icon| icon.key == target.key)
@@ -756,6 +800,36 @@ unsafe fn find_overflow_icon(
     let root = automation
         .ElementFromHandle(bridge)
         .map_err(|e| e.to_string())?;
+    // Once overflow is open, some Windows builds expose each hidden icon's
+    // actual rectangle. Prefer its live GUID/HWND position over registry order.
+    let target_rect = Shell_NotifyIconGetRect(&target.identifier).ok();
+    let mut overflow_rect = RECT::default();
+    if let Some(rect) = target_rect.filter(|r| {
+        GetWindowRect(hwnd, &mut overflow_rect).is_ok() && model::icon_inside(r, &overflow_rect)
+    }) {
+        let collision = hidden.iter().any(|other| {
+            let same = if target.identifier.guidItem != GUID::zeroed() {
+                other.identifier.guidItem == target.identifier.guidItem
+            } else {
+                other.identifier.hWnd == target.identifier.hWnd
+                    && other.identifier.uID == target.identifier.uID
+            };
+            !same && Shell_NotifyIconGetRect(&other.identifier).is_ok_and(|r| r == rect)
+        });
+        if !collision {
+            if let Some(button) = element_at_icon(automation, &root, rect)? {
+                if session.is_current()
+                    && Shell_NotifyIconGetRect(&target.identifier).ok() == Some(rect)
+                {
+                    crate::diagnostics::record("tray-selection", "method=live-rectangle");
+                    return button.cast().map_err(|e| e.to_string());
+                }
+            }
+        }
+    }
+    if hidden.iter().any(|icon| !order.contains_key(&icon.key)) {
+        return Err("Windows tray order changed. Please try again.".into());
+    }
     let condition = automation
         .CreateTrueCondition()
         .map_err(|e| e.to_string())?;
@@ -771,8 +845,15 @@ unsafe fn find_overflow_icon(
             .CurrentAutomationId()
             .is_ok_and(|id| is_tray_button_id(&id.to_string()))
             && element.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
+            && element.CurrentIsOffscreen().is_ok_and(|off| !off.as_bool())
         {
-            buttons.push(element);
+            if !buttons.iter().any(|other| {
+                automation
+                    .CompareElements(other, &element)
+                    .is_ok_and(|same| same.as_bool())
+            }) {
+                buttons.push(element);
+            }
         }
     }
     let labels = buttons
@@ -794,7 +875,17 @@ unsafe fn find_overflow_icon(
             ],
         })
         .collect::<Vec<_>>();
-    let button = model::resolve_overflow_button(&candidates, position, &labels)?;
+    let button =
+        model::resolve_overflow_button(&candidates, position, &labels).inspect_err(|_| {
+            crate::diagnostics::record(
+                "tray-selection",
+                &format!(
+                    "method=label rejected catalog={} native={}",
+                    candidates.len(),
+                    labels.len()
+                ),
+            );
+        })?;
     let mut old_ids: Vec<_> = hidden.iter().map(|icon| icon.action_id(session)).collect();
     let mut current_ids: Vec<_> = live_icons(&process_windows(), true)?
         .iter()
@@ -807,6 +898,46 @@ unsafe fn find_overflow_icon(
         return Err("Windows tray changed while selecting the icon. Please try again.".into());
     }
     buttons.remove(button).cast().map_err(|e| e.to_string())
+}
+
+unsafe fn element_at_icon(
+    automation: &IUIAutomation,
+    root: &IUIAutomationElement,
+    rect: RECT,
+) -> Result<Option<IUIAutomationElement>, String> {
+    let condition = automation
+        .CreateTrueCondition()
+        .map_err(|e| e.to_string())?;
+    let elements = root
+        .FindAll(TreeScope_Descendants, &condition)
+        .map_err(|e| e.to_string())?;
+    let walker = automation.RawViewWalker().map_err(|e| e.to_string())?;
+    let mut found: Vec<IUIAutomationElement> = Vec::new();
+    for index in 0..elements.Length().unwrap_or(0) {
+        let Ok(element) = elements.GetElement(index) else {
+            continue;
+        };
+        let Ok(bounds) = element.CurrentBoundingRectangle() else {
+            continue;
+        };
+        if !model::icon_inside(&rect, &bounds)
+            || bounds.right - bounds.left > 128
+            || bounds.bottom - bounds.top > 128
+        {
+            continue;
+        }
+        let Some(button) = owning_tray_button(&walker, element) else {
+            continue;
+        };
+        if !found.iter().any(|other| {
+            automation
+                .CompareElements(other, &button)
+                .is_ok_and(|same| same.as_bool())
+        }) {
+            found.push(button);
+        }
+    }
+    Ok(if found.len() == 1 { found.pop() } else { None })
 }
 
 unsafe fn find_promoted_icon(
@@ -1288,6 +1419,76 @@ mod tests {
             first.icons.iter().filter(|icon| icon.is_shell_icon).count(),
             first.icons.iter().filter(|icon| icon.is_promoted).count()
         );
+    }
+
+    #[test]
+    #[ignore = "owner must open the native Windows overflow first; read-only, never invokes apps"]
+    fn native_slack_selection_readonly() {
+        unsafe {
+            let _com = ComApartment::new().unwrap();
+            let panel = FindWindowW(w!("TopLevelWindowForOverflowXamlIsland"), PCWSTR::null())
+                .or_else(|_| FindWindowW(w!("NotifyIconOverflowWindow"), PCWSTR::null()))
+                .unwrap();
+            assert!(
+                IsWindowVisible(panel).as_bool(),
+                "Owner must open Windows overflow first"
+            );
+            let session = ShellSession::current().unwrap();
+            let icons = live_icons(&process_windows(), true).unwrap();
+            let automation = automation_client().unwrap();
+            let root = automation.ElementFromHandle(panel).unwrap();
+            let elements = root
+                .FindAll(
+                    TreeScope_Descendants,
+                    &automation.CreateTrueCondition().unwrap(),
+                )
+                .unwrap();
+            let mut native_count = 0;
+            let mut slack_labels = 0;
+            for index in 0..elements.Length().unwrap_or(0) {
+                let element = elements.GetElement(index).unwrap();
+                if element
+                    .CurrentAutomationId()
+                    .is_ok_and(|id| is_tray_button_id(&id.to_string()))
+                {
+                    native_count += 1;
+                    if element
+                        .CurrentName()
+                        .is_ok_and(|name| normalized_label(&name.to_string()).contains("slack"))
+                    {
+                        slack_labels += 1;
+                    }
+                }
+            }
+            println!(
+                "catalog_hidden={} native_nodes={native_count} native_slack_labels={slack_labels}",
+                icons.iter().filter(|i| !i.promoted).count()
+            );
+            let mut resolved = 0;
+            let mut rejected = 0;
+            for icon in icons.iter().filter(|i| {
+                !i.promoted
+                    && std::path::Path::new(&i.path)
+                        .file_name()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("slack.exe"))
+            }) {
+                match find_overflow_icon(&automation, &icons, icon, &session) {
+                    Ok(_) => resolved += 1,
+                    Err(error) => {
+                        rejected += 1;
+                        println!("selection rejected: {error}");
+                    }
+                }
+            }
+            println!(
+                "slack_identifiers={} resolved={resolved} rejected={rejected}",
+                resolved + rejected
+            );
+            assert!(
+                resolved > 0 && rejected == 0,
+                "Native Slack mapping is not verified"
+            );
+        }
     }
     #[test]
     fn accepts_braced_guid_and_rejects_bad_identity() {

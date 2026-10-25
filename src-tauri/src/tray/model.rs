@@ -1,6 +1,30 @@
 //! Identity, matching and restoration rules, independent of Explorer and UIA.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use windows::Win32::Foundation::RECT;
+
+pub(super) fn icon_inside(icon: &RECT, bounds: &RECT) -> bool {
+    let width = icon.right - icon.left;
+    let height = icon.bottom - icon.top;
+    if !(1..=128).contains(&width) || !(1..=128).contains(&height) {
+        return false;
+    }
+    let x = icon.left as i64 + width as i64 / 2;
+    let y = icon.top as i64 + height as i64 / 2;
+    x >= bounds.left as i64
+        && x < bounds.right as i64
+        && y >= bounds.top as i64
+        && y < bounds.bottom as i64
+}
+
+pub(super) fn reserved_right(taskbar: &RECT, icons: &[RECT]) -> Option<i32> {
+    icons
+        .iter()
+        .filter(|r| icon_inside(r, taskbar))
+        .map(|r| taskbar.right - r.right)
+        .filter(|gap| *gap >= 0 && *gap < (taskbar.right - taskbar.left) / 3)
+        .min()
+}
 
 pub(super) fn snapshot_png(bytes: &[u8]) -> Option<String> {
     use base64::Engine;
@@ -128,24 +152,49 @@ pub(super) fn resolve_overflow_button(
         .filter(|other| normalized_path(&other.path) == normalized_path(&icon.path))
         .count()
         > 1;
-    if labels.len() != icons.len() {
-        // Unknown native icons can shift every ordinal. Only a unique label
-        // belonging to exactly one known icon can be used instead.
-        let matches: Vec<_> = labels
+    // A current, unique native label is stronger than an old ordinal. Exact
+    // distinct tooltips also distinguish two icons owned by the same app.
+    let hint = icon
+        .hint
+        .as_deref()
+        .map(normalized_label)
+        .unwrap_or_default();
+    let exact_hint_unique = hint.len() >= 3
+        && icons
             .iter()
-            .enumerate()
-            .filter(|(_, label)| {
-                icon.matches(label)
-                    && !icons
-                        .iter()
-                        .enumerate()
-                        .any(|(i, other)| i != target && other.matches(label))
+            .filter(|other| {
+                other
+                    .hint
+                    .as_deref()
+                    .is_some_and(|h| normalized_label(h) == hint)
             })
-            .map(|(i, _)| i)
-            .collect();
-        if !shares_process && matches.len() == 1 {
-            return Ok(matches[0]);
-        }
+            .count()
+            == 1;
+    let exact: Vec<_> = labels
+        .iter()
+        .enumerate()
+        .filter(|(_, label)| exact_hint_unique && **label == hint)
+        .map(|(i, _)| i)
+        .collect();
+    if exact.len() == 1 {
+        return Ok(exact[0]);
+    }
+    let unique: Vec<_> = labels
+        .iter()
+        .enumerate()
+        .filter(|(_, label)| {
+            icon.matches(label)
+                && !icons
+                    .iter()
+                    .enumerate()
+                    .any(|(i, other)| i != target && other.matches(label))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if !shares_process && unique.len() == 1 {
+        return Ok(unique[0]);
+    }
+    if labels.len() != icons.len() {
         return Err("Windows tray icons changed. Open the native tray or try again.".into());
     }
     for (button, label) in labels.iter().enumerate() {
@@ -173,25 +222,11 @@ pub(super) fn resolve_overflow_button(
         }
     }
     if shares_process {
-        let hint = icon
-            .hint
-            .as_deref()
-            .map(normalized_label)
-            .unwrap_or_default();
-        let unique = !hint.is_empty()
-            && icons
-                .iter()
-                .filter(|other| {
-                    other
-                        .hint
-                        .as_deref()
-                        .is_some_and(|h| normalized_label(h) == hint)
-                })
-                .count()
-                == 1;
-        if !unique || labels[target] != hint {
-            return Err("Windows cannot distinguish these app icons. Use the native tray to select the icon.".into());
-        }
+        // Distinct exact labels returned above. Never guess by ordinal here.
+        return Err(
+            "Windows cannot distinguish these app icons. Use the native tray to select the icon."
+                .into(),
+        );
     }
     Ok(target)
 }
@@ -240,6 +275,61 @@ pub(super) fn restoration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_position_preserves_system_controls_space_after_taskbar_moves() {
+        let bar = RECT {
+            left: 0,
+            top: 1400,
+            right: 2560,
+            bottom: 1440,
+        };
+        let icon = RECT {
+            left: 2320,
+            top: 1408,
+            right: 2344,
+            bottom: 1432,
+        };
+        assert_eq!(reserved_right(&bar, &[icon]), Some(216));
+        let shifted_bar = RECT {
+            left: -10000,
+            top: -10000,
+            right: -7440,
+            bottom: -9960,
+        };
+        let shifted_icon = RECT {
+            left: -7680,
+            top: -9992,
+            right: -7656,
+            bottom: -9968,
+        };
+        assert_eq!(reserved_right(&shifted_bar, &[shifted_icon]), Some(216));
+        assert_eq!(reserved_right(&shifted_bar, &[icon]), None);
+    }
+
+    #[test]
+    fn a_hidden_icons_chevron_rectangle_does_not_identify_a_popup_button() {
+        let popup = RECT {
+            left: 2200,
+            top: 1200,
+            right: 2400,
+            bottom: 1360,
+        };
+        let chevron = RECT {
+            left: 2200,
+            top: 1408,
+            right: 2224,
+            bottom: 1432,
+        };
+        assert!(!icon_inside(&chevron, &popup));
+        let live = RECT {
+            left: 2210,
+            top: 1210,
+            right: 2234,
+            bottom: 1234,
+        };
+        assert!(icon_inside(&live, &popup));
+    }
 
     #[test]
     fn artwork_rejects_corrupt_and_oversized_registry_values() {
@@ -313,7 +403,10 @@ mod tests {
             resolve_overflow_button(&icons, 1, &["Alpha".into(), "Beta".into()]),
             Ok(1)
         );
-        assert!(resolve_overflow_button(&icons, 1, &["Beta".into(), "Alpha".into()]).is_err());
+        assert_eq!(
+            resolve_overflow_button(&icons, 1, &["Beta".into(), "Alpha".into()]),
+            Ok(0)
+        );
     }
 
     #[test]
@@ -332,6 +425,42 @@ mod tests {
     }
 
     #[test]
+    fn slack_icons_with_distinct_current_tooltips_survive_a_count_change() {
+        let icons = [
+            label("slack.exe", "Slack", Some("Slack - Workspace A")),
+            label("slack.exe", "Slack", Some("Slack - Workspace B")),
+        ];
+        assert_eq!(
+            resolve_overflow_button(
+                &icons,
+                1,
+                &[
+                    "Other app".into(),
+                    "Slack - Workspace B".into(),
+                    "Slack - Workspace A".into()
+                ]
+            ),
+            Ok(1)
+        );
+        assert!(resolve_overflow_button(
+            &icons,
+            1,
+            &["Other app".into(), "Slack".into(), "Slack".into()]
+        )
+        .is_err());
+        assert!(resolve_overflow_button(
+            &icons,
+            1,
+            &[
+                "Slack - Workspace B".into(),
+                "Slack - Workspace B".into(),
+                "Other app".into()
+            ]
+        )
+        .is_err());
+    }
+
+    #[test]
     fn a_distinct_native_tooltip_resolves_an_extra_icon_without_using_its_old_position() {
         let icons = [
             label("drive.exe", "GoogleDriveFS", Some("Google Drive")),
@@ -341,14 +470,22 @@ mod tests {
             resolve_overflow_button(
                 &icons,
                 0,
-                &["Other".into(), "OneDrive - Synced".into(), "Google Drive".into()]
+                &[
+                    "Other".into(),
+                    "OneDrive - Synced".into(),
+                    "Google Drive".into()
+                ]
             ),
             Ok(2)
         );
         assert!(resolve_overflow_button(
             &icons,
             0,
-            &["Google Drive".into(), "Google Drive".into(), "OneDrive".into()]
+            &[
+                "Google Drive".into(),
+                "Google Drive".into(),
+                "OneDrive".into()
+            ]
         )
         .is_err());
     }
@@ -363,7 +500,10 @@ mod tests {
             resolve_overflow_button(&icons, 1, &["Work".into(), "Personal".into()]),
             Ok(1)
         );
-        assert!(resolve_overflow_button(&icons, 1, &["Personal".into(), "Work".into()]).is_err());
+        assert_eq!(
+            resolve_overflow_button(&icons, 1, &["Personal".into(), "Work".into()]),
+            Ok(0)
+        );
         assert!(resolve_overflow_button(&icons, 1, &["".into(), "".into()]).is_err());
         let ambiguous = [
             label("same.exe", "App", None),

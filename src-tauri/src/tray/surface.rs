@@ -108,7 +108,8 @@ pub fn sync_visibility(app: &AppHandle) {
     };
     let size = monitor.size();
     let height = ((360.0 * monitor.scale_factor()).ceil() as u32).min(size.height);
-    let wanted = tauri::PhysicalSize::new(size.width, height);
+    let inset = crate::tray::native_right_inset(monitor.scale_factor(), size.width);
+    let wanted = tauri::PhysicalSize::new(size.width - inset, height);
     let position = tauri::PhysicalPosition::new(
         monitor.position().x,
         monitor.position().y + (size.height - height) as i32,

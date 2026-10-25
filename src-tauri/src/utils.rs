@@ -530,6 +530,7 @@ pub fn set_taskbar_visibility(visible: bool, always_on_top: bool) -> bool {
                         *guard = placed_taskbar_rect(tray_hwnd);
                     }
                 }
+                crate::tray::refresh_native_inset(tray_hwnd);
                 let _ = ShowWindow(tray_hwnd, SW_HIDE);
                 // Move it far off-screen to prevent any "thin line" artifacts or flashes
                 let _ = SetWindowPos(
