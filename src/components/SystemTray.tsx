@@ -93,6 +93,24 @@ export function SystemTray({ scale, height }: Props) {
 		const dismiss = listen("tray-dismiss", () => {
 			if (!busyRef.current) setOpen(false);
 		});
+		let changedAgain = false;
+		let receivingChanges = false;
+		const changes = listen("tray-icons-changed", async () => {
+			changedAgain = true;
+			if (receivingChanges) return;
+			receivingChanges = true;
+			try {
+				do {
+					changedAgain = false;
+					// A change may arrive after an in-flight snapshot was read.
+					// Wait for it, then request the updated state instead of losing it.
+					if (request.current) await request.current;
+					if (mounted.current) await refresh();
+				} while (changedAgain && mounted.current);
+			} finally {
+				receivingChanges = false;
+			}
+		});
 		const blur = () => {
 			if (!busyRef.current) setOpen(false);
 		};
@@ -108,6 +126,7 @@ export function SystemTray({ scale, height }: Props) {
 			mounted.current = false;
 			clearInterval(timer);
 			dismiss.then((f) => f());
+			changes.then((f) => f());
 			window.removeEventListener("blur", blur);
 			document.removeEventListener("pointerdown", outside, true);
 			window.removeEventListener("resize", report);
@@ -124,16 +143,19 @@ export function SystemTray({ scale, height }: Props) {
 		);
 		return () => cancelAnimationFrame(raf);
 	}, [open]);
-	const action = async (icon?: TrayIcon, contextMenu = false) => {
+	const action = async (icon?: TrayIcon, contextMenu = false, doubleClick = false) => {
 		if (busyRef.current) return;
 		void invoke("report_tray_input", { control: contextMenu ? "context" : "activate" });
 		busyRef.current = true;
 		setBusy(true);
-		setOpen(false);
+		// Native left clicks may intentionally do nothing until a double click.
+		// Keep the flyout alive; activation/menu focus will dismiss it on blur.
+		if (contextMenu || !icon?.id.startsWith("live:")) setOpen(false);
 		try {
 			if (icon) {
 				await invoke(contextMenu ? "show_tray_context_menu" : "activate_tray_icon", {
-					trayId: icon.id
+					trayId: icon.id,
+					doubleClick
 				});
 			} else {
 				const opened = await invoke<boolean>("open_system_tray");
@@ -188,10 +210,14 @@ export function SystemTray({ scale, height }: Props) {
 			disabled={busy}
 			className="bloom-tray-icon"
 			aria-label={`${icon.name}${group.filter((i) => i.path === icon.path).length > 1 ? ` (${index + 1})` : ""}`}
-			title={`${icon.name} — right-click for its native menu`}
+			title={`${icon.tooltip || icon.name} — right-click for its native menu`}
 			onClick={(e) => {
 				e.stopPropagation();
-				void action(icon);
+				if (e.detail <= 1) void action(icon);
+			}}
+			onDoubleClick={(e) => {
+				e.stopPropagation();
+				void action(icon, false, true);
 			}}
 			onFocus={(e) => e.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" })}
 			onContextMenu={(e) => {

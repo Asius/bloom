@@ -6,6 +6,8 @@ export interface TrayIcon {
 	is_promoted: boolean;
 	is_shell_icon: boolean;
 	icon: string | null;
+	icon_source?: "live" | "cached" | "unavailable";
+	tooltip?: string | null;
 }
 
 export interface TraySnapshot {

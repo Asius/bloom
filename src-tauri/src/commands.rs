@@ -4023,8 +4023,8 @@ pub async fn open_system_action(action: SystemAction) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn activate_tray_icon(tray_id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || crate::tray::interact(&tray_id, false))
+pub async fn activate_tray_icon(tray_id: String, double_click: Option<bool>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::tray::activate(&tray_id, double_click.unwrap_or(false)))
         .await
         .map_err(|e| e.to_string())?
 }

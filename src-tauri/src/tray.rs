@@ -1,7 +1,10 @@
 //! Read-only discovery of live notification icons. Registry entries are only
 //! candidates: Shell_NotifyIconGetRect must confirm each icon before it is used.
+mod live;
 mod model;
 pub(crate) mod surface;
+pub(crate) use live::start as start_live_provider;
+pub(crate) use live::stop as stop_live_provider;
 
 use model::{icon_identity, normalized_label, OperationGuard, Restoration};
 use serde::Serialize;
@@ -35,6 +38,8 @@ pub struct TrayIcon {
     pub is_shell_icon: bool,
     /// Windows' cached artwork, not a guaranteed live status indicator.
     pub icon: Option<String>,
+    pub icon_source: &'static str,
+    pub tooltip: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -390,6 +395,12 @@ pub fn catalog() -> Result<TraySnapshot, String> {
         let mut names = HashMap::new();
         let order = tray_order().unwrap_or_default();
         let mut live = live_icons(&windows, true)?;
+        let updates = live::snapshot(&shell.id());
+        live.retain(|icon| {
+            !updates
+                .iter()
+                .any(|entry| entry.matches(&icon.identifier) && !entry.visible)
+        });
         live.sort_by(|a, b| {
             order
                 .get(&a.key)
@@ -398,23 +409,60 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                 .cmp(&order.get(&b.key).copied().unwrap_or(usize::MAX))
                 .then(a.key.cmp(&b.key))
         });
-        let icons: Vec<_> = live
-            .into_iter()
+        let mut icons: Vec<_> = live
+            .iter()
             .map(|icon| {
+                let update = updates.iter().find(|entry| entry.matches(&icon.identifier));
                 let name = names
                     .entry(icon.path.to_lowercase())
                     .or_insert_with(|| crate::commands::app_display_name(&icon.path, None))
                     .clone();
                 TrayIcon {
-                    id: icon.action_id(&shell),
+                    id: update
+                        .filter(|entry| entry.actionable())
+                        .map_or_else(|| icon.action_id(&shell), |entry| entry.token.clone()),
                     name,
                     is_shell_icon: is_explorer_hosted_icon(&icon.path),
-                    path: icon.path,
+                    path: icon.path.clone(),
                     is_promoted: icon.promoted,
-                    icon: icon.artwork,
+                    icon: update
+                        .and_then(|entry| entry.image.clone())
+                        .or_else(|| icon.artwork.clone()),
+                    icon_source: if update.is_some_and(|entry| entry.image.is_some()) {
+                        "live"
+                    } else {
+                        "cached"
+                    },
+                    tooltip: update
+                        .map(|entry| entry.tip.clone())
+                        .filter(|tip| !tip.is_empty()),
                 }
             })
             .collect();
+        // Newly registered icons may precede their registry record. Keep them
+        // accessible in overflow until Explorer publishes promotion/order.
+        for entry in updates
+            .iter()
+            .filter(|entry| entry.visible && entry.actionable() && entry.registered())
+        {
+            if live.iter().any(|icon| entry.matches(&icon.identifier)) {
+                continue;
+            }
+            icons.push(TrayIcon {
+                id: entry.token.clone(),
+                name: crate::commands::app_display_name(&entry.path, None),
+                path: entry.path.clone(),
+                is_promoted: false,
+                is_shell_icon: is_explorer_hosted_icon(&entry.path),
+                icon: entry.image.clone(),
+                icon_source: if entry.image.is_some() {
+                    "live"
+                } else {
+                    "unavailable"
+                },
+                tooltip: (!entry.tip.is_empty()).then(|| entry.tip.clone()),
+            });
+        }
         if !shell.is_current() {
             return Err(
                 "Windows Explorer restarted while reading the tray. Please try again.".into(),
@@ -434,14 +482,23 @@ pub fn enumerate() -> Vec<TrayApp> {
         };
         let windows = process_windows();
         let mut apps: HashMap<String, TrayApp> = HashMap::new();
+        let updates = live::snapshot(&shell.id());
         // Explorer-hosted system icons still occupy overflow positions, so
         // live_icons keeps them for interact(); they just aren't app trays.
         for icon in live_icons(&windows, false)
             .unwrap_or_default()
             .into_iter()
             .filter(|icon| !is_explorer_hosted_icon(&icon.path))
+            .filter(|icon| {
+                !updates
+                    .iter()
+                    .any(|entry| entry.matches(&icon.identifier) && !entry.visible)
+            })
         {
-            let action_id = icon.action_id(&shell);
+            let action_id = updates
+                .iter()
+                .find(|entry| entry.matches(&icon.identifier) && entry.actionable())
+                .map_or_else(|| icon.action_id(&shell), |entry| entry.token.clone());
             let app = apps
                 .entry(icon.path.to_lowercase())
                 .or_insert_with(|| TrayApp {
@@ -671,13 +728,10 @@ impl TrayExposure {
         if chevrons.len() != 1 {
             return Err("Windows did not identify a unique hidden-icons button.".into());
         }
-        // Explorer can retain a hidden overflow host with cached children after
-        // all icons are promoted. Never expose that host without a live chevron.
+        // A hidden XAML host can retain stale children. Showing its HWND does
+        // not run Explorer's open/layout logic, and can make a stale tree look
+        // ready. Only reuse an already open flyout; otherwise invoke chevron.
         if let Ok(hwnd) = find_overflow() {
-            if !IsWindowVisible(hwnd).as_bool() {
-                self.overflow = Some(hwnd);
-                let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            }
             if IsWindowVisible(hwnd).as_bool() && has_icons(hwnd) {
                 return Ok(Some(hwnd));
             }
@@ -1021,6 +1075,7 @@ unsafe fn owning_tray_button(
         if current
             .CurrentAutomationId()
             .is_ok_and(|id| is_tray_button_id(&id.to_string()))
+            && current.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
         {
             return Some(current);
         }
@@ -1183,7 +1238,19 @@ unsafe fn wait_for_menu_close(menu: HWND, bottom: i32) {
     }
 }
 
+pub fn activate(key: &str, double: bool) -> Result<(), String> {
+    if double {
+        if let Some(result) = live::double_click(key) {
+            return result;
+        }
+    }
+    interact(key, false)
+}
+
 pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
+    if let Some(result) = live::interact(key, context_menu) {
+        return result;
+    }
     let _operation = begin_operation()?;
     unsafe {
         let _com = ComApartment::new()?;
@@ -1205,7 +1272,20 @@ pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
             exposure.expose_overflow(&automation)?.ok_or(
                 "Windows is not showing this icon in the overflow. Refresh the tray and try again.",
             )?;
-            find_overflow_icon(&automation, &icons, icon, &session)?
+            // The first button can precede the rest of the XAML layout. Retry
+            // selection only (never the click) across a bounded layout settle.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
+            loop {
+                match find_overflow_icon(&automation, &icons, icon, &session) {
+                    Ok(button) => break button,
+                    Err(error) => {
+                        if !session.is_current() || std::time::Instant::now() >= deadline {
+                            return Err(error);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                }
+            }
         };
         if !session.is_current() {
             return Err("Windows Explorer restarted. Refresh the tray and try again.".into());
@@ -1234,13 +1314,22 @@ pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
             }
             Ok(())
         } else {
+            let mut cursor = POINT::default();
+            let _ = GetCursorPos(&mut cursor);
+            let before = visible_windows();
             let element: IUIAutomationElement = element.cast().map_err(|e| e.to_string())?;
             let pattern = element
                 .GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId)
                 .map_err(|e| e.to_string())?;
             pattern
                 .Invoke()
-                .map_err(|_| "Windows could not activate this tray icon.".to_string())
+                .map_err(|_| "Windows could not activate this tray icon.".to_string())?;
+            // OneDrive/Drive open a popup on LEFT click as well. Do not hide
+            // its native owner immediately after Invoke and dismiss the popup.
+            if let Some((menu, bottom)) = move_new_menu_to(&icon.path, &before, cursor) {
+                wait_for_menu_close(menu, bottom);
+            }
+            Ok(())
         }
     }
 }

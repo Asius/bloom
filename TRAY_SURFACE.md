@@ -1,5 +1,10 @@
 # Independent Windows tray surface
 
+Current provider in 3.10.12: [TRAY_LIVE.md](TRAY_LIVE.md). The live observer
+supplies current images and direct callbacks; the registry/UIA description below
+documents the 3.10.11 implementation and the retained fallback. The approved
+HWND, geometry, curves and layout remain unchanged.
+
 The owner reported that the 3.10.8 tray still took no clicks. Its simulated IPC
 tests did not reproduce that native failure. The tray now has a dedicated HWND
 and webview entry. This is a deliberate isolation boundary: the dock's global
