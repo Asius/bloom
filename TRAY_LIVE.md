@@ -45,8 +45,9 @@ Left, double and right clicks send versioned callbacks asynchronously to the
 validated owner window. Version 4 packs screen coordinates and UID; older
 versions use the legacy parameters. A slow app/menu loop does not disable all
 Bloom tray buttons. Activation no longer requires finding Slack by its position
-or label. Native app popups are retained; only newly appearing popups belonging
-to the clicked application may be repositioned near that click.
+or label. Native app popups are retained at their own on-screen position; a
+newly appearing popup belonging to the clicked application is moved near the
+click only when its original position is outside that monitor.
 
 The UIA fallback was also repaired: never show a hidden cached flyout HWND as
 though it were current, require a Button rather than its image child, allow

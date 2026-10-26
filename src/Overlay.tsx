@@ -15,6 +15,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { EdgeSurface } from "./components/EdgeSurface";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
+import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { MixerIcon, SpeakerIcon } from "./icons";
@@ -509,6 +510,8 @@ function VolumeNotch({
 // ─── Main Overlay Component ─────────────────────────────────────────────────
 
 function OverlayApp() {
+	const scales = useDesktopScales();
+	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
 	}, []);

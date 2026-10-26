@@ -11,7 +11,7 @@ use model::{icon_identity, normalized_label, OperationGuard, Restoration};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex};
 use windows::core::{w, Interface, BOOL, GUID, PCWSTR};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
@@ -52,26 +52,26 @@ pub struct TraySnapshot {
     pub icons: Vec<TrayIcon>,
     /// Cached Explorer chevron rectangle, captured before Bloom hides the taskbar.
     pub native_chevron: Option<IntRect>,
+    /// Height of the original horizontal Windows taskbar in logical pixels.
+    pub native_taskbar_height: Option<f64>,
 }
 
-// Native pixels plus their original DPI. Refreshed before the taskbar handoff,
-// not inferred from the width or scaling of Bloom's own icons.
-static NATIVE_INSET: AtomicU64 = AtomicU64::new(0);
-static NATIVE_CHEVRON: LazyLock<Mutex<Option<RECT>>> = LazyLock::new(|| Mutex::new(None));
+#[derive(Clone)]
+struct NativeGeometry {
+    shell: String,
+    taskbar: RECT,
+    chevron: Option<RECT>,
+    promoted: HashMap<String, RECT>,
+    height: Option<f64>,
+}
 
-pub(crate) fn native_right_inset(scale: f64, monitor_width: u32) -> u32 {
-    let stored = NATIVE_INSET.load(Ordering::Relaxed);
-    let dpi = (stored >> 32) as u32;
-    let inset = stored as u32;
-    let logical = if dpi > 0 {
-        inset as f64 * 96.0 / dpi as f64
-    } else {
-        120.0
-    };
-    (logical * scale).round().clamp(
-        0.0,
-        monitor_width.saturating_sub(1).min(monitor_width / 3) as f64,
-    ) as u32
+// Explorer's taskbar is moved offscreen after this snapshot. Keep the visible
+// coordinates and reject snapshots from an earlier Explorer session.
+static NATIVE_GEOMETRY: LazyLock<Mutex<Option<NativeGeometry>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+pub(crate) fn native_taskbar_height() -> Option<f64> {
+    NATIVE_GEOMETRY.lock().ok()?.as_ref()?.height
 }
 
 pub(crate) fn refresh_native_inset(taskbar: HWND) {
@@ -80,29 +80,35 @@ pub(crate) fn refresh_native_inset(taskbar: HWND) {
         if !IsWindowVisible(taskbar).as_bool() || GetWindowRect(taskbar, &mut rect).is_err() {
             return;
         }
-        let Ok(icons) = live_icons(&process_windows(), true) else {
+        let Ok(shell) = ShellSession::current() else {
             return;
         };
-        let bounds: Vec<_> = icons
+        let icons = live_icons(&process_windows(), true).unwrap_or_default();
+        let promoted: HashMap<_, _> = icons
             .iter()
             .filter(|i| i.promoted)
-            .filter_map(|i| Shell_NotifyIconGetRect(&i.identifier).ok())
+            .filter_map(|i| {
+                Shell_NotifyIconGetRect(&i.identifier)
+                    .ok()
+                    .filter(|r| model::icon_inside(r, &rect))
+                    .map(|r| (i.key.clone(), r))
+            })
             .collect();
+        let bounds: Vec<_> = promoted.values().copied().collect();
         let chevron = native_overflow_chevron(taskbar, &rect, &bounds);
-        if let Ok(mut cached) = NATIVE_CHEVRON.lock() {
-            *cached = chevron;
-        }
-        let inset = model::reserved_right(&rect, &bounds)
-            .or_else(|| chevron.map(|button| rect.right - button.right));
-        if let Some(inset) = inset {
-            let dpi = GetDpiForWindow(taskbar).max(96);
-            let value = ((dpi as u64) << 32) | inset as u64;
-            if NATIVE_INSET.swap(value, Ordering::Relaxed) != value {
-                crate::diagnostics::record(
-                    "tray-position",
-                    &format!("native_right_inset={inset} dpi={dpi}"),
-                );
-            }
+        let dpi = GetDpiForWindow(taskbar).max(96) as f64;
+        let logical_height = (rect.bottom - rect.top) as f64 * 96.0 / dpi;
+        let height = ((32.0..=96.0).contains(&logical_height)
+            && rect.right - rect.left > rect.bottom - rect.top)
+            .then_some(logical_height);
+        if let Ok(mut cached) = NATIVE_GEOMETRY.lock() {
+            *cached = Some(NativeGeometry {
+                shell: shell.id(),
+                taskbar: rect,
+                chevron,
+                promoted,
+                height,
+            });
         }
     }
 }
@@ -488,11 +494,34 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<V
 pub fn catalog() -> Result<TraySnapshot, String> {
     unsafe {
         let shell = ShellSession::current()?;
+        let geometry = NATIVE_GEOMETRY
+            .lock()
+            .ok()
+            .and_then(|cached| cached.clone())
+            .filter(|cached| cached.shell == shell.id());
+        let mut current_taskbar = RECT::default();
+        let current_taskbar = GetWindowRect(shell.hwnd, &mut current_taskbar)
+            .is_ok()
+            .then_some(current_taskbar);
         let windows = process_windows();
         let mut names = HashMap::new();
         let order = tray_order().unwrap_or_default();
-        let mut live = live_icons(&windows, true)?;
         let updates = live::snapshot(&shell.id());
+        let mut live = match live_icons(&windows, true) {
+            Ok(icons) => icons,
+            Err(error) => {
+                // Keep validated observer icons accessible if Explorer's
+                // registry catalogue is temporarily unavailable. Their
+                // promotion state is unknown, so they remain in overflow.
+                if !updates
+                    .iter()
+                    .any(|entry| entry.visible && entry.actionable() && entry.registered())
+                {
+                    return Err(error);
+                }
+                Vec::new()
+            }
+        };
         live.retain(|icon| {
             !updates
                 .iter()
@@ -524,16 +553,29 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                     is_promoted: icon.promoted,
                     native_rect: icon
                         .promoted
-                        .then(|| Shell_NotifyIconGetRect(&icon.identifier).ok())
-                        .flatten()
-                        .map(int_rect),
+                        .then(|| {
+                            geometry.as_ref().and_then(|cached| {
+                                Shell_NotifyIconGetRect(&icon.identifier)
+                                    .ok()
+                                    .and_then(|rect| {
+                                        current_taskbar.and_then(|current| {
+                                            model::visible_icon_rect(rect, cached.taskbar, current)
+                                        })
+                                    })
+                                    .or_else(|| cached.promoted.get(&icon.key).copied())
+                                    .map(int_rect)
+                            })
+                        })
+                        .flatten(),
                     icon: update
                         .and_then(|entry| entry.image.clone())
                         .or_else(|| icon.artwork.clone()),
                     icon_source: if update.is_some_and(|entry| entry.image.is_some()) {
                         "live"
-                    } else {
+                    } else if icon.artwork.is_some() {
                         "cached"
+                    } else {
+                        "unavailable"
                     },
                     tooltip: update
                         .map(|entry| entry.tip.clone())
@@ -574,10 +616,8 @@ pub fn catalog() -> Result<TraySnapshot, String> {
         Ok(TraySnapshot {
             shell_id: shell.id(),
             icons,
-            native_chevron: NATIVE_CHEVRON
-                .lock()
-                .ok()
-                .and_then(|rect| rect.map(int_rect)),
+            native_chevron: geometry.as_ref().and_then(|g| g.chevron).map(int_rect),
+            native_taskbar_height: geometry.and_then(|g| g.height),
         })
     }
 }
@@ -1248,12 +1288,9 @@ fn dock_bar_top() -> Option<i32> {
     Some(position.y + (bar.y as f64 * scale) as i32)
 }
 
-/// Apps open their tray menu at their notification icon, which stays in the
-/// hidden taskbar's corner while Bloom replaces the taskbar. Waits briefly for
-/// the menu the app opens and moves it to `anchor` (the dock icon that was
-/// clicked), above the pointer and kept on that monitor. The menu is found by
-/// its process's executable: many icons are identified by GUID and carry no
-/// window to take the process from.
+/// Wait for a newly opened app menu. Keep its own position when it is visible;
+/// recover it near the clicked icon only if Explorer placed it offscreen.
+/// The menu is matched by process family rather than an icon's optional HWND.
 unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Option<(HWND, i32)> {
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
@@ -1293,6 +1330,9 @@ unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Op
             return None;
         }
         let area = info.rcMonitor;
+        if model::menu_inside_monitor(&rect, &area) {
+            return Some((menu, rect.bottom));
+        }
         let x = anchor
             .x
             .clamp(area.left, (area.right - width).max(area.left));

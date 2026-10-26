@@ -16,6 +16,7 @@ import {
 	useSettings
 } from "./settings/index";
 import { initTheme } from "./theme";
+import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -29,6 +30,8 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
 ];
 
 function SettingsApp() {
+	const scales = useDesktopScales();
+	useBloomFontScale(scales.font);
 	const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 	const settings = useSettings();
 
@@ -131,8 +134,16 @@ function SettingsApp() {
 							handleBrightnessChange={settings.handleBrightnessChange}
 							cornersEnabled={settings.cornersEnabled}
 							toggleCorners={settings.toggleCorners}
-							scale={settings.scale}
+							scale={scales.shared}
 							handleScaleChange={settings.handleScaleChange}
+							scaleLinked={scales.linked}
+							handleScaleLinkedChange={settings.handleScaleLinkedChange}
+							dockScale={scales.dock ?? scales.shared}
+							handleDockScaleChange={settings.handleDockScaleChange}
+							notchScale={scales.notch ?? scales.shared}
+							handleNotchScaleChange={settings.handleNotchScaleChange}
+							fontScale={scales.font}
+							handleFontScaleChange={settings.handleFontScaleChange}
 						/>
 					)}
 					{activeTab === "notch" && (

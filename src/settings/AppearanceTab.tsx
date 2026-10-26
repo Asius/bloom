@@ -16,6 +16,30 @@ interface AppearanceTabProps {
 	toggleCorners: () => void;
 	scale: number;
 	handleScaleChange: (val: number) => void;
+	scaleLinked: boolean;
+	handleScaleLinkedChange: (linked: boolean) => void;
+	dockScale: number;
+	handleDockScaleChange: (val: number) => void;
+	notchScale: number;
+	handleNotchScaleChange: (val: number) => void;
+	fontScale: number;
+	handleFontScaleChange: (val: number) => void;
+}
+
+function ScaleButtons({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+	return (
+		<div className="scale-button-container">
+			<button type="button" onClick={() => onChange(Math.max(0.8, Number((value - 0.1).toFixed(1))))}
+				disabled={value <= 0.8} className="scale-adjust-btn" aria-label={`Decrease ${label}`}>
+				—
+			</button>
+			<span className="scale-display-value">{Math.round(value * 100)}%</span>
+			<button type="button" onClick={() => onChange(Math.min(1.3, Number((value + 0.1).toFixed(1))))}
+				disabled={value >= 1.3} className="scale-adjust-btn" aria-label={`Increase ${label}`}>
+				+
+			</button>
+		</div>
+	);
 }
 
 export function AppearanceTab({
@@ -32,7 +56,15 @@ export function AppearanceTab({
 	cornersEnabled,
 	toggleCorners,
 	scale,
-	handleScaleChange
+	handleScaleChange,
+	scaleLinked,
+	handleScaleLinkedChange,
+	dockScale,
+	handleDockScaleChange,
+	notchScale,
+	handleNotchScaleChange,
+	fontScale,
+	handleFontScaleChange
 }: AppearanceTabProps) {
 	const showCustomColor = themeMode === "custom";
 	const showAdvancedSliders = themeMode === "custom" || themeMode === "adaptive";
@@ -137,31 +169,28 @@ export function AppearanceTab({
 					</label>
 				</SettingRow>
 
-				<SettingRow
-					icon={Maximize2}
-					label="UI & Font Scale"
-					desc={`Adjust desktop size (${Math.round(scale * 100)}%)`}
-					divider={false}
-				>
-					<div className="scale-button-container">
-						<button
-							onClick={() => handleScaleChange(Math.max(0.8, parseFloat((scale - 0.1).toFixed(1))))}
-							disabled={scale <= 0.8}
-							className="scale-adjust-btn"
-							title="Decrease Scale"
-						>
-							—
-						</button>
-						<span className="scale-display-value">{Math.round(scale * 100)}%</span>
-						<button
-							onClick={() => handleScaleChange(Math.min(1.3, parseFloat((scale + 0.1).toFixed(1))))}
-							disabled={scale >= 1.3}
-							className="scale-adjust-btn"
-							title="Increase Scale"
-						>
-							+
-						</button>
-					</div>
+				<SettingRow icon={Maximize2} label="Scale Dock and Notch Together" desc="Use one size for both surfaces">
+					<label className="toggle-switch">
+						<input type="checkbox" aria-label="Scale dock and notch together" checked={scaleLinked} onChange={(e) => handleScaleLinkedChange(e.target.checked)} />
+						<span className="slider"></span>
+					</label>
+				</SettingRow>
+				{scaleLinked ? (
+					<SettingRow icon={Maximize2} label="Dock & Notch Scale" desc="Resize both surfaces together">
+						<ScaleButtons label="dock and notch scale" value={scale} onChange={handleScaleChange} />
+					</SettingRow>
+				) : (
+					<>
+						<SettingRow icon={Maximize2} label="Dock & Tray Scale" desc="Resize the dock and system tray">
+							<ScaleButtons label="dock scale" value={dockScale} onChange={handleDockScaleChange} />
+						</SettingRow>
+						<SettingRow icon={Maximize2} label="Notch Scale" desc="Resize the notch independently">
+							<ScaleButtons label="notch scale" value={notchScale} onChange={handleNotchScaleChange} />
+						</SettingRow>
+					</>
+				)}
+				<SettingRow icon={Maximize2} label="Text Scale" desc="Change text size without resizing icons" divider={false}>
+					<ScaleButtons label="text scale" value={fontScale} onChange={handleFontScaleChange} />
 				</SettingRow>
 			</div>
 		</>

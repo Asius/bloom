@@ -7,17 +7,17 @@ import {
 	type CSSProperties
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
 import { ChevronUp } from "lucide-react";
 import { EdgeSurface } from "./EdgeSurface";
-import type { TrayIcon, TrayRect, TraySnapshot } from "../tray";
+import { createTrayActionGate, nativeTrayLayout, type TrayIcon, type TrayRect, type TraySnapshot, type TrayWindowMetrics } from "../tray";
 import "./SystemTray.css";
 
 interface Props {
 	scale: number;
 	height: number;
-	metrics: { x: number; y: number; width: number; height: number; dpi: number } | null;
+	metrics: TrayWindowMetrics | null;
 }
 
 /** Visible icons beside the dock chevron, hidden icons in a bounded flyout. */
@@ -32,10 +32,21 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const panel = useRef<HTMLDivElement>(null);
 	const request = useRef<Promise<TraySnapshot | null> | null>(null);
 	const lastRefresh = useRef(0);
-	const busyRef = useRef(false);
+	const actionGate = useRef(createTrayActionGate<TrayIcon>());
 	const mounted = useRef(true);
 	const state = useRef({ healthy, open });
 	state.current = { healthy, open };
+	const nativeHeight = useRef<number | null>(null);
+	nativeHeight.current = snapshot?.native_taskbar_height ?? null;
+	useEffect(() => {
+		if (nativeHeight.current !== null) void emit("native-taskbar-height", nativeHeight.current);
+	}, [snapshot?.native_taskbar_height]);
+	useEffect(() => {
+		const requestHeight = listen("native-taskbar-height-request", () => {
+			if (nativeHeight.current !== null) void emit("native-taskbar-height", nativeHeight.current);
+		});
+		return () => { void requestHeight.then((unlisten) => unlisten()); };
+	}, []);
 	const report = useCallback(() => {
 		const rects = [host.current, panel.current].filter(Boolean).map((el) => {
 			const r = el!.getBoundingClientRect();
@@ -55,7 +66,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		}).catch(console.error);
 	}, [scale]);
 	const refresh = useCallback(async () => {
-		if (busyRef.current) return null;
+		if (actionGate.current.isBusy()) return null;
 		if (request.current) return request.current;
 		lastRefresh.current = Date.now();
 		const loading = (async () => {
@@ -92,7 +103,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 			report();
 		}, 2000);
 		const dismiss = listen("tray-dismiss", () => {
-			if (!busyRef.current) setOpen(false);
+			if (!actionGate.current.isBusy()) setOpen(false);
 		});
 		let changedAgain = false;
 		let receivingChanges = false;
@@ -113,11 +124,11 @@ export function SystemTray({ scale, height, metrics }: Props) {
 			}
 		});
 		const blur = () => {
-			if (!busyRef.current) setOpen(false);
+			if (!actionGate.current.isBusy()) setOpen(false);
 		};
 		const outside = (event: PointerEvent) => {
 			const target = event.target as Node;
-			if (!busyRef.current && !host.current?.contains(target) && !panel.current?.contains(target))
+			if (!actionGate.current.isBusy() && !host.current?.contains(target) && !panel.current?.contains(target))
 				setOpen(false);
 		};
 		document.addEventListener("pointerdown", outside, true);
@@ -145,10 +156,10 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		return () => cancelAnimationFrame(raf);
 	}, [open]);
 	const action = async (icon?: TrayIcon, contextMenu = false, doubleClick = false) => {
-		if (busyRef.current) return;
+		if (!actionGate.current.begin(icon, contextMenu, doubleClick)) return;
 		void invoke("report_tray_input", { control: contextMenu ? "context" : "activate" });
-		busyRef.current = true;
 		setBusy(true);
+		let succeeded = false;
 		// Native left clicks may intentionally do nothing until a double click.
 		// Keep the flyout alive; activation/menu focus will dismiss it on blur.
 		if (contextMenu || !icon?.id.startsWith("live:")) setOpen(false);
@@ -166,18 +177,20 @@ export function SystemTray({ scale, height, metrics }: Props) {
 						kind: "info"
 					}).catch(console.error);
 			}
+			succeeded = true;
 		} catch (error) {
 			await message(String(error), { title: "System Tray", kind: "error" }).catch(console.error);
 		} finally {
-			busyRef.current = false;
+			const double = actionGate.current.finish(succeeded);
 			if (mounted.current) {
 				setBusy(false);
-				void refresh();
+				if (succeeded && double) void action(double, false, true);
+				else void refresh();
 			}
 		}
 	};
 	const show = async () => {
-		if (busyRef.current) return;
+		if (actionGate.current.isBusy()) return;
 		void invoke("report_tray_input", { control: "toggle" });
 		if (open) {
 			setOpen(false);
@@ -203,22 +216,12 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	};
 	const liveIcons = healthy ? (snapshot?.icons ?? []) : [];
 	const candidatesPromoted = liveIcons.filter((icon) => icon.is_promoted);
-	const promotedRects = candidatesPromoted.flatMap((icon) => icon.native_rect ? [icon.native_rect] : []);
-	const preciseLayout =
-		!!metrics &&
-		!!snapshot &&
-		(!!snapshot.native_chevron || promotedRects.length > 0) &&
-		promotedRects.length === candidatesPromoted.length;
+	const layout = nativeTrayLayout(healthy ? snapshot : null, metrics);
+	const preciseLayout = layout?.precise ?? false;
 	const promoted = candidatesPromoted;
 	const icons = liveIcons.filter((icon) => !icon.is_promoted);
-	const firstIconLeft = promotedRects.length ? Math.min(...promotedRects.map((rect) => rect.x)) : 0;
-	const nativeAnchor = snapshot?.native_chevron ?? (promotedRects.length && metrics
-		? { x: firstIconLeft - 28 * metrics.dpi, y: 0, width: 25 * metrics.dpi, height: 0 }
-		: null);
-	const nativeRight = Math.max(
-		snapshot?.native_chevron ? snapshot.native_chevron.x + snapshot.native_chevron.width : 0,
-		...promotedRects.map((rect) => rect.x + rect.width)
-	);
+	const nativeAnchor = layout?.anchor;
+	const nativeRight = layout?.right ?? 0;
 	const dpi = metrics?.dpi ?? 1;
 	const visualHeight = height * scale;
 	const viewportHeight = metrics ? metrics.height / dpi : window.innerHeight;
@@ -231,6 +234,14 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		width: Math.max(25, (nativeRight - nativeAnchor.x) / dpi),
 		height: visualHeight,
 		zoom: 1
+	} : layout && metrics && nativeAnchor ? {
+		left: (nativeAnchor.x - metrics.x) / dpi,
+		right: "auto",
+		bottom: 0,
+		height,
+		maxWidth: Math.max(25, (metrics.width - (nativeAnchor.x - metrics.x)) / dpi / scale),
+		transform: `scale(${scale})`,
+		transformOrigin: "bottom left"
 	} : { height, zoom: scale };
 	const nativeIconStyle = (rect: TrayRect | null | undefined): CSSProperties | undefined => {
 		if (!preciseLayout || !metrics || !nativeAnchor || !rect) return undefined;
@@ -249,14 +260,13 @@ export function SystemTray({ scale, height, metrics }: Props) {
 			: { position: "absolute", left: 0, top: 0, width: 25, height: "100%" }
 		: undefined;
 	const columns = Math.min(5, Math.max(1, icons.length));
-	const panelRight = preciseLayout && metrics && nativeAnchor && toggleRect
-		? Math.max(0, (nativeRight - (toggleRect.x + toggleRect.width)) / dpi)
+	const panelRight = preciseLayout && metrics && nativeAnchor
+		? Math.max(0, (nativeRight - (nativeAnchor.x + nativeAnchor.width)) / dpi)
 		: undefined;
 	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[], style?: CSSProperties) => (
 		<button
 			key={icon.id}
 			type="button"
-			disabled={busy}
 			className="bloom-tray-icon"
 			style={style}
 			aria-label={`${icon.name}${group.filter((i) => i.path === icon.path).length > 1 ? ` (${index + 1})` : ""}`}
@@ -337,6 +347,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		<span
 			ref={host}
 			className={`bloom-tray bloom-tray-right ${preciseLayout ? "is-native-aligned" : ""} ${open ? "is-open" : ""}`}
+			aria-busy={busy}
 			style={nativeBarStyle}
 			onClick={(e) => e.stopPropagation()}
 			onContextMenu={(e) => {

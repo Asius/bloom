@@ -634,8 +634,8 @@ fn dispatch(token: &str, context: bool, double: bool) -> Option<Result<(), Strin
             PostMessageW(Some(HWND(entry.hwnd as _)), callback, w, l).map_err(|e| e.to_string())?;
         }
         // Some applications locate a popup through their native icon rectangle
-        // instead of the v4 click coordinates. Correct only newly shown popups
-        // from this app, without holding the tray buttons disabled meanwhile.
+        // instead of the v4 click coordinates. Recover a newly shown popup only
+        // when it is offscreen, without holding the tray buttons disabled.
         let path = entry.path;
         let before: Vec<isize> = before.iter().map(|h| h.0 as isize).collect();
         std::thread::spawn(move || {
@@ -649,6 +649,7 @@ fn dispatch(token: &str, context: bool, double: bool) -> Option<Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU64;
     #[test]
     fn callbacks_preserve_legacy_uid_and_v4_signed_coordinates() {
         let p = POINT { x: -120, y: 1000 };

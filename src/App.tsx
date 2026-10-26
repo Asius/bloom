@@ -24,6 +24,7 @@ import { EdgeSurface } from "./components/EdgeSurface";
 import { ShelfTypeIcon } from "./components/ShelfTypeIcon";
 import type { WidgetConfig } from "./components/StatusWidgetConfig";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
+import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { useWeather } from "./hooks/useWeather";
@@ -38,6 +39,7 @@ import {
 	VolumeLowIcon
 } from "./icons";
 import { initTheme } from "./theme";
+import { effectiveScale } from "./scales";
 import type { UpdateCheckResult } from "./updater";
 import { createRegionSender, measureElements, notchPillBox, type RegionRect } from "./windowRegion";
 
@@ -245,6 +247,9 @@ const TitleMarquee = ({ title }: { title: string }) => {
 };
 
 function App() {
+	const scales = useDesktopScales();
+	const scale = effectiveScale(scales, "notch");
+	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
 	}, []);
@@ -256,9 +261,6 @@ function App() {
 	const isOpenRef = useRef(false);
 	isOpenRef.current = isOpen;
 	const [isReady, setIsReady] = useState(false);
-	const [scale, setScale] = useState(() =>
-		parseFloat(localStorage.getItem("bloom-scale") || "1.0")
-	);
 	const [timeFormat24h, setTimeFormat24h] = useState(
 		() => localStorage.getItem("bloom-time-format-24h") === "true"
 	);
@@ -726,9 +728,6 @@ function App() {
 					setSystemSettingsReady(true);
 				}
 
-				const scaleVal = getVal("bloom-scale");
-				if (scaleVal !== null) setScale(parseFloat(scaleVal));
-
 				const widgetsVal = getVal("bloom-status-widgets");
 				if (widgetsVal) {
 					try {
@@ -796,7 +795,6 @@ function App() {
 			"bloom-media-album-art-enabled": setSettingsAlbumArtEnabled,
 			"bloom-media-layout": setMediaLayout,
 			"bloom-corners-enabled": setSettingsCornersEnabled,
-			"bloom-scale": setScale,
 			"bloom-dock-enabled": setDockEnabled,
 			"bloom-dock-mode": setDockMode,
 			"bloom-notch-mode": setNotchMode,

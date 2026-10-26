@@ -1243,9 +1243,47 @@ pub fn replace_settings_cache(new_settings: std::collections::HashMap<String, se
 }
 
 pub fn get_bloom_scale(_app: &tauri::AppHandle) -> f64 {
-    get_setting_str(_app, "bloom-scale")
-        .and_then(|s| s.parse::<f64>().ok())
+    get_scale_setting("bloom-scale")
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.8, 1.3))
         .unwrap_or(1.0)
+}
+
+fn surface_scale(shared: f64, linked: bool, value: Option<&str>) -> f64 {
+    if linked {
+        return shared;
+    }
+    value
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.8, 1.3))
+        .unwrap_or(shared)
+}
+
+fn get_surface_scale(app: &tauri::AppHandle, key: &str) -> f64 {
+    let shared = get_bloom_scale(app);
+    let linked = get_scale_setting("bloom-scale-linked").as_deref() != Some("false");
+    let value = get_scale_setting(key);
+    surface_scale(shared, linked, value.as_deref())
+}
+
+fn get_scale_setting(key: &str) -> Option<String> {
+    let cache = crate::state::SETTINGS_CACHE.get()?.lock().ok()?;
+    match cache.get(key)? {
+        serde_json::Value::String(value) => Some(value.clone()),
+        serde_json::Value::Number(value) => Some(value.to_string()),
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+pub fn get_dock_scale(app: &tauri::AppHandle) -> f64 {
+    get_surface_scale(app, "bloom-dock-scale")
+}
+
+pub fn get_notch_scale(app: &tauri::AppHandle) -> f64 {
+    get_surface_scale(app, "bloom-notch-scale")
 }
 
 /// Read any string value from the settings cache. Returns None if the key is absent.
@@ -1488,6 +1526,15 @@ mod tests {
         newest_squirrel_folder, parse_marker_pid, parse_marker_rect, parse_marker_secondaries,
         parse_marker_state, relaunch_executable,
     };
+
+    #[test]
+    fn dock_and_notch_scales_preserve_legacy_shared_setting() {
+        assert_eq!(super::surface_scale(1.2, true, Some("0.8")), 1.2);
+        assert_eq!(super::surface_scale(1.2, false, None), 1.2);
+        assert_eq!(super::surface_scale(1.2, false, Some("0.9")), 0.9);
+        assert_eq!(super::surface_scale(1.2, false, Some("NaN")), 1.2);
+        assert_eq!(super::surface_scale(1.2, false, Some("5")), 1.3);
+    }
 
     #[test]
     fn picks_the_newest_squirrel_version_by_number() {

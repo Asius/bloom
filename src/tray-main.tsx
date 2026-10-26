@@ -5,24 +5,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { SystemTray } from "./components/SystemTray";
-import { useSettingsSync } from "./hooks/useSettingsSync";
-import { trayHeight } from "./tray";
+import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
+import { effectiveScale } from "./scales";
+import { trayHeight, type TrayWindowMetrics } from "./tray";
 import { initTheme } from "./theme";
 import "./tray-window.css";
 
-interface WindowMetrics {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	dpi: number;
-}
-
 /** Own HWND: input is bounded by its native region, never by dock hover. */
 function TrayWindow() {
-	const [scale, setScale] = useState(1);
-	const [height, setHeight] = useState(36);
-	const [metrics, setMetrics] = useState<WindowMetrics | null>(null);
+	const scales = useDesktopScales();
+	const scale = effectiveScale(scales, "dock");
+	useBloomFontScale(scales.font);
+	const [height, setHeight] = useState(48);
+	const [metrics, setMetrics] = useState<TrayWindowMetrics | null>(null);
 	const [loaded, setLoaded] = useState(false);
 	useEffect(() => {
 		let cancelled = false;
@@ -45,12 +40,9 @@ function TrayWindow() {
 		void refreshMetrics();
 		const moved = trayWindow.onMoved(() => void refreshMetrics());
 		const resized = trayWindow.onResized(() => void refreshMetrics());
-		void invoke<Record<string, unknown>>("load_settings").then(settings => {
-			if (cancelled) return;
-			const value = Number(settings["bloom-scale"] ?? 1);
-			setScale(Number.isFinite(value) && value > 0 ? value : 1);
-			setLoaded(true);
-		}).catch(console.error);
+		void invoke("load_settings").catch(console.error).finally(() => {
+			if (!cancelled) setLoaded(true);
+		});
 		const size = listen<number>("dock-tray-height", event => setHeight(trayHeight(event.payload, 1)));
 		void size.then(() => { if (!cancelled) void emit("tray-height-request"); });
 		return () => {
@@ -61,10 +53,6 @@ function TrayWindow() {
 			void resized.then(unlisten => unlisten());
 		};
 	}, []);
-	useSettingsSync({ "bloom-scale": value => {
-		const next = Number(value);
-		setScale(Number.isFinite(next) && next > 0 ? next : 1);
-	} });
 	return loaded ? <SystemTray scale={scale} height={height} metrics={metrics} /> : null;
 }
 

@@ -127,7 +127,11 @@ Example:
 
 | Key                            | Type                 | Default   | Description                                                                                          |
 | ------------------------------ | -------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
-| `bloom-scale`                  | float string         | `"1.0"`   | Scale of dock, notch and volume HUD (0.8 to 1.3). Settings keeps its own size and scale. |
+| `bloom-scale`                  | float string         | `"1.0"`   | Shared scale of dock and notch when linked, and scale of the volume HUD (0.8 to 1.3). |
+| `bloom-scale-linked`           | `"true"` / `"false"` | `"true"`  | Use the shared scale for both dock/tray and notch; old settings remain linked. |
+| `bloom-dock-scale`             | float string         | shared scale | Separate dock and tray scale when linking is off (0.8 to 1.3). |
+| `bloom-notch-scale`            | float string         | shared scale | Separate notch scale when linking is off (0.8 to 1.3). |
+| `bloom-font-scale`             | float string         | `"1.0"`   | Text size independently of icon and surface size (0.8 to 1.3). |
 | `bloom-auto-update`            | `"true"` / `"false"` | `"false"` | Check for and download updates automatically on startup.                                             |
 | `bloom-show-update-indicator`  | `"true"` / `"false"` | `"true"`  | Show a green dot on the notch when an update is available.                                           |
 | `bloom-time-format-24h`        | `"true"` / `"false"` | `"false"` | Use 24-hour clock format in the notch. When `"false"`, displays 12-hour format with AM/PM.           |
@@ -199,7 +203,7 @@ with open(path, 'w') as f: json.dump(settings, f)
 - All boolean values are strings (`"true"` / `"false"`) for consistency with `localStorage`.
 - The `useSettingsSync` hook auto-converts `"true"` / `"false"` strings to booleans.
 - `auto-hide` mode values in `bloom-dock-mode` and `bloom-notch-mode` are legacy aliases for `smart` — they are mapped automatically.
-- Changing `bloom-scale` triggers AppBar re-registration to adjust reserved screen space.
+- Changing shared, linked, dock or notch scale reconciles AppBar reservations and the notch window size. Font scale changes text without changing the configured surface scale or icon dimensions.
 - Settings → General → Reset to Defaults removes every `bloom-` key from `settings.json` and `localStorage` (except the `bloom-first-run` / `bloom-app-version` lifecycle sentinels), then restarts Bloom. Pinned apps (`pinned_apps.json`) and uploaded icons (`custom_icons/`) are preserved.
 - Theme changes (`bloom-theme-*`) are applied by reading all theme values from `localStorage` and calling `applyTheme()` — the theme system depends on all five theme keys being in sync.
 

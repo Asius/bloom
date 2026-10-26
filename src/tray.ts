@@ -22,12 +22,70 @@ export interface TraySnapshot {
 	shell_id: string;
 	icons: TrayIcon[];
 	native_chevron?: TrayRect | null;
+	native_taskbar_height?: number | null;
+}
+
+export interface TrayWindowMetrics {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	dpi: number;
+}
+
+/** Keep native placement only while the anchor belongs to the current HWND. */
+export function nativeTrayLayout(snapshot: TraySnapshot | null, metrics: TrayWindowMetrics | null) {
+	if (!snapshot || !metrics || !Number.isFinite(metrics.dpi) || metrics.dpi <= 0) return null;
+	const promoted = snapshot.icons.filter((icon) => icon.is_promoted);
+	const rects = promoted.flatMap((icon) => icon.native_rect ? [icon.native_rect] : []);
+	const firstLeft = rects.length ? Math.min(...rects.map((rect) => rect.x)) : null;
+	const anchor = snapshot.native_chevron ?? (firstLeft === null ? null : {
+		x: firstLeft - 28 * metrics.dpi, y: 0, width: 25 * metrics.dpi, height: 0
+	});
+	if (!anchor || anchor.x < metrics.x || anchor.x + anchor.width > metrics.x + metrics.width)
+		return null;
+	if (snapshot.native_chevron && (anchor.y < metrics.y || anchor.y + anchor.height > metrics.y + metrics.height))
+		return null;
+	const right = Math.max(anchor.x + anchor.width, ...rects.map((rect) => rect.x + rect.width));
+	const ordered = [...rects].sort((a, b) => a.x - b.x);
+	const precise = rects.length === promoted.length && rects.every((rect) =>
+		rect.width > 0 && rect.height > 0 && rect.x >= anchor.x + anchor.width &&
+		rect.x + rect.width <= metrics.x + metrics.width && rect.y >= metrics.y &&
+		rect.y + rect.height <= metrics.y + metrics.height
+	) && ordered.every((rect, index) => index === 0 || ordered[index - 1].x + ordered[index - 1].width <= rect.x);
+	return { anchor, right, precise };
 }
 
 /** Keep the tray at the dock's configured height across Bloom scales. */
 export function trayHeight(height: number, scale: number) {
 	const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
-	return Math.max(28, Math.min(height / safeScale || 36, 44));
+	return Math.max(32, Math.min(height / safeScale || 48, 96));
+}
+
+/** A double click may arrive while the first callback is still completing. */
+export function createTrayActionGate<T extends { id: string }>() {
+	let busy = false;
+	let activeId: string | null = null;
+	let pendingDouble: T | null = null;
+	return {
+		isBusy: () => busy,
+		begin(icon?: T, contextMenu = false, doubleClick = false): boolean {
+			if (busy) {
+				if (icon && doubleClick && !contextMenu && activeId === icon.id) pendingDouble = icon;
+				return false;
+			}
+			busy = true;
+			activeId = icon?.id ?? null;
+			return true;
+		},
+		finish(success: boolean): T | null {
+			busy = false;
+			activeId = null;
+			const next = success ? pendingDouble : null;
+			pendingDouble = null;
+			return next;
+		}
+	};
 }
 
 type NoticeKind = "info" | "error";

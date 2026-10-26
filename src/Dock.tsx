@@ -7,6 +7,8 @@ import { EdgeSurface } from "./components/EdgeSurface";
 import { trayHeight } from "./tray";
 import { initTheme } from "./theme";
 import { useSettingsSync } from "./hooks/useSettingsSync";
+import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
+import { effectiveScale } from "./scales";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
 
 import {
@@ -95,10 +97,22 @@ function WindowDots({ count, background }: { count: number; background?: boolean
 }
 
 const Dock = memo(function Dock() {
+	const scales = useDesktopScales();
+	const scale = effectiveScale(scales, "dock");
+	useBloomFontScale(scales.font);
 	const trayBarHeight = useRef(0);
+	const [nativeTaskbarHeight, setNativeTaskbarHeight] = useState(48);
+	useEffect(() => {
+		const heightListener = listen<number>("native-taskbar-height", (event) => {
+			const value = Number(event.payload);
+			if (Number.isFinite(value) && value >= 32 && value <= 96) setNativeTaskbarHeight(value);
+		});
+		void heightListener.then(() => emit("native-taskbar-height-request"));
+		return () => { void heightListener.then((unlisten) => unlisten()); };
+	}, []);
 	useEffect(() => {
 		const request = listen("tray-height-request", () => {
-			void emit("dock-tray-height", trayBarHeight.current || 36);
+			void emit("dock-tray-height", trayBarHeight.current || 48);
 		});
 		return () => { void request.then(unlisten => unlisten()); };
 	}, []);
@@ -177,9 +191,6 @@ const Dock = memo(function Dock() {
 	const [popupBottom, setPopupBottom] = useState(56);
 	const pinnedItemsRef = useRef<AppInfo[]>([]);
 	const handleAppClickRef = useRef<(app: AppInfo) => void>(() => {});
-	const [scale, setScale] = useState(() =>
-		parseFloat(localStorage.getItem("bloom-scale") || "1.0")
-	);
 	const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
 
 	useEffect(() => {
@@ -346,9 +357,6 @@ const Dock = memo(function Dock() {
 			const extrasPosition = getVal("bloom-dock-extras-position", "off");
 			if (extrasPosition) setDockExtrasPosition(extrasPosition);
 
-			const scaleVal = getVal("bloom-scale");
-			if (scaleVal !== null) setScale(parseFloat(scaleVal));
-
 			const pinned = await invoke<AppInfo[]>("load_pinned_apps");
 			setPinnedApps(pinned.map((a) => ({ ...a, is_pinned: true })));
 			pinned.forEach((app) => fetchIcon(app.path));
@@ -416,7 +424,6 @@ const Dock = memo(function Dock() {
 		"bloom-dock-adaptive": setDockAdaptive,
 		"bloom-dock-task-view": setDockTaskView,
 		"bloom-start-icon": setStartIcon,
-		"bloom-scale": setScale,
 		"bloom-dock-extras-position": setDockExtrasPosition,
 		"bloom-dock-extras-drives": () => setDockExtrasRevision((r) => r + 1),
 		"bloom-dock-extras-recycle-bin": () => setDockExtrasRevision((r) => r + 1),
@@ -1135,7 +1142,7 @@ const Dock = memo(function Dock() {
 						y: !isReady ? -800 : isVisible ? (isHidden ? 100 : 0) : 150,
 						width:
 							isExpanded && !isHidden && isVisible ? (isAdaptive ? adaptiveWidth : "auto") : 34,
-						height: isExpanded && !isHidden && isVisible ? "auto" : 34,
+						height: isExpanded && !isHidden && isVisible ? nativeTaskbarHeight : 34,
 						borderTopLeftRadius: (isImpacted || isExpanded) && !isHidden && isVisible ? 18 : 17,
 						borderTopRightRadius: (isImpacted || isExpanded) && !isHidden && isVisible ? 18 : 17,
 						borderBottomLeftRadius: (isImpacted || isExpanded) && !isHidden && isVisible ? 0 : 17,

@@ -17,13 +17,33 @@ pub(super) fn icon_inside(icon: &RECT, bounds: &RECT) -> bool {
         && y < bounds.bottom as i64
 }
 
-pub(super) fn reserved_right(taskbar: &RECT, icons: &[RECT]) -> Option<i32> {
-    icons
-        .iter()
-        .filter(|r| icon_inside(r, taskbar))
-        .map(|r| taskbar.right - r.right)
-        .filter(|gap| *gap >= 0 && *gap < (taskbar.right - taskbar.left) / 3)
-        .min()
+/// Translate an Explorer icon back from the taskbar's temporary hidden location.
+/// Coordinates already inside the visible taskbar are accepted unchanged.
+pub(super) fn visible_icon_rect(icon: RECT, original: RECT, current: RECT) -> Option<RECT> {
+    if icon_inside(&icon, &original) {
+        return Some(icon);
+    }
+    if !icon_inside(&icon, &current) {
+        return None;
+    }
+    let dx = original.left.checked_sub(current.left)?;
+    let dy = original.top.checked_sub(current.top)?;
+    let translated = RECT {
+        left: icon.left.checked_add(dx)?,
+        right: icon.right.checked_add(dx)?,
+        top: icon.top.checked_add(dy)?,
+        bottom: icon.bottom.checked_add(dy)?,
+    };
+    icon_inside(&translated, &original).then_some(translated)
+}
+
+pub(super) fn menu_inside_monitor(menu: &RECT, monitor: &RECT) -> bool {
+    menu.right > menu.left
+        && menu.bottom > menu.top
+        && menu.left >= monitor.left
+        && menu.top >= monitor.top
+        && menu.right <= monitor.right
+        && menu.bottom <= monitor.bottom
 }
 
 pub(super) fn snapshot_png(bytes: &[u8]) -> Option<String> {
@@ -277,7 +297,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_position_preserves_system_controls_space_after_taskbar_moves() {
+    fn native_icon_coordinates_survive_taskbar_handoff() {
         let bar = RECT {
             left: 0,
             top: 1400,
@@ -290,7 +310,6 @@ mod tests {
             right: 2344,
             bottom: 1432,
         };
-        assert_eq!(reserved_right(&bar, &[icon]), Some(216));
         let shifted_bar = RECT {
             left: -10000,
             top: -10000,
@@ -303,8 +322,42 @@ mod tests {
             right: -7656,
             bottom: -9968,
         };
-        assert_eq!(reserved_right(&shifted_bar, &[shifted_icon]), Some(216));
-        assert_eq!(reserved_right(&shifted_bar, &[icon]), None);
+        assert_eq!(
+            visible_icon_rect(shifted_icon, bar, shifted_bar),
+            Some(icon)
+        );
+        assert_eq!(visible_icon_rect(icon, bar, shifted_bar), Some(icon));
+        let unrelated = RECT {
+            left: 100,
+            top: 100,
+            right: 124,
+            bottom: 124,
+        };
+        assert_eq!(visible_icon_rect(unrelated, bar, shifted_bar), None);
+    }
+
+    #[test]
+    fn visible_app_menus_keep_their_native_position() {
+        let monitor = RECT {
+            left: 0,
+            top: 0,
+            right: 2560,
+            bottom: 1440,
+        };
+        let visible = RECT {
+            left: 2200,
+            top: 1000,
+            right: 2520,
+            bottom: 1400,
+        };
+        let offscreen = RECT {
+            left: -10000,
+            top: -10000,
+            right: -9680,
+            bottom: -9600,
+        };
+        assert!(menu_inside_monitor(&visible, &monitor));
+        assert!(!menu_inside_monitor(&offscreen, &monitor));
     }
 
     #[test]

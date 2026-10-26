@@ -50,7 +50,7 @@ body {
 }
 
 .title-text {
-	font-size: 13px;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
 	font-weight: 700;
 	letter-spacing: -0.1px;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.5));
@@ -121,7 +121,7 @@ body {
 	background: transparent;
 	border: none;
 	color: var(--text-color);
-	font-size: 13px;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	cursor: pointer;
 	text-align: left;
@@ -228,7 +228,7 @@ body {
 	border-radius: 10px;
 	background: rgba(239, 96, 96, 0.12);
 	color: var(--text-color, white);
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	line-height: 1.4;
 }
 
@@ -258,7 +258,7 @@ body {
 }
 
 .setting-group-label {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.4));
 	text-transform: uppercase;
@@ -326,13 +326,13 @@ body {
 }
 
 .setting-label {
-	font-size: 14px;
+	font-size: calc(14px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	color: var(--bloom-text, rgba(255, 255, 255, 0.95));
 }
 
 .setting-desc {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	color: var(--text-muted);
 	opacity: 0.8;
 }
@@ -346,7 +346,7 @@ body {
 	border: 1px solid var(--bloom-border, rgba(255, 255, 255, 0.12));
 	background: rgba(255, 255, 255, 0.05);
 	color: var(--bloom-text, rgba(255, 255, 255, 0.95));
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	font-family: inherit;
 	cursor: pointer;
 	transition: all 0.15s ease;
@@ -382,14 +382,14 @@ body {
 }
 
 .extra-folder-name {
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	color: var(--bloom-text, rgba(255, 255, 255, 0.95));
 	flex-shrink: 0;
 }
 
 .extra-folder-path {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	color: var(--text-muted, rgba(255, 255, 255, 0.5));
 	opacity: 0.9;
 	flex: 1;
@@ -490,7 +490,7 @@ input:checked + .slider:before {
 }
 
 .unit-toggle-minimal span {
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	font-weight: 700;
 	width: 18px;
 	height: 18px;
@@ -511,7 +511,7 @@ input:checked + .slider:before {
 .unit-toggle-minimal.wide span {
 	width: auto;
 	padding: 0 10px;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 }
 
 .searching-spinner {
@@ -548,7 +548,7 @@ input:checked + .slider:before {
 	width: 100%;
 	background: transparent;
 	border: none;
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	color: var(--bloom-text, #fff);
 	padding: 4px 20px 4px 0;
 	outline: none;
@@ -615,13 +615,13 @@ input:checked + .slider:before {
 }
 
 .city-dropdown-name {
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	color: var(--bloom-text, #fff);
 	font-weight: 500;
 }
 
 .city-dropdown-country {
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.35));
 }
 
@@ -629,7 +629,7 @@ input:checked + .slider:before {
 	background: var(--bloom-group-bg, rgba(255, 255, 255, 0.1));
 	border: 1px solid var(--bloom-border, rgba(255, 255, 255, 0.05));
 	color: var(--bloom-text, white);
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	border-radius: 6px;
 	padding: 4px 8px;
 	outline: none;
@@ -739,7 +739,7 @@ input:checked + .slider:before {
 }
 
 .scale-display-value {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	min-width: 32px;
 	text-align: center;
@@ -765,7 +765,7 @@ input:checked + .slider:before {
 }
 
 .color-picker-label {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--text-muted);
 }
@@ -817,7 +817,7 @@ input:checked + .slider:before {
 
 .about-title {
 	font-family: "Syne", "Segoe UI", system-ui, sans-serif;
-	font-size: 40px;
+	font-size: calc(40px * var(--bloom-font-scale, 1));
 	font-weight: 800;
 	line-height: 1;
 	color: var(--bloom-text, #ffffff);
@@ -844,7 +844,7 @@ input:checked + .slider:before {
 	border-radius: 999px;
 	background: var(--bloom-group-bg, rgba(255, 255, 255, 0.06));
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.55));
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
@@ -856,7 +856,7 @@ input:checked + .slider:before {
 	justify-content: center;
 	gap: 5px;
 	margin: 14px 0 0;
-	font-size: 11.5px;
+	font-size: calc(11.5px * var(--bloom-font-scale, 1));
 	letter-spacing: 0.01em;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.55));
 }
@@ -935,7 +935,7 @@ input:checked + .slider:before {
 }
 
 .widget-config-side {
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	text-transform: uppercase;
 	letter-spacing: 0.5px;
@@ -953,7 +953,7 @@ input:checked + .slider:before {
 }
 
 .widget-config-empty {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.15));
 	font-style: italic;
 }
@@ -976,7 +976,7 @@ input:checked + .slider:before {
 	gap: 5px;
 	padding: 4px 8px;
 	border-radius: 6px;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	color: var(--bloom-text, rgba(255, 255, 255, 0.7));
 	white-space: nowrap;

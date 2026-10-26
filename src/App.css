@@ -97,7 +97,7 @@ img {
 }
 
 .power-pulse-content .label {
-	font-size: 13px;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: white;
 }
@@ -130,7 +130,7 @@ img {
 	align-items: center;
 	justify-content: center;
 	gap: 6px;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	color: rgba(255, 255, 255, 0.9);
 	font-weight: 500;
 	white-space: nowrap;
@@ -233,7 +233,7 @@ img {
 
 .activity-bubble.shelf-bubble {
 	padding: 0 9px;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	font-variant-numeric: tabular-nums;
 }
@@ -298,7 +298,7 @@ img {
 }
 
 .time {
-	font-size: 13px;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	letter-spacing: 0.3px;
 	line-height: 1;
@@ -381,7 +381,7 @@ img {
 	background: var(--bloom-bg-expanded, rgba(20, 20, 20, 0.92));
 	color: var(--bloom-text, white);
 	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	line-height: 1.5;
 	white-space: pre;
@@ -389,7 +389,7 @@ img {
 }
 
 .passive-feature .label {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	opacity: 0.85;
 	line-height: 1;
@@ -642,7 +642,7 @@ img {
 }
 
 .month-year {
-	font-size: 13px;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	opacity: 0.9;
 	line-height: 1.3;
@@ -655,7 +655,7 @@ img {
 }
 
 .day-name {
-	font-size: 9px;
+	font-size: calc(9px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	opacity: 0.4;
 	text-align: center;
@@ -667,7 +667,7 @@ img {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	border-radius: 4px;
 	transition: background 0.2s ease;
 }
@@ -787,7 +787,7 @@ img {
 }
 
 .premium-title {
-	font-size: 14.5px;
+	font-size: calc(14.5px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--bloom-text, white);
 	white-space: nowrap;
@@ -815,7 +815,7 @@ img {
 }
 
 .premium-artist {
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	font-weight: 400;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.55));
 	white-space: nowrap;
@@ -1013,7 +1013,7 @@ img {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	opacity: 0.55;
 	border: 1px dashed rgba(255, 255, 255, 0.25);
 	border-radius: 12px;
@@ -1029,7 +1029,7 @@ img {
 	border-radius: 999px;
 	background: rgba(0, 0, 0, 0.75);
 	color: #fff;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	white-space: nowrap;
 	pointer-events: none;
 	animation: shelf-notice-in 0.15s ease;
@@ -1169,7 +1169,7 @@ img {
 .shelf-tile-text-body {
 	flex: 1;
 	min-height: 0;
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	line-height: 1.45;
 	word-break: break-word;
 	overflow: hidden;
@@ -1179,7 +1179,7 @@ img {
 }
 
 .shelf-tile-name {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1267,13 +1267,13 @@ img {
 }
 
 .cc-pill-title {
-	font-size: 13px;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--bloom-text, rgba(255, 255, 255, 0.9));
 }
 
 .cc-pill-status {
-	font-size: 10px;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.4));
 	font-weight: 500;
 	/* The connected network's name can be long. */
@@ -1403,7 +1403,7 @@ img {
 	align-items: center;
 	gap: 6px;
 	width: 82px;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.65));
 }
@@ -1450,7 +1450,7 @@ img {
 .cc-classic-percentage {
 	width: 34px;
 	text-align: right;
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.55));
 	font-variant-numeric: tabular-nums;
@@ -1585,7 +1585,7 @@ img {
 }
 
 .cmp-title {
-	font-size: 15px;
+	font-size: calc(15px * var(--bloom-font-scale, 1));
 	font-weight: 600;
 	color: var(--bloom-text, white);
 	white-space: nowrap;
@@ -1614,7 +1614,7 @@ img {
 }
 
 .cmp-artist {
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 	font-weight: 400;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.5));
 	white-space: nowrap;
@@ -1686,7 +1686,7 @@ img {
 
 /* Progress bar */
 .cmp-time {
-	font-size: 11px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.5));
 	min-width: 30px;
@@ -1826,7 +1826,7 @@ img {
 	cursor: pointer;
 	transition: background 0.15s ease;
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.6));
-	font-size: 12px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
 }
 
 .cmp-output-item:hover {

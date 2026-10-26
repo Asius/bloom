@@ -142,9 +142,6 @@ export function useSettings() {
 	const [autoUpdate, setAutoUpdate] = useState(
 		() => localStorage.getItem("bloom-auto-update") === "true"
 	);
-	const [scale, setScale] = useState(() =>
-		parseFloat(localStorage.getItem("bloom-scale") || "1.0")
-	);
 	const [themeMode, setThemeMode] = useState(
 		() => localStorage.getItem("bloom-theme-mode") || "system"
 	);
@@ -227,7 +224,6 @@ export function useSettings() {
 			apply(getVal("bloom-dock-extras-custom-folders"), setDockExtrasCustomFolders, (v) => v);
 
 			apply(getVal("bloom-temp-unit"), setTempUnitFahrenheit, (v) => v === "fahrenheit");
-			apply(getVal("bloom-scale"), setScale, parseFloat);
 
 			apply(getVal("bloom-notch-mode"), setNotchMode, (v) => (v === "auto-hide" ? "smart" : v));
 			apply(getVal("bloom-notch-edge-delay"), setNotchEdgeDelay, parseInt);
@@ -369,7 +365,6 @@ export function useSettings() {
 		"bloom-corners-enabled": setCornersEnabled,
 		"bloom-show-update-indicator": setShowUpdateIndicator,
 		"bloom-time-format-24h": setTimeFormat24h,
-		"bloom-scale": setScale,
 		"bloom-temp-unit": (v) => setTempUnitFahrenheit(v === "fahrenheit"),
 		"bloom-auto-update": setAutoUpdate,
 		"bloom-volume-overlay-enabled": setVolumeOverlayEnabled,
@@ -729,8 +724,19 @@ export function useSettings() {
 	};
 
 	const handleScaleChange = (val: number) => {
-		setScale(val);
 		saveSetting("bloom-scale", val.toString());
+	};
+	const handleScaleLinkedChange = (linked: boolean) => {
+		saveSetting("bloom-scale-linked", String(linked));
+	};
+	const handleDockScaleChange = (val: number) => {
+		saveSetting("bloom-dock-scale", String(val));
+	};
+	const handleNotchScaleChange = (val: number) => {
+		saveSetting("bloom-notch-scale", String(val));
+	};
+	const handleFontScaleChange = (val: number) => {
+		saveSetting("bloom-font-scale", String(val));
 	};
 
 	const handleWidgetsChange = (config: WidgetConfig) => {
@@ -898,8 +904,11 @@ export function useSettings() {
 		toggleTimeFormat24h,
 		showUpdateIndicator,
 		toggleUpdateIndicator,
-		scale,
 		handleScaleChange,
+		handleScaleLinkedChange,
+		handleDockScaleChange,
+		handleNotchScaleChange,
+		handleFontScaleChange,
 		cornersEnabled,
 		toggleCorners,
 

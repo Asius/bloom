@@ -19,19 +19,23 @@ the same `EdgeSurface` bottom flares. Dock geometry does not contain tray UI.
 3.10.9 input was confirmed by the owner. The frontend reads the tray HWND's
 physical origin and DPI, places each promoted icon at the rectangle returned by
 `Shell_NotifyIconGetRect`, and measures Explorer's overflow chevron with UI
-Automation before hiding the native taskbar. The Bloom chevron is aligned to
-that rectangle; its hidden-icons panel opens above and toward the left, with its
-right edge aligned to the chevron. If Explorer does not expose a usable
-rectangle, Bloom falls back to the native reserved-right inset (or 120 logical
-pixels when no promoted icon can be measured). If any promoted icon has no
-native rectangle, the row returns to the flow layout instead of stacking icons
-at one coordinate. These fallbacks are approximate.
+Automation before hiding the native taskbar. Explorer is then moved offscreen;
+Bloom translates valid live rectangles back to the saved taskbar coordinates,
+or uses the original per-icon rectangle from the same Explorer session. The
+Bloom chevron is aligned to that rectangle; its hidden-icons panel opens above
+and toward the left, with its right edge aligned to the chevron. If a promoted
+icon has no usable rectangle, the row uses a flow layout anchored to the native
+chevron. If the anchor is unavailable or belongs to an old screen configuration,
+the right-edge fallback is approximate.
 The alignment code compiles, but still requires owner verification against the
 installed Windows taskbar and each display's DPI.
 
-The HWND includes a transparent, scale-aware right margin for the concave flare;
-the body's anchor remains at the measured native position. Both top corners are
-rounded and neither bottom flare is clipped by the shifted window boundary.
+The HWND covers the full primary-monitor width; its native region still limits
+painting and input to the bar and flyout. This prevents clipping icons positioned
+in the native system area. The promoted-icons layer does not intercept the
+chevron. The original horizontal taskbar height supplies the dock and tray base
+height in logical pixels; 48 logical pixels is the fallback if unavailable.
+The bottom flares retain the approved style.
 The hidden-icons grid grows with its icon count, caps at five columns, and puts
 the sixth icon on the next row. Its keyboard up/down step follows the actual
 column count. The panel has no drop shadow; the approved Bloom bottom-edge
@@ -61,7 +65,10 @@ Icons are Windows notification icons, not invented app shortcuts. The live
 provider supplies current artwork when Explorer publishes it; registry snapshots
 remain the fallback, so some icons may still have cached art. Activation/context
 menus use the live callback where available and UI Automation as a bounded
-fallback. The owner must verify appearance, positioning and app menus on the
+fallback. If the registry catalogue fails, validated live-observer icons remain
+accessible in overflow, where their promotion state is unknown. A double click
+on the same icon is queued while its first callback is completing. The owner
+must verify appearance, positioning, single/double clicks and app menus on the
 installed Windows build.
 
 Diagnostics distinguish `tray-surface` readiness/open changes from `tray-input`

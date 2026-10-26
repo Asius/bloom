@@ -3287,7 +3287,7 @@ pub fn register_appbar(window: tauri::WebviewWindow) {
         let m_pos = monitor.position();
         let hwnd = window.hwnd().unwrap();
         let scale = monitor.scale_factor();
-        let bloom_scale = crate::utils::get_bloom_scale(window.app_handle());
+        let bloom_scale = crate::utils::get_notch_scale(window.app_handle());
         let ph = ((420.0 * bloom_scale) * scale) as i32;
         let pr = ((40.0 * bloom_scale) * scale) as i32; // Scale the reserved top screen space
 
@@ -3481,7 +3481,7 @@ fn register_dock_appbar_inner(window: tauri::WebviewWindow, attempt: i32) {
             return;
         };
         let scale = monitor.scale_factor();
-        let bloom_scale = crate::utils::get_bloom_scale(window.app_handle());
+        let bloom_scale = crate::utils::get_dock_scale(window.app_handle());
 
         // ph = full physical window height. outer_size() can return 0 before the
         // window has rendered. Never guess a value — bail and let the retry wrapper handle it.
@@ -3497,7 +3497,8 @@ fn register_dock_appbar_inner(window: tauri::WebviewWindow, attempt: i32) {
             return;
         }
 
-        let pr = ((56.0 * bloom_scale) * scale) as i32;
+        let pr =
+            ((crate::tray::native_taskbar_height().unwrap_or(48.0) * bloom_scale) * scale) as i32;
 
         // Serialize with disable_dock_appbar, then check the setting again.
         // A pending registration must not outlive a dock-disable request.

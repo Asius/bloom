@@ -478,7 +478,7 @@ pub async fn change_notch_mode(app: AppHandle, mode: String) {
             let m_pos = monitor.position();
             let m_size = monitor.size();
             let scale = monitor.scale_factor();
-            let bloom_scale = crate::utils::get_bloom_scale(&app);
+            let bloom_scale = crate::utils::get_notch_scale(&app);
             let target_height = (420.0 * bloom_scale * scale) as u32;
             let _ = main_win.set_position(tauri::PhysicalPosition::new(m_pos.x, m_pos.y));
             let _ = main_win.set_size(tauri::PhysicalSize::new(m_size.width, target_height));
@@ -2886,6 +2886,13 @@ pub async fn close_window(hwnd: isize) {
 fn re_register_appbars(app: &AppHandle, settings: &HashMap<String, serde_json::Value>) {
     // Reconcile the notch from the live mode: a scale change alters the
     // reserved strip height, and peek/smart must never hold a reservation.
+    if let Some(main_win) = app.get_webview_window("main") {
+        if let Ok(Some(monitor)) = main_win.primary_monitor() {
+            let height = (420.0 * crate::utils::get_notch_scale(app) * monitor.scale_factor())
+                .round() as u32;
+            let _ = main_win.set_size(tauri::PhysicalSize::new(monitor.size().width, height));
+        }
+    }
     crate::services::reconcile_main_appbar(app);
     if let Some(dock_win) = app.get_webview_window("dock") {
         let is_fixed = settings
@@ -2896,6 +2903,13 @@ fn re_register_appbars(app: &AppHandle, settings: &HashMap<String, serde_json::V
             crate::services::register_dock_appbar(dock_win);
         }
     }
+}
+
+fn affects_surface_scale(key: &str) -> bool {
+    matches!(
+        key,
+        "bloom-scale" | "bloom-scale-linked" | "bloom-dock-scale" | "bloom-notch-scale"
+    )
 }
 
 #[tauri::command]
@@ -2916,7 +2930,7 @@ pub fn save_setting(app: AppHandle, key: String, value: serde_json::Value) -> Re
         serde_json::json!({ "key": &key, "value": &settings[&key] }),
     );
 
-    if key == "bloom-scale" {
+    if affects_surface_scale(&key) {
         re_register_appbars(&app, &settings);
     }
     Ok(())
@@ -3411,9 +3425,7 @@ fn apply_imported_settings(app: &AppHandle, settings: &str) -> Result<(), String
         );
     }
 
-    if imported.get("bloom-scale").is_some() {
-        re_register_appbars(app, &imported);
-    }
+    re_register_appbars(app, &imported);
 
     Ok(())
 }
@@ -3570,6 +3582,9 @@ pub fn setup_settings_watcher(app: AppHandle) {
                         })
                 };
                 if let Some((changed, removed)) = changes {
+                    let geometry_changed =
+                        changed.iter().any(|(key, _)| affects_surface_scale(key))
+                            || removed.iter().any(|key| affects_surface_scale(key));
                     // Both file and cache locks are released before emitting.
                     for (key, value) in &changed {
                         let _ = app.emit(
@@ -3582,6 +3597,13 @@ pub fn setup_settings_watcher(app: AppHandle) {
                             "settings-external-changed",
                             serde_json::json!({ "key": key, "value": null }),
                         );
+                    }
+                    if geometry_changed {
+                        let settings = crate::state::SETTINGS_CACHE
+                            .get()
+                            .and_then(|cache| cache.lock().ok().map(|value| value.clone()))
+                            .unwrap_or_default();
+                        re_register_appbars(&app, &settings);
                     }
                 }
             }
