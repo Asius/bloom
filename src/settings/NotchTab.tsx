@@ -1,13 +1,11 @@
 import {
 	Archive,
 	Calendar,
-	Circle,
 	CloudSun,
 	LayoutList,
 	Minimize2,
 	Music,
 	PanelTop,
-	Sparkles,
 	Timer,
 	X
 } from "lucide-react";
@@ -34,10 +32,6 @@ interface NotchTabProps {
 	toggleShelfPersist: () => void;
 	mediaLayout: "classic" | "compact";
 	toggleMediaLayout: (layout: "classic" | "compact") => void;
-	mediaAmbienceEnabled: boolean;
-	toggleAmbience: () => void;
-	mediaCompactGlowEnabled: boolean;
-	toggleCompactGlow: () => void;
 	weatherEnabled: boolean;
 	toggleWeather: () => void;
 	tempUnitFahrenheit: boolean;
@@ -77,10 +71,6 @@ export function NotchTab({
 	toggleShelfPersist,
 	mediaLayout,
 	toggleMediaLayout,
-	mediaAmbienceEnabled,
-	toggleAmbience,
-	mediaCompactGlowEnabled,
-	toggleCompactGlow,
 	weatherEnabled,
 	toggleWeather,
 	tempUnitFahrenheit,
@@ -217,32 +207,6 @@ export function NotchTab({
 							</div>
 						</SettingRow>
 
-						<SettingRow
-							icon={Sparkles}
-							label="Ambient Glow"
-							desc="Colored glow behind expanded album art"
-						>
-							<label className="toggle-switch">
-								<input type="checkbox" checked={mediaAmbienceEnabled} onChange={toggleAmbience} />
-								<span className="slider"></span>
-							</label>
-						</SettingRow>
-
-						<SettingRow
-							icon={Circle}
-							label="Compact Glow"
-							desc="Glow around collapsed thumbnail"
-							divider={false}
-						>
-							<label className="toggle-switch">
-								<input
-									type="checkbox"
-									checked={mediaCompactGlowEnabled}
-									onChange={toggleCompactGlow}
-								/>
-								<span className="slider"></span>
-							</label>
-						</SettingRow>
 					</>
 				)}
 			</div>

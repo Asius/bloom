@@ -674,7 +674,7 @@ body {
 }
 
 /* Invert Bloom logo / Settings icon in light mode */
-.light-mode .bloom-icon-img {
+.light-mode .bloom-icon-img:not(.windows-logo) {
 	filter: invert(1) brightness(0.15) contrast(1.2);
 }
 

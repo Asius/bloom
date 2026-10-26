@@ -10,7 +10,7 @@ Edit `settings.json` with any text editor while Bloom is running. Changes are ap
 {
 	"bloom-dock-enabled": "true",
 	"bloom-dock-mode": "smart",
-	"bloom-theme-mode": "dark",
+	"bloom-theme-mode": "system",
 	"bloom-scale": "1.0"
 }
 ```
@@ -88,8 +88,6 @@ for Explorer's native overflow fallback.
 | Key                                | Type                      | Default     | Description                                                                                     |
 | ---------------------------------- | ------------------------- | ----------- | ----------------------------------------------------------------------------------------------- |
 | `bloom-media-layout`               | `"classic"` / `"compact"` | `"classic"` | Expanded player style. **classic** = large album art. **compact** = small thumbnail + controls. |
-| `bloom-media-ambience-enabled`     | `"true"` / `"false"`      | `"true"`    | Colored ambient glow behind expanded album art.                                                 |
-| `bloom-media-compact-glow-enabled` | `"true"` / `"false"`      | `"true"`    | Glow effect around the collapsed compact thumbnail.                                             |
 | `bloom-media-visualizer-enabled`   | `"true"` / `"false"`      | `"true"`    | Audio visualizer bars in music mode. Also accepts `bloom-visualizer-enabled` (legacy alias).    |
 | `bloom-media-album-art-enabled`    | `"true"` / `"false"`      | `"true"`    | Show album artwork in the notch music display.                                                  |
 
@@ -104,9 +102,9 @@ for Explorer's native overflow fallback.
 
 | Key                      | Type                                             | Default     | Description                                                                                                                                                 |
 | ------------------------ | ------------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bloom-theme-mode`       | `"dark"` / `"light"` / `"custom"` / `"adaptive"` | `"dark"`    | Theme mode. **dark** = dark translucent. **light** = light translucent. **custom** = user-picked color. **adaptive** = follows Windows system accent color. |
+| `bloom-theme-mode`       | `"system"` / `"dark"` / `"light"` / `"custom"` / `"adaptive"` | `"system"`  | Theme mode. **system** follows Windows light/dark preference. **dark/light** select a fixed translucent theme. **custom** uses a picked color. **adaptive** follows Windows accent color. |
 | `bloom-theme-color`      | hex string                                       | `"#007aff"` | Custom theme color (used in `custom` and `adaptive` modes).                                                                                                 |
-| `bloom-theme-opacity`    | float string                                     | `"0.80"`    | Background opacity (0.1 to 1.0).                                                                                                                            |
+| `bloom-theme-opacity`    | float string                                     | `"0.92"`    | Background opacity (0.1 to 1.0); the default approximates the native Windows tray surface.                                                                   |
 | `bloom-theme-saturation` | float string                                     | `"0.50"`    | Color saturation for custom/adaptive themes (0.0 to 1.0).                                                                                                   |
 | `bloom-theme-brightness` | float string                                     | `"0.15"`    | Background brightness for custom/adaptive themes (0.0 to 1.0).                                                                                              |
 | `bloom-corners-enabled`  | `"true"` / `"false"`                             | `"false"`   | Render rounded screen corner overlays on top edges.                                                                                                         |

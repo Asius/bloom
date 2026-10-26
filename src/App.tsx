@@ -641,12 +641,6 @@ function App() {
 	const [settingsAlbumArtEnabled, setSettingsAlbumArtEnabled] = useState(
 		() => localStorage.getItem("bloom-media-album-art-enabled") !== "false"
 	);
-	const [settingsAmbienceEnabled, setSettingsAmbienceEnabled] = useState(
-		() => localStorage.getItem("bloom-media-ambience-enabled") !== "false"
-	);
-	const [settingsCompactGlowEnabled, setSettingsCompactGlowEnabled] = useState(
-		() => localStorage.getItem("bloom-media-compact-glow-enabled") !== "false"
-	);
 	const [settingsCornersEnabled, setSettingsCornersEnabled] = useState(
 		() => localStorage.getItem("bloom-corners-enabled") === "true"
 	);
@@ -695,10 +689,6 @@ function App() {
 					getVal("bloom-media-visualizer-enabled") ?? getVal("bloom-visualizer-enabled", "true");
 				setSettingsVisualizerEnabled(viz !== "false");
 				setSettingsAlbumArtEnabled(getVal("bloom-media-album-art-enabled", "true") !== "false");
-				setSettingsAmbienceEnabled(getVal("bloom-media-ambience-enabled", "true") !== "false");
-				setSettingsCompactGlowEnabled(
-					getVal("bloom-media-compact-glow-enabled", "true") !== "false"
-				);
 				setSettingsCornersEnabled(getVal("bloom-corners-enabled", "false") === "true");
 				setTimeFormat24h(getVal("bloom-time-format-24h") === "true");
 
@@ -804,8 +794,6 @@ function App() {
 			"bloom-media-visualizer-enabled": setSettingsVisualizerEnabled,
 			"bloom-visualizer-enabled": setSettingsVisualizerEnabled,
 			"bloom-media-album-art-enabled": setSettingsAlbumArtEnabled,
-			"bloom-media-ambience-enabled": setSettingsAmbienceEnabled,
-			"bloom-media-compact-glow-enabled": setSettingsCompactGlowEnabled,
 			"bloom-media-layout": setMediaLayout,
 			"bloom-corners-enabled": setSettingsCornersEnabled,
 			"bloom-scale": setScale,
@@ -2137,30 +2125,6 @@ function App() {
 					}}
 				>
 					<EdgeSurface edge="top" flares={isImpacted} />
-					<AnimatePresence>
-						{isMusicMode && settingsAmbienceEnabled && albumArtUrl && isOpen && !isCalendarMode && (
-							<motion.div
-								className="notch-ambient-glow"
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								exit={{ opacity: 0 }}
-								transition={{ duration: 0.15 }}
-							>
-								<AnimatePresence mode="wait">
-									<motion.img
-										key={albumArtUrl}
-										src={albumArtUrl}
-										alt=""
-										draggable={false}
-										initial={{ opacity: 0, scale: 1.1 }}
-										animate={{ opacity: 1, scale: 1.8 }}
-										exit={{ opacity: 0 }}
-										transition={{ duration: 0.3 }}
-									/>
-								</AnimatePresence>
-							</motion.div>
-						)}
-					</AnimatePresence>
 					<AnimatePresence mode="wait">
 						{isExpanded && (
 							<motion.div
@@ -2575,22 +2539,12 @@ function App() {
 																	<AnimatePresence mode="wait">
 																		<motion.div
 																			key="album-art"
-																			className="album-art-glow-wrapper"
+																			className="album-art-transition-wrapper"
 																			initial={{ opacity: 0, scale: 0.8 }}
 																			animate={{ opacity: 1, scale: 1 }}
 																			exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
 																			transition={{ duration: 0.12 }}
 																		>
-																			{settingsAlbumArtEnabled &&
-																				albumArtUrl &&
-																				settingsCompactGlowEnabled && (
-																					<img
-																						src={albumArtUrl}
-																						alt=""
-																						className="album-art-glow-bg"
-																						draggable={false}
-																					/>
-																				)}
 																			<button
 																				className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
 																				aria-label="Open music"

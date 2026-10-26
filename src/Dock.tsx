@@ -1210,7 +1210,7 @@ const Dock = memo(function Dock() {
 											<img
 												src={resolveStartIcon(startIcon)}
 												alt="Start"
-												className="bloom-icon-img"
+												className={`bloom-icon-img${startIcon === "windows" ? " windows-logo" : ""}`}
 												style={
 													startIcon.startsWith("custom:") ? { borderRadius: "8px" } : undefined
 												}

@@ -31,7 +31,7 @@ pub enum SystemCommand {
     ToggleVisibility(bool),
 }
 
-#[derive(Clone, Copy, Deserialize, Debug)]
+#[derive(Clone, Copy, Deserialize, Serialize, Debug)]
 pub struct IntRect {
     pub x: i32,
     pub y: i32,

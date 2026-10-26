@@ -155,10 +155,6 @@ function SettingsApp() {
 							toggleShelfPersist={settings.toggleShelfPersist}
 							mediaLayout={settings.mediaLayout}
 							toggleMediaLayout={settings.toggleMediaLayout}
-							mediaAmbienceEnabled={settings.mediaAmbienceEnabled}
-							toggleAmbience={settings.toggleAmbience}
-							mediaCompactGlowEnabled={settings.mediaCompactGlowEnabled}
-							toggleCompactGlow={settings.toggleCompactGlow}
 							weatherEnabled={settings.weatherEnabled}
 							toggleWeather={settings.toggleWeather}
 							tempUnitFahrenheit={settings.tempUnitFahrenheit}

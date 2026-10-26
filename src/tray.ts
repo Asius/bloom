@@ -4,15 +4,24 @@ export interface TrayIcon {
 	name: string;
 	path: string;
 	is_promoted: boolean;
+	native_rect?: TrayRect | null;
 	is_shell_icon: boolean;
 	icon: string | null;
 	icon_source?: "live" | "cached" | "unavailable";
 	tooltip?: string | null;
 }
 
+export interface TrayRect {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
 export interface TraySnapshot {
 	shell_id: string;
 	icons: TrayIcon[];
+	native_chevron?: TrayRect | null;
 }
 
 /** Keep the tray at the dock's configured height across Bloom scales. */

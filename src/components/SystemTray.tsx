@@ -11,16 +11,17 @@ import { listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
 import { ChevronUp } from "lucide-react";
 import { EdgeSurface } from "./EdgeSurface";
-import type { TrayIcon, TraySnapshot } from "../tray";
+import type { TrayIcon, TrayRect, TraySnapshot } from "../tray";
 import "./SystemTray.css";
 
 interface Props {
 	scale: number;
 	height: number;
+	metrics: { x: number; y: number; width: number; height: number; dpi: number } | null;
 }
 
 /** Visible icons beside the dock chevron, hidden icons in a bounded flyout. */
-export function SystemTray({ scale, height }: Props) {
+export function SystemTray({ scale, height, metrics }: Props) {
 	const [snapshot, setSnapshot] = useState<TraySnapshot | null>(null);
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -38,7 +39,7 @@ export function SystemTray({ scale, height }: Props) {
 	const report = useCallback(() => {
 		const rects = [host.current, panel.current].filter(Boolean).map((el) => {
 			const r = el!.getBoundingClientRect();
-			// Include the shared dock flare and popup shadow in the native region.
+			// Keep the bottom flare and flyout edge inside the interactive region.
 			const pad = 13 * scale;
 			return {
 				x: Math.floor(r.x - pad),
@@ -201,14 +202,63 @@ export function SystemTray({ scale, height }: Props) {
 			).catch(console.error);
 	};
 	const liveIcons = healthy ? (snapshot?.icons ?? []) : [];
+	const candidatesPromoted = liveIcons.filter((icon) => icon.is_promoted);
+	const promotedRects = candidatesPromoted.flatMap((icon) => icon.native_rect ? [icon.native_rect] : []);
+	const preciseLayout =
+		!!metrics &&
+		!!snapshot &&
+		(!!snapshot.native_chevron || promotedRects.length > 0) &&
+		promotedRects.length === candidatesPromoted.length;
+	const promoted = candidatesPromoted;
 	const icons = liveIcons.filter((icon) => !icon.is_promoted);
-	const promoted = liveIcons.filter((icon) => icon.is_promoted);
-	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[]) => (
+	const firstIconLeft = promotedRects.length ? Math.min(...promotedRects.map((rect) => rect.x)) : 0;
+	const nativeAnchor = snapshot?.native_chevron ?? (promotedRects.length && metrics
+		? { x: firstIconLeft - 28 * metrics.dpi, y: 0, width: 25 * metrics.dpi, height: 0 }
+		: null);
+	const nativeRight = Math.max(
+		snapshot?.native_chevron ? snapshot.native_chevron.x + snapshot.native_chevron.width : 0,
+		...promotedRects.map((rect) => rect.x + rect.width)
+	);
+	const dpi = metrics?.dpi ?? 1;
+	const visualHeight = height * scale;
+	const viewportHeight = metrics ? metrics.height / dpi : window.innerHeight;
+	const barTop = viewportHeight - visualHeight;
+	const nativeBarStyle: CSSProperties = preciseLayout && metrics && nativeAnchor ? {
+		left: (nativeAnchor.x - metrics.x) / dpi,
+		top: barTop,
+		right: "auto",
+		bottom: "auto",
+		width: Math.max(25, (nativeRight - nativeAnchor.x) / dpi),
+		height: visualHeight,
+		zoom: 1
+	} : { height, zoom: scale };
+	const nativeIconStyle = (rect: TrayRect | null | undefined): CSSProperties | undefined => {
+		if (!preciseLayout || !metrics || !nativeAnchor || !rect) return undefined;
+		return {
+			position: "absolute",
+			left: (rect.x - nativeAnchor.x) / dpi,
+			top: (rect.y - (metrics.y + barTop * dpi)) / dpi,
+			width: rect.width / dpi,
+			height: rect.height / dpi
+		};
+	};
+	const toggleRect = snapshot?.native_chevron;
+	const toggleStyle: CSSProperties | undefined = preciseLayout && metrics && nativeAnchor
+		? toggleRect
+			? nativeIconStyle(toggleRect)
+			: { position: "absolute", left: 0, top: 0, width: 25, height: "100%" }
+		: undefined;
+	const columns = Math.min(5, Math.max(1, icons.length));
+	const panelRight = preciseLayout && metrics && nativeAnchor && toggleRect
+		? Math.max(0, (nativeRight - (toggleRect.x + toggleRect.width)) / dpi)
+		: undefined;
+	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[], style?: CSSProperties) => (
 		<button
 			key={icon.id}
 			type="button"
 			disabled={busy}
 			className="bloom-tray-icon"
+			style={style}
 			aria-label={`${icon.name}${group.filter((i) => i.path === icon.path).length > 1 ? ` (${index + 1})` : ""}`}
 			title={`${icon.tooltip || icon.name} — right-click for its native menu`}
 			onClick={(e) => {
@@ -247,6 +297,10 @@ export function SystemTray({ scale, height }: Props) {
 			role="toolbar"
 			aria-label="Hidden notification icons"
 			aria-orientation="vertical"
+			style={{
+				"--tray-columns": columns,
+				...(panelRight === undefined ? {} : { right: `${panelRight}px`, left: "auto" })
+			} as CSSProperties}
 			onWheel={(e) => {
 				e.stopPropagation();
 				// The overflow scrolls vertically, like the Windows hidden-icons panel.
@@ -263,9 +317,9 @@ export function SystemTray({ scale, height }: Props) {
 						: e.key === "ArrowLeft"
 							? -1
 							: e.key === "ArrowDown"
-								? 3
+								? columns
 								: e.key === "ArrowUp"
-									? -3
+									? -columns
 									: 0;
 				if (step) {
 					e.preventDefault();
@@ -282,8 +336,8 @@ export function SystemTray({ scale, height }: Props) {
 	return (
 		<span
 			ref={host}
-			className={`bloom-tray bloom-tray-right ${open ? "is-open" : ""}`}
-			style={{ zoom: scale, height } as CSSProperties}
+			className={`bloom-tray bloom-tray-right ${preciseLayout ? "is-native-aligned" : ""} ${open ? "is-open" : ""}`}
+			style={nativeBarStyle}
 			onClick={(e) => e.stopPropagation()}
 			onContextMenu={(e) => {
 				e.preventDefault();
@@ -299,6 +353,7 @@ export function SystemTray({ scale, height }: Props) {
 				aria-label="Show hidden icons"
 				aria-expanded={open}
 				aria-haspopup="true"
+				style={toggleStyle}
 				disabled={busy}
 				title={failure || "Show hidden icons — right-click for Windows tray"}
 				onClick={(e) => {
@@ -320,7 +375,9 @@ export function SystemTray({ scale, height }: Props) {
 				<ChevronUp size={16} style={{ transform: open ? "rotate(180deg)" : undefined }} />
 			</button>
 			<div className="bloom-tray-promoted" role="toolbar" aria-label="Visible notification icons">
-				{promoted.map((icon, index) => iconButton(icon, index, promoted))}
+				{promoted.map((icon, index) =>
+					iconButton(icon, index, promoted, nativeIconStyle(icon.native_rect))
+				)}
 			</div>
 		</span>
 	);

@@ -57,8 +57,6 @@ export function useSettings() {
 		() => localStorage.getItem("bloom-volume-edge-enabled") !== "false"
 	);
 
-	const [mediaAmbienceEnabled, setMediaAmbienceEnabled] = useState(true);
-	const [mediaCompactGlowEnabled, setMediaCompactGlowEnabled] = useState(true);
 	const [mediaLayout, setMediaLayout] = useState<"classic" | "compact">(
 		() => (localStorage.getItem("bloom-media-layout") as "classic" | "compact") || "classic"
 	);
@@ -148,14 +146,14 @@ export function useSettings() {
 		parseFloat(localStorage.getItem("bloom-scale") || "1.0")
 	);
 	const [themeMode, setThemeMode] = useState(
-		() => localStorage.getItem("bloom-theme-mode") || "dark"
+		() => localStorage.getItem("bloom-theme-mode") || "system"
 	);
 	const [themeColor, setThemeColor] = useState(
 		() => localStorage.getItem("bloom-theme-color") || "#007aff"
 	);
 	const [themeOpacity, setThemeOpacity] = useState(() => {
 		const val = localStorage.getItem("bloom-theme-opacity");
-		return val !== null ? parseFloat(val) : 0.8;
+		return val !== null ? parseFloat(val) : 0.92;
 	});
 	const [themeSaturation, setThemeSaturation] = useState(() => {
 		const val = localStorage.getItem("bloom-theme-saturation");
@@ -207,8 +205,6 @@ export function useSettings() {
 			apply(getVal("bloom-shelf-persist"), setShelfPersist, readBool);
 			apply(getVal("bloom-volume-overlay-enabled"), setVolumeOverlayEnabled, readBool);
 
-			apply(getVal("bloom-media-ambience-enabled"), setMediaAmbienceEnabled, readBool);
-			apply(getVal("bloom-media-compact-glow-enabled"), setMediaCompactGlowEnabled, readBool);
 			apply(getVal("bloom-corners-enabled"), setCornersEnabled, readBool);
 			apply(getVal("bloom-time-format-24h"), setTimeFormat24h, readBool);
 			apply(getVal("bloom-show-update-indicator"), setShowUpdateIndicator, readBool);
@@ -369,8 +365,6 @@ export function useSettings() {
 		"bloom-notch-default-panel": (v: unknown) =>
 			setNotchDefaultPanel(v === "command-center" ? "command-center" : "calendar"),
 		"bloom-music-compact-notch": setMusicCompactNotch,
-		"bloom-media-ambience-enabled": setMediaAmbienceEnabled,
-		"bloom-media-compact-glow-enabled": setMediaCompactGlowEnabled,
 		"bloom-media-layout": setMediaLayout,
 		"bloom-corners-enabled": setCornersEnabled,
 		"bloom-show-update-indicator": setShowUpdateIndicator,
@@ -391,7 +385,7 @@ export function useSettings() {
 	// ── Listen for system accent changes (adaptive theme) ──
 	useEffect(() => {
 		const unlisten = listen<string>("system-accent-changed", (event) => {
-			const mode = localStorage.getItem("bloom-theme-mode") || "dark";
+			const mode = localStorage.getItem("bloom-theme-mode") || "system";
 			if (mode === "adaptive") {
 				try {
 					const hsl = hexToHsl(event.payload);
@@ -581,18 +575,6 @@ export function useSettings() {
 		const next = !volumeEdgeEnabled;
 		setVolumeEdgeEnabled(next);
 		saveSetting("bloom-volume-edge-enabled", String(next));
-	};
-
-	const toggleAmbience = () => {
-		const next = !mediaAmbienceEnabled;
-		setMediaAmbienceEnabled(next);
-		saveSetting("bloom-media-ambience-enabled", String(next));
-	};
-
-	const toggleCompactGlow = () => {
-		const next = !mediaCompactGlowEnabled;
-		setMediaCompactGlowEnabled(next);
-		saveSetting("bloom-media-compact-glow-enabled", String(next));
 	};
 
 	const toggleCorners = () => {
@@ -952,10 +934,6 @@ export function useSettings() {
 		toggleShelfPersist,
 		mediaLayout,
 		toggleMediaLayout,
-		mediaAmbienceEnabled,
-		toggleAmbience,
-		mediaCompactGlowEnabled,
-		toggleCompactGlow,
 
 		// Weather
 		weatherEnabled,

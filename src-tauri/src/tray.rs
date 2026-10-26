@@ -6,11 +6,13 @@ pub(crate) mod surface;
 pub(crate) use live::start as start_live_provider;
 pub(crate) use live::stop as stop_live_provider;
 
+use crate::types::IntRect;
 use model::{icon_identity, normalized_label, OperationGuard, Restoration};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
 use windows::core::{w, Interface, BOOL, GUID, PCWSTR};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::{
@@ -35,6 +37,8 @@ pub struct TrayIcon {
     pub name: String,
     pub path: String,
     pub is_promoted: bool,
+    /// Physical screen rectangle supplied by Explorer for promoted icons.
+    pub native_rect: Option<IntRect>,
     pub is_shell_icon: bool,
     /// Windows' cached artwork, not a guaranteed live status indicator.
     pub icon: Option<String>,
@@ -46,11 +50,14 @@ pub struct TrayIcon {
 pub struct TraySnapshot {
     pub shell_id: String,
     pub icons: Vec<TrayIcon>,
+    /// Cached Explorer chevron rectangle, captured before Bloom hides the taskbar.
+    pub native_chevron: Option<IntRect>,
 }
 
 // Native pixels plus their original DPI. Refreshed before the taskbar handoff,
 // not inferred from the width or scaling of Bloom's own icons.
 static NATIVE_INSET: AtomicU64 = AtomicU64::new(0);
+static NATIVE_CHEVRON: LazyLock<Mutex<Option<RECT>>> = LazyLock::new(|| Mutex::new(None));
 
 pub(crate) fn native_right_inset(scale: f64, monitor_width: u32) -> u32 {
     let stored = NATIVE_INSET.load(Ordering::Relaxed);
@@ -81,7 +88,13 @@ pub(crate) fn refresh_native_inset(taskbar: HWND) {
             .filter(|i| i.promoted)
             .filter_map(|i| Shell_NotifyIconGetRect(&i.identifier).ok())
             .collect();
-        if let Some(inset) = model::reserved_right(&rect, &bounds) {
+        let chevron = native_overflow_chevron(taskbar, &rect, &bounds);
+        if let Ok(mut cached) = NATIVE_CHEVRON.lock() {
+            *cached = chevron;
+        }
+        let inset = model::reserved_right(&rect, &bounds)
+            .or_else(|| chevron.map(|button| rect.right - button.right));
+        if let Some(inset) = inset {
             let dpi = GetDpiForWindow(taskbar).max(96);
             let value = ((dpi as u64) << 32) | inset as u64;
             if NATIVE_INSET.swap(value, Ordering::Relaxed) != value {
@@ -91,6 +104,90 @@ pub(crate) fn refresh_native_inset(taskbar: HWND) {
                 );
             }
         }
+    }
+}
+
+/// Measure the actual hidden-icons button while Explorer's taskbar is visible.
+/// UI Automation can report physical or DPI-scaled coordinates depending on the
+/// Windows build, so choose the candidate adjacent to Explorer's own icon rects.
+unsafe fn native_overflow_chevron(taskbar: HWND, bar: &RECT, icons: &[RECT]) -> Option<RECT> {
+    let _com = ComApartment::new().ok()?;
+    let automation = automation_client().ok()?;
+    let bridge = FindWindowExW(
+        Some(taskbar),
+        None,
+        w!("Windows.UI.Composition.DesktopWindowContentBridge"),
+        PCWSTR::null(),
+    )
+    .unwrap_or(taskbar);
+    let root = automation.ElementFromHandle(bridge).ok()?;
+    let condition = automation.CreateTrueCondition().ok()?;
+    let elements = root.FindAll(TreeScope_Descendants, &condition).ok()?;
+    let mut chevrons = Vec::new();
+    for index in 0..elements.Length().ok()? {
+        let Ok(element) = elements.GetElement(index) else {
+            continue;
+        };
+        let id = element
+            .CurrentAutomationId()
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let class = element
+            .CurrentClassName()
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        if is_overflow_chevron(&id, &class)
+            && element.CurrentControlType().ok() == Some(UIA_ButtonControlTypeId)
+            && element
+                .CurrentIsEnabled()
+                .is_ok_and(|enabled| enabled.as_bool())
+            && element
+                .CurrentIsOffscreen()
+                .is_ok_and(|offscreen| !offscreen.as_bool())
+        {
+            chevrons.push(element.CurrentBoundingRectangle().ok()?);
+        }
+    }
+    if chevrons.len() != 1 {
+        return None;
+    }
+    let raw = chevrons[0];
+    let dpi = GetDpiForWindow(taskbar).max(96) as f64;
+    let candidates = [
+        raw,
+        RECT {
+            left: (raw.left as f64 * dpi / 96.0).round() as i32,
+            top: (raw.top as f64 * dpi / 96.0).round() as i32,
+            right: (raw.right as f64 * dpi / 96.0).round() as i32,
+            bottom: (raw.bottom as f64 * dpi / 96.0).round() as i32,
+        },
+    ];
+    let first_icon_left = icons.iter().map(|r| r.left).min();
+    candidates
+        .into_iter()
+        .filter(|r| {
+            r.left >= bar.left
+                && r.top >= bar.top
+                && r.right <= bar.right
+                && r.bottom <= bar.bottom
+                && (1..=128).contains(&(r.right - r.left))
+                && (1..=128).contains(&(r.bottom - r.top))
+        })
+        .min_by_key(|r| {
+            let horizontal = first_icon_left
+                .map(|left| (r.right - left).abs())
+                .unwrap_or((bar.right - r.right).abs());
+            let vertical = ((r.top + r.bottom) / 2 - (bar.top + bar.bottom) / 2).abs();
+            horizontal.saturating_add(vertical.saturating_mul(4))
+        })
+}
+
+fn int_rect(rect: RECT) -> IntRect {
+    IntRect {
+        x: rect.left,
+        y: rect.top,
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top,
     }
 }
 
@@ -425,6 +522,11 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                     is_shell_icon: is_explorer_hosted_icon(&icon.path),
                     path: icon.path.clone(),
                     is_promoted: icon.promoted,
+                    native_rect: icon
+                        .promoted
+                        .then(|| Shell_NotifyIconGetRect(&icon.identifier).ok())
+                        .flatten()
+                        .map(int_rect),
                     icon: update
                         .and_then(|entry| entry.image.clone())
                         .or_else(|| icon.artwork.clone()),
@@ -453,6 +555,7 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                 name: crate::commands::app_display_name(&entry.path, None),
                 path: entry.path.clone(),
                 is_promoted: false,
+                native_rect: None,
                 is_shell_icon: is_explorer_hosted_icon(&entry.path),
                 icon: entry.image.clone(),
                 icon_source: if entry.image.is_some() {
@@ -471,6 +574,10 @@ pub fn catalog() -> Result<TraySnapshot, String> {
         Ok(TraySnapshot {
             shell_id: shell.id(),
             icons,
+            native_chevron: NATIVE_CHEVRON
+                .lock()
+                .ok()
+                .and_then(|rect| rect.map(int_rect)),
         })
     }
 }

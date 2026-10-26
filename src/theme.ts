@@ -115,10 +115,16 @@ export async function applyTheme(
 	brightness?: number
 ) {
 	const root = document.documentElement;
+	const resolvedMode =
+		mode === "system"
+			? window.matchMedia?.("(prefers-color-scheme: light)").matches
+				? "light"
+				: "dark"
+			: mode;
 
 	if (opacity === undefined || opacity === null) {
 		const cachedOpacity = localStorage.getItem("bloom-theme-opacity");
-		opacity = cachedOpacity !== null ? parseFloat(cachedOpacity) : 0.8;
+		opacity = cachedOpacity !== null ? parseFloat(cachedOpacity) : 0.92;
 	}
 
 	if (saturation === undefined || saturation === null) {
@@ -131,10 +137,10 @@ export async function applyTheme(
 		brightness = cachedBrightness !== null ? parseFloat(cachedBrightness) : 0.15;
 	}
 
-	const op = opacity;
-	const opExpanded = Math.min(1.0, opacity + 0.12);
+	const op = Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
+	const opExpanded = Math.min(1.0, op + 0.05);
 
-	if (mode === "light") {
+	if (resolvedMode === "light") {
 		root.style.setProperty("--bloom-bg", `rgba(255, 255, 255, ${op})`);
 		root.style.setProperty("--bloom-bg-expanded", `rgba(245, 245, 247, ${opExpanded})`);
 		root.style.setProperty("--bloom-text", "#1c1c1e");
@@ -147,7 +153,7 @@ export async function applyTheme(
 		root.classList.remove("dark-mode");
 		root.classList.add("theme-light");
 		root.classList.remove("theme-dark", "theme-custom", "theme-adaptive");
-	} else if (mode === "custom") {
+	} else if (resolvedMode === "custom") {
 		const hsl = hexToHsl(customColor);
 		hsl.s = saturation * 100;
 		hsl.l = brightness * 100;
@@ -183,7 +189,7 @@ export async function applyTheme(
 			root.classList.add("dark-mode");
 			root.classList.remove("light-mode");
 		}
-	} else if (mode === "adaptive") {
+	} else if (resolvedMode === "adaptive") {
 		try {
 			const accentHex = await invoke<string>("get_system_accent_color");
 			const hsl = hexToHsl(accentHex);
@@ -223,7 +229,7 @@ export async function applyTheme(
 			}
 		} catch (e) {
 			console.error("Failed to apply adaptive theme:", e);
-			applyTheme("dark", customColor, op, saturation, brightness);
+			applyTheme("system", customColor, op, saturation, brightness);
 		}
 	} else {
 		// default/dark
@@ -243,10 +249,10 @@ export async function applyTheme(
 }
 
 export function initTheme() {
-	const syncMode = localStorage.getItem("bloom-theme-mode") || "dark";
+	const syncMode = localStorage.getItem("bloom-theme-mode") || "system";
 	const syncColor = localStorage.getItem("bloom-theme-color") || "#007aff";
 	const syncOpacityVal = localStorage.getItem("bloom-theme-opacity");
-	const syncOpacity = syncOpacityVal !== null ? parseFloat(syncOpacityVal) : 0.8;
+	const syncOpacity = syncOpacityVal !== null ? parseFloat(syncOpacityVal) : 0.92;
 	const syncSaturationVal = localStorage.getItem("bloom-theme-saturation");
 	const syncSaturation = syncSaturationVal !== null ? parseFloat(syncSaturationVal) : 0.5;
 	const syncBrightnessVal = localStorage.getItem("bloom-theme-brightness");
@@ -293,9 +299,9 @@ export function initTheme() {
 
 	// Helper: read all theme values from localStorage and apply
 	const applyThemeFromStorage = () => {
-		const mode = localStorage.getItem("bloom-theme-mode") || "dark";
+		const mode = localStorage.getItem("bloom-theme-mode") || "system";
 		const color = localStorage.getItem("bloom-theme-color") || "#007aff";
-		const opacity = parseFloat(localStorage.getItem("bloom-theme-opacity") || "0.80");
+		const opacity = parseFloat(localStorage.getItem("bloom-theme-opacity") || "0.92");
 		const saturation = parseFloat(localStorage.getItem("bloom-theme-saturation") || "0.50");
 		const brightness = parseFloat(localStorage.getItem("bloom-theme-brightness") || "0.15");
 		applyTheme(mode, color, opacity, saturation, brightness);
@@ -312,17 +318,19 @@ export function initTheme() {
 	// Listen to setting changes broadcasted from settings window
 	// (localStorage sync is handled by saveAndLocal in Settings.tsx; we just apply the theme)
 	const settingsPromise = listen<{ key: string; value: any }>("settings-changed", (event) => {
-		const { key } = event.payload;
+		const { key, value } = event.payload;
 		if (bloomThemeKeys.includes(key)) {
+			if (value === null || value === undefined) localStorage.removeItem(key);
+			else localStorage.setItem(key, String(value));
 			applyThemeFromStorage();
 		}
 	});
 
 	// Listen to system accent color updates in case of adaptive theme
 	const accentPromise = listen<string>("system-accent-changed", (event) => {
-		const currentMode = localStorage.getItem("bloom-theme-mode") || "dark";
+		const currentMode = localStorage.getItem("bloom-theme-mode") || "system";
 		if (currentMode === "adaptive") {
-			const opacity = parseFloat(localStorage.getItem("bloom-theme-opacity") || "0.80");
+			const opacity = parseFloat(localStorage.getItem("bloom-theme-opacity") || "0.92");
 			const saturation = parseFloat(localStorage.getItem("bloom-theme-saturation") || "0.50");
 			const brightness = parseFloat(localStorage.getItem("bloom-theme-brightness") || "0.15");
 			applyTheme("adaptive", event.payload, opacity, saturation, brightness);
@@ -334,16 +342,27 @@ export function initTheme() {
 	const externalPromise = listen<{ key: string; value: any }>(
 		"settings-external-changed",
 		(event) => {
-			const { key } = event.payload;
+			const { key, value } = event.payload;
 			if (bloomThemeKeys.includes(key)) {
+				if (value === null || value === undefined) localStorage.removeItem(key);
+				else localStorage.setItem(key, String(value));
 				applyThemeFromStorage();
 			}
 		}
 	);
 
+	const colorScheme = window.matchMedia?.("(prefers-color-scheme: light)");
+	const onColorSchemeChange = () => {
+		if ((localStorage.getItem("bloom-theme-mode") || "system") === "system") {
+			applyThemeFromStorage();
+		}
+	};
+	colorScheme?.addEventListener("change", onColorSchemeChange);
+
 	return () => {
 		settingsPromise.then((f) => f());
 		accentPromise.then((f) => f());
 		externalPromise.then((f) => f());
+		colorScheme?.removeEventListener("change", onColorSchemeChange);
 	};
 }
