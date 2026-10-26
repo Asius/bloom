@@ -4,7 +4,7 @@
 .bloom-tray-toggle:focus-visible, .bloom-tray-icon:focus-visible { outline: 2px solid white; outline-offset: -3px; }
 .bloom-tray-icon { display: grid; place-items: center; border: 0; color: white; background: transparent; border-radius: 7px; cursor: pointer; padding: 0; min-width: 0; }
 .bloom-tray-icon img { width: 24px; height: 24px; object-fit: contain; pointer-events: none; }
-.bloom-tray-right { --surface-bg: #000; isolation: isolate; position: absolute; right: 0; bottom: 0; border-radius: 18px 0 0 0; display: flex; align-items: center; gap: 3px; padding: 3px 6px; z-index: 150; max-width: 45vw; }
+.bloom-tray-right { --surface-bg: #000; isolation: isolate; position: absolute; right: 13px; bottom: 0; border-radius: 18px 18px 0 0; display: flex; align-items: center; gap: 3px; padding: 3px 6px; z-index: 150; max-width: 45vw; }
 .bloom-tray-right .bloom-tray-toggle { height: 100%; width: 25px; }
 .bloom-tray-right .bloom-tray-promoted { display: flex; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .bloom-tray-right .bloom-tray-promoted .bloom-tray-icon { flex: 0 0 30px; height: 30px; }

@@ -12,11 +12,14 @@ desktop outside their union is excluded from the window. The tray is positioned
 at the primary monitor bottom, remains proportional to dock height/scale and uses
 the same `EdgeSurface` bottom flares. Dock geometry does not contain tray UI.
 
-3.10.9 input was confirmed by the owner. 3.10.10 preserves the native reserved
+3.10.9 input was confirmed by the owner. 3.10.11 preserves the native reserved
 right-hand space (system controls and clock): measure promoted-icon rectangles
 before hiding Windows' taskbar and scale that inset with DPI. If measurement is
 unavailable, reserve 120 logical pixels until the next handoff; this is a fallback,
 not a claim of exact native geometry.
+The HWND includes a transparent, scale-aware right margin for the concave flare;
+the body's anchor remains at the measured native position. Both top corners are
+rounded and neither bottom flare is clipped by the shifted window boundary.
 
 For hidden-icon actions, prefer a live icon rectangle inside the overflow and
 revalidate it. Chevron-only rectangles and collisions cannot identify an icon.

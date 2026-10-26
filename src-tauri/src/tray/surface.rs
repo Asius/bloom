@@ -109,7 +109,18 @@ pub fn sync_visibility(app: &AppHandle) {
     let size = monitor.size();
     let height = ((360.0 * monitor.scale_factor()).ceil() as u32).min(size.height);
     let inset = crate::tray::native_right_inset(monitor.scale_factor(), size.width);
-    let wanted = tauri::PhysicalSize::new(size.width - inset, height);
+    let bloom_scale = crate::utils::get_setting_str(app, "bloom-scale")
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(1.0)
+        .clamp(0.5, 3.0);
+    // The body ends at Windows' native anchor; the transparent right margin
+    // contains its concave flare instead of clipping it at the HWND boundary.
+    let flare = (13.0 * monitor.scale_factor() * bloom_scale).ceil() as u32;
+    let wanted = tauri::PhysicalSize::new(
+        (size.width - inset).saturating_add(flare).min(size.width),
+        height,
+    );
     let position = tauri::PhysicalPosition::new(
         monitor.position().x,
         monitor.position().y + (size.height - height) as i32,
