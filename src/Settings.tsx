@@ -1,6 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { Effect } from "@tauri-apps/api/window";
 import { Info, Layers, Monitor, Palette, PanelTop, Settings, X } from "lucide-react";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -43,12 +42,6 @@ function SettingsApp() {
 		const preventContext = (e: MouseEvent) => e.preventDefault();
 		document.addEventListener("contextmenu", preventContext as any);
 
-		appWindow
-			.setEffects({
-				effects: ["mica" as Effect],
-				state: "active" as any
-			})
-			.catch(() => {});
 
 		return () => {
 			document.removeEventListener("contextmenu", preventContext as any);

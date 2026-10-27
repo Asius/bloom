@@ -181,6 +181,7 @@ fn main() {
             capture_window_thumbnail,
             get_system_accent_color,
             get_system_transparency,
+            configure_native_material,
             get_cpu_usage,
             get_ram_usage,
             get_disk_space,

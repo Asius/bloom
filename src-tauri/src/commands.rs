@@ -4065,3 +4065,16 @@ pub fn get_system_transparency() -> Option<bool> {
             .is_ok().then_some(value != 0)
     }
 }
+
+/// Native material for the rectangular Settings window. Edge surfaces need a
+/// separate composition mask before a whole-HWND backdrop can be enabled.
+#[tauri::command]
+pub fn configure_native_material(window: Window, enabled: bool) -> Result<(), String> {
+    if window.label() != "settings" { return Ok(()); }
+    use tauri::utils::{WindowEffect, config::WindowEffectsConfig};
+    let allowed = enabled && get_system_transparency() != Some(false);
+    let effects = allowed.then(|| WindowEffectsConfig {
+        effects: vec![WindowEffect::Acrylic], ..Default::default()
+    });
+    window.set_effects(effects).map_err(|error| error.to_string())
+}

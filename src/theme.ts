@@ -142,6 +142,7 @@ export async function applyTheme(
 
 	const opaque = !systemTransparency || window.matchMedia("(forced-colors: active)").matches || window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
 	root.classList.toggle("bloom-opaque", opaque);
+	void invoke("configure_native_material", { enabled: !opaque }).catch(() => {});
 	const op = opaque ? 1 : Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
 	const opExpanded = Math.min(1.0, op + 0.05);
 
