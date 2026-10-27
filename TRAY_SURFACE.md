@@ -116,3 +116,10 @@ icon row. In Smart mode, a standard maximized-window signal is also a hide
 condition; the same dock visibility state drives both surfaces. Physical
 Windows verification is still required for maximize/restore transitions and
 the approved tray silhouette at the user's DPI.
+
+In 3.10.20 the animated content did not inherit the host's corner radii, so its
+`EdgeSurface` appeared rectangular. The content now inherits those radii and
+contains the horizontal padding, allowing the background to fill the host while
+retaining the icon inset. A headless Edge fixture using the actual styles showed
+the rounded surface and 9px inset; the installed Tauri window still needs the
+owner's visual confirmation.
