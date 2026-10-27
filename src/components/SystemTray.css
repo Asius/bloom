@@ -9,7 +9,7 @@
 	background: transparent;
 	color: inherit;
 	padding: 0;
-	width: 28px;
+	width: var(--tray-row-cell, 28px);
 	height: 24px;
 	display: grid;
 	place-items: center;
@@ -91,7 +91,7 @@
 
 .bloom-tray-right .bloom-tray-toggle {
 	height: 22px;
-	width: 28px;
+	width: var(--tray-row-cell, 28px);
 }
 
 .bloom-tray-right .bloom-tray-promoted {
@@ -106,8 +106,8 @@
 .bloom-tray-right .bloom-tray-promoted .bloom-tray-icon,
 .bloom-tray-right .bloom-tray-network,
 .bloom-tray-right .bloom-tray-volume {
-	flex: 0 0 28px;
-	width: 28px;
+	flex: 0 0 var(--tray-row-cell, 28px);
+	width: var(--tray-row-cell, 28px);
 	height: 22px;
 }
 

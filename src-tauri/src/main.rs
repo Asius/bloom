@@ -180,6 +180,7 @@ fn main() {
             settings_file_readable,
             capture_window_thumbnail,
             get_system_accent_color,
+            get_system_transparency,
             get_cpu_usage,
             get_ram_usage,
             get_disk_space,

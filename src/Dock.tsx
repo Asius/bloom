@@ -1,3 +1,4 @@
+import { surfaceRevealMotion } from "./revealMotion";
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, memo } from "react";
 import { motion, AnimatePresence, Reorder } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
@@ -1170,7 +1171,7 @@ const Dock = memo(function Dock() {
 						scale: scale
 					}}
 					transition={{
-						y: { type: "spring", stiffness: 400, damping: 35, mass: 0.8 },
+						y: surfaceRevealMotion,
 						width: { type: "spring", stiffness: 250, damping: 22, mass: 0.8 },
 						height: { type: "spring", stiffness: 250, damping: 22, mass: 0.8 },
 						layout: isDragging ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 25 },

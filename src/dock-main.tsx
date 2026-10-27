@@ -1,3 +1,4 @@
+import { MotionConfig } from "framer-motion";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import Dock from "./Dock";
@@ -7,6 +8,6 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 	<React.StrictMode>
-		<Dock />
+		<MotionConfig reducedMotion="user"><Dock /></MotionConfig>
 	</React.StrictMode>
 );

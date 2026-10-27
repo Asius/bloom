@@ -68,12 +68,24 @@ export function traySurfaceHeight(height: number, scale: number) {
 }
 
 /** Compact system cells; keep the right edge fixed as icons come and go. */
-export function trayBarGeometry(iconCount: number, scale: number, metrics: TrayWindowMetrics, rightEdge: number | undefined) {
+export function nativeTrayCellWidth(snapshot: TraySnapshot | null, metrics: TrayWindowMetrics | null): number {
+	if (!snapshot || !metrics || metrics.dpi <= 0) return 28;
+	const rects = snapshot.icons.filter(icon => icon.is_promoted).flatMap(icon => icon.native_rect ? [icon.native_rect] : []).sort((a, b) => a.x - b.x);
+	const distances = rects.slice(1).flatMap((rect, index) => {
+		const previous = rects[index];
+		const distance = (rect.x + rect.width / 2 - previous.x - previous.width / 2) / metrics.dpi;
+		return Math.abs(rect.y - previous.y) <= 2 * metrics.dpi && distance >= 22 && distance <= 40 ? [distance] : [];
+	}).sort((a, b) => a - b);
+	return distances.length ? distances[Math.floor(distances.length / 2)] : 28;
+}
+
+export function trayBarGeometry(iconCount: number, scale: number, metrics: TrayWindowMetrics, rightEdge: number | undefined, cellWidth = 28) {
 	const dpi = Number.isFinite(metrics.dpi) && metrics.dpi > 0 ? metrics.dpi : 1;
 	const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
 	const viewport = metrics.width / dpi;
 	// Button widths (28px), three 2px gaps, plus 9px of breathing room per side.
-	const width = Math.min(24 + 28 * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
+	const cell = Number.isFinite(cellWidth) ? Math.max(22, Math.min(40, cellWidth)) : 28;
+	const width = Math.min(24 + cell * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
 	const right = Math.max(0, Math.min(rightEdge ?? viewport - 13, viewport - 4));
 	const left = Math.max(0, right - width * factor);
 	return { width, left };

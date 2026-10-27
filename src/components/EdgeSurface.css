@@ -152,3 +152,10 @@
 .edge-surface--right .edge-surface-flare--end {
 	transform: scale(-1, -1);
 }
+
+@media (prefers-reduced-motion: reduce) {
+ .edge-surface-flare { transition: none; }
+}
+@media (forced-colors: active) {
+ .edge-surface { --surface-bg: Canvas; }
+}

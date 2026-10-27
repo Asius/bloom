@@ -4050,3 +4050,18 @@ pub async fn activate_tray_icon(tray_id: String, double_click: Option<bool>) -> 
         .await
         .map_err(|e| e.to_string())?
 }
+
+/// Read-only Windows transparency preference; unknown values preserve the user setting.
+#[tauri::command]
+pub fn get_system_transparency() -> Option<bool> {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut value = 1u32;
+    let mut size = 4u32;
+    unsafe {
+        RegGetValueW(HKEY_CURRENT_USER,
+            windows::core::w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            windows::core::w!("EnableTransparency"), RRF_RT_REG_DWORD, None,
+            Some(&mut value as *mut u32 as *mut std::ffi::c_void), Some(&mut size))
+            .is_ok().then_some(value != 0)
+    }
+}

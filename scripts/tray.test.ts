@@ -4,6 +4,7 @@ import {
 	createTrayActionGate,
 	nativeTrayLayout,
 	trayBarGeometry,
+	nativeTrayCellWidth,
 	trayHeight,
 	traySurfaceHeight,
 	type TrayIcon,
@@ -163,4 +164,12 @@ describe("native tray control", () => {
 		expect(notices).toBe(2);
 		expect(busy).toEqual([true, false, true, false]);
 	});
+});
+
+test("native tray spacing ignores rows, invalid gaps and physical DPI", () => {
+ const metrics = { x:0, y:0, width:3840, height:2160, dpi:2 };
+ const icon = (x:number,y=2100): TrayIcon => ({ id:String(x),name:"fixture",path:"fixture.exe",is_promoted:true,is_shell_icon:false,icon:null,native_rect:{x,y,width:32,height:32} });
+ expect(nativeTrayCellWidth({shell_id:"fixture",icons:[icon(100),icon(164),icon(228)]},metrics)).toBe(32);
+ expect(nativeTrayCellWidth({shell_id:"fixture",icons:[icon(100),icon(164,2000)]},metrics)).toBe(28);
+ expect(nativeTrayCellWidth(null,metrics)).toBe(28);
 });

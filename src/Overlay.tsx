@@ -1,3 +1,4 @@
+import { MotionConfig } from "framer-motion";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -917,6 +918,6 @@ function OverlayApp() {
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>
-		<OverlayApp />
+		<MotionConfig reducedMotion="user"><OverlayApp /></MotionConfig>
 	</StrictMode>
 );

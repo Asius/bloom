@@ -1,3 +1,4 @@
+import { surfaceRevealMotion } from "../revealMotion";
 import {
 	useCallback,
 	useEffect,
@@ -16,6 +17,7 @@ import {
 	createTrayActionGate,
 	nativeTrayLayout,
 	trayBarGeometry,
+	nativeTrayCellWidth,
 	type TrayIcon,
 	type TraySnapshot,
 	type TrayWindowMetrics
@@ -304,12 +306,13 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const candidatesPromoted = liveIcons.filter((icon) => icon.is_promoted);
 	const layout = nativeTrayLayout(healthy ? snapshot : null, metrics);
 	const promoted = candidatesPromoted;
+	const cellWidth = nativeTrayCellWidth(snapshot, metrics);
 	const icons = liveIcons.filter((icon) => !icon.is_promoted);
 	const nativeAnchor = layout?.anchor;
 	const placementKey =
 		metrics && snapshot ? `${snapshot.shell_id}:${metrics.x}:${metrics.width}:${metrics.dpi}` : "";
 	if (metrics && nativeAnchor && placementKey && placement.current?.key !== placementKey) {
-		const width = trayBarGeometry(promoted.length, scale, metrics, undefined).width;
+		const width = trayBarGeometry(promoted.length, scale, metrics, undefined, cellWidth).width;
 		const right = (nativeAnchor.x - metrics.x) / metrics.dpi + width * scale;
 		placement.current = {
 			key: placementKey,
@@ -317,9 +320,10 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		};
 	}
 	const rightEdge = placement.current?.key === placementKey ? placement.current.right : undefined;
-	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, rightEdge) : null;
-	const nativeBarStyle: CSSProperties = geometry
+	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, rightEdge, cellWidth) : null;
+	const nativeBarStyle: CSSProperties & { "--tray-row-cell"?: string } = geometry
 		? {
+				"--tray-row-cell": `${cellWidth}px`,
 				left: geometry.left,
 				right: "auto",
 				bottom: 0,
@@ -438,7 +442,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 				initial={{ y: 100, opacity: 0 }}
 				animate={{ y: surfaceVisible ? 0 : 100, opacity: surfaceVisible ? 1 : 0 }}
 				transition={{
-					y: { type: "spring", stiffness: 400, damping: 35, mass: 0.8 },
+					y: surfaceRevealMotion,
 					opacity: { type: "tween", duration: 0.2 }
 				}}
 			>

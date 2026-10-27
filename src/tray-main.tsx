@@ -1,3 +1,4 @@
+import { MotionConfig } from "framer-motion";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { useEffect, useState } from "react";
@@ -58,5 +59,5 @@ function TrayWindow() {
 
 document.addEventListener("contextmenu", e => e.preventDefault());
 ReactDOM.createRoot(document.getElementById("root")!).render(
-	<React.StrictMode><TrayWindow /></React.StrictMode>
+	<React.StrictMode><MotionConfig reducedMotion="user"><TrayWindow /></MotionConfig></React.StrictMode>
 );

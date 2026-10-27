@@ -1,6 +1,9 @@
+import "./accessibility.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
+
+let systemTransparency = true;
 
 // Convert a hex color string to rgba with a specified alpha
 function hexToRgba(hex: string, alpha: number): string {
@@ -137,7 +140,9 @@ export async function applyTheme(
 		brightness = cachedBrightness !== null ? parseFloat(cachedBrightness) : 0.15;
 	}
 
-	const op = Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
+	const opaque = !systemTransparency || window.matchMedia("(forced-colors: active)").matches || window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
+	root.classList.toggle("bloom-opaque", opaque);
+	const op = opaque ? 1 : Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
 	const opExpanded = Math.min(1.0, op + 0.05);
 
 	if (resolvedMode === "light") {
@@ -249,7 +254,15 @@ export async function applyTheme(
 }
 
 export function initTheme() {
-	const syncMode = localStorage.getItem("bloom-theme-mode") || "system";
+	const refreshSystemTransparency = () => {
+        void invoke<boolean | null>("get_system_transparency").then(value => {
+            if (value !== null && value !== systemTransparency) {
+                systemTransparency = value;
+                applyThemeFromStorage();
+            }
+        }).catch(() => {});
+    };
+    const syncMode = localStorage.getItem("bloom-theme-mode") || "system";
 	const syncColor = localStorage.getItem("bloom-theme-color") || "#007aff";
 	const syncOpacityVal = localStorage.getItem("bloom-theme-opacity");
 	const syncOpacity = syncOpacityVal !== null ? parseFloat(syncOpacityVal) : 0.92;
@@ -351,6 +364,8 @@ export function initTheme() {
 		}
 	);
 
+	refreshSystemTransparency();
+	window.addEventListener("focus", refreshSystemTransparency);
 	const colorScheme = window.matchMedia?.("(prefers-color-scheme: light)");
 	const onColorSchemeChange = () => {
 		if ((localStorage.getItem("bloom-theme-mode") || "system") === "system") {
@@ -364,5 +379,6 @@ export function initTheme() {
 		accentPromise.then((f) => f());
 		externalPromise.then((f) => f());
 		colorScheme?.removeEventListener("change", onColorSchemeChange);
+		window.removeEventListener("focus", refreshSystemTransparency);
 	};
 }
