@@ -33,13 +33,15 @@ describe("native tray placement", () => {
 		const scaled = { ...snapshot, icons: [{ ...icon, native_rect: rect }], native_chevron: chevron };
 		expect(nativeTrayLayout(scaled, { x: -3000, y: 1440, width: 3840, height: 720, dpi: 2 })?.precise).toBe(true);
 	});
-	test("uses dock-sized cells, makes room for network and keeps the scaled bar on screen", () => {
-		const normal = trayBarGeometry(3, 1, metrics, snapshot.native_chevron!);
-		expect(normal.width).toBe(178);
-		expect(normal.left).toBe(2340);
-		const large = trayBarGeometry(3, 1.3, metrics, snapshot.native_chevron!);
+	test("uses compact cells, reserves network and audio, and keeps a stable right edge", () => {
+		const normal = trayBarGeometry(3, 1, metrics, 2500);
+		expect(normal.width).toBe(177);
+		expect(normal.left + normal.width).toBe(2500);
+		const fewer = trayBarGeometry(1, 1, metrics, 2500);
+		expect(fewer.left + fewer.width).toBe(2500);
+		const large = trayBarGeometry(3, 1.3, metrics, 2500);
 		expect(large.left + large.width * 1.3).toBeLessThanOrEqual(2556);
-		const crowded = trayBarGeometry(50, 1, metrics, snapshot.native_chevron!);
+		const crowded = trayBarGeometry(50, 1, metrics, 2500);
 		expect(crowded.width).toBe(1152);
 		expect(crowded.left + crowded.width).toBeLessThanOrEqual(2556);
 	});

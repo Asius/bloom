@@ -37,6 +37,24 @@ pub(super) fn visible_icon_rect(icon: RECT, original: RECT, current: RECT) -> Op
     icon_inside(&translated, &original).then_some(translated)
 }
 
+/// Explorer returns the chevron rectangle for hidden icons; a distinct icon
+/// rectangle on the taskbar is evidence that the icon is visible there.
+pub(super) fn promoted_from_rect(
+    icon: RECT,
+    original: RECT,
+    current: RECT,
+    chevron: RECT,
+) -> Option<bool> {
+    let visible = visible_icon_rect(icon, original, current)?;
+    if icon_inside(&visible, &chevron) {
+        return Some(false);
+    }
+    if visible.left >= chevron.right && icon_inside(&visible, &original) {
+        return Some(true);
+    }
+    None
+}
+
 pub(super) fn menu_inside_monitor(menu: &RECT, monitor: &RECT) -> bool {
     menu.right > menu.left
         && menu.bottom > menu.top
@@ -414,6 +432,50 @@ mod tests {
             bottom: 1234,
         };
         assert!(icon_inside(&live, &popup));
+    }
+
+    #[test]
+    fn classifies_live_icon_rectangles_against_the_original_chevron() {
+        let bar = RECT {
+            left: 0,
+            top: 1032,
+            right: 1920,
+            bottom: 1080,
+        };
+        let moved = RECT {
+            left: -10000,
+            top: -10000,
+            right: -8080,
+            bottom: -9952,
+        };
+        let arrow = RECT {
+            left: 1660,
+            top: 1040,
+            right: 1684,
+            bottom: 1064,
+        };
+        assert_eq!(promoted_from_rect(arrow, bar, bar, arrow), Some(false));
+        let promoted = RECT {
+            left: 1690,
+            top: 1040,
+            right: 1714,
+            bottom: 1064,
+        };
+        assert_eq!(promoted_from_rect(promoted, bar, bar, arrow), Some(true));
+        let shifted = RECT {
+            left: -8310,
+            top: -9992,
+            right: -8286,
+            bottom: -9968,
+        };
+        assert_eq!(promoted_from_rect(shifted, bar, moved, arrow), Some(true));
+        let popup = RECT {
+            left: 1600,
+            top: 800,
+            right: 1624,
+            bottom: 824,
+        };
+        assert_eq!(promoted_from_rect(popup, bar, bar, arrow), None);
     }
 
     #[test]

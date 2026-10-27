@@ -96,7 +96,13 @@ pub(crate) fn refresh_native_inset(taskbar: HWND) {
             })
             .collect();
         let bounds: Vec<_> = promoted.values().copied().collect();
-        let chevron = native_overflow_chevron(taskbar, &rect, &bounds);
+        let previous = NATIVE_GEOMETRY
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .filter(|g| g.shell == shell.id() && g.taskbar == rect);
+        let chevron = native_overflow_chevron(taskbar, &rect, &bounds)
+            .or_else(|| previous.as_ref().and_then(|g| g.chevron));
         let dpi = GetDpiForWindow(taskbar).max(96) as f64;
         let logical_height = (rect.bottom - rect.top) as f64 * 96.0 / dpi;
         let height = ((32.0..=96.0).contains(&logical_height)
@@ -418,6 +424,17 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<V
         .ok()
         .map(|p| p.to_string_lossy().to_lowercase());
     let mut result = Vec::new();
+    let geometry = ShellSession::current().ok().and_then(|session| {
+        NATIVE_GEOMETRY
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .filter(|g| g.shell == session.id())
+    });
+    let current_bar = ShellSession::current().ok().and_then(|session| {
+        let mut rect = RECT::default();
+        GetWindowRect(session.hwnd, &mut rect).ok().map(|_| rect)
+    });
     for index in 0..4096 {
         let mut name = [0u16; 256];
         let mut length = name.len() as u32;
@@ -451,11 +468,7 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<V
         };
         if let Some(guid) = string(key.0, "IconGuid").and_then(|s| parse_guid(&s)) {
             id.guidItem = guid;
-            if !windows
-                .iter()
-                .any(|(_, exe)| exe.eq_ignore_ascii_case(&path))
-                || Shell_NotifyIconGetRect(&id).is_err()
-            {
+            if Shell_NotifyIconGetRect(&id).is_err() {
                 continue;
             }
         } else if let Some(uid) = value(key.0, "UID", REG_DWORD)
@@ -476,6 +489,21 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<V
         } else {
             continue;
         }
+        let registry_promoted = value(key.0, "IsPromoted", REG_DWORD)
+            .and_then(|v| <[u8; 4]>::try_from(v).ok())
+            .map(u32::from_le_bytes)
+            == Some(1);
+        let promoted = geometry
+            .as_ref()
+            .and_then(|g| {
+                model::promoted_from_rect(
+                    Shell_NotifyIconGetRect(&id).ok()?,
+                    g.taskbar,
+                    current_bar?,
+                    g.chevron?,
+                )
+            })
+            .unwrap_or(registry_promoted);
         result.push(Icon {
             key: key_name,
             path,
@@ -483,10 +511,7 @@ unsafe fn live_icons(windows: &[(isize, String)], include_own: bool) -> Result<V
             label_hint: string(key.0, "InitialTooltip"),
             artwork: value(key.0, "IconSnapshot", REG_BINARY)
                 .and_then(|bytes| model::snapshot_png(&bytes)),
-            promoted: value(key.0, "IsPromoted", REG_DWORD)
-                .and_then(|v| <[u8; 4]>::try_from(v).ok())
-                .map(u32::from_le_bytes)
-                == Some(1),
+            promoted,
         });
     }
     Ok(result)
@@ -528,6 +553,24 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                 .iter()
                 .any(|entry| entry.matches(&icon.identifier) && !entry.visible)
         });
+        // Prefer the current executable over stale registry paths when more
+        // than one record describes the same GUID.
+        let current_guids: std::collections::HashSet<_> = live
+            .iter()
+            .filter(|icon| {
+                icon.identifier.guidItem != GUID::zeroed()
+                    && windows
+                        .iter()
+                        .any(|(_, path)| path.eq_ignore_ascii_case(&icon.path))
+            })
+            .map(|icon| icon.identifier.guidItem)
+            .collect();
+        live.retain(|icon| {
+            !current_guids.contains(&icon.identifier.guidItem)
+                || windows
+                    .iter()
+                    .any(|(_, path)| path.eq_ignore_ascii_case(&icon.path))
+        });
         live.sort_by(|a, b| {
             order
                 .get(&a.key)
@@ -536,21 +579,31 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                 .cmp(&order.get(&b.key).copied().unwrap_or(usize::MAX))
                 .then(a.key.cmp(&b.key))
         });
+        // Multiple stale registry records can refer to the same live GUID.
+        let mut seen_guids = std::collections::HashSet::new();
+        live.retain(|icon| {
+            icon.identifier.guidItem == GUID::zeroed()
+                || seen_guids.insert(icon.identifier.guidItem)
+        });
         let mut icons: Vec<_> = live
             .iter()
             .map(|icon| {
                 let update = updates.iter().find(|entry| entry.matches(&icon.identifier));
+                let path = update
+                    .map(|entry| entry.path.as_str())
+                    .filter(|path| !path.is_empty())
+                    .unwrap_or(&icon.path);
                 let name = names
-                    .entry(icon.path.to_lowercase())
-                    .or_insert_with(|| crate::commands::app_display_name(&icon.path, None))
+                    .entry(path.to_lowercase())
+                    .or_insert_with(|| crate::commands::app_display_name(path, None))
                     .clone();
                 TrayIcon {
                     id: update
                         .filter(|entry| entry.actionable())
                         .map_or_else(|| icon.action_id(&shell), |entry| entry.token.clone()),
                     name,
-                    is_shell_icon: is_explorer_hosted_icon(&icon.path),
-                    path: icon.path.clone(),
+                    is_shell_icon: is_explorer_hosted_icon(path),
+                    path: path.to_string(),
                     is_promoted: icon.promoted,
                     native_rect: icon
                         .promoted
@@ -584,8 +637,8 @@ pub fn catalog() -> Result<TraySnapshot, String> {
                 }
             })
             .collect();
-        // Newly registered icons may precede their registry record. Keep them
-        // accessible in overflow until Explorer publishes promotion/order.
+        // Newly registered icons may precede their registry record. Use their
+        // real shell rectangle when possible; otherwise keep them in overflow.
         for entry in updates
             .iter()
             .filter(|entry| entry.visible && entry.actionable() && entry.registered())
@@ -593,11 +646,22 @@ pub fn catalog() -> Result<TraySnapshot, String> {
             if live.iter().any(|icon| entry.matches(&icon.identifier)) {
                 continue;
             }
+            let promoted = geometry
+                .as_ref()
+                .and_then(|g| {
+                    model::promoted_from_rect(
+                        Shell_NotifyIconGetRect(&entry.identifier()).ok()?,
+                        g.taskbar,
+                        current_taskbar?,
+                        g.chevron?,
+                    )
+                })
+                .unwrap_or(false);
             icons.push(TrayIcon {
                 id: entry.token.clone(),
                 name: crate::commands::app_display_name(&entry.path, None),
                 path: entry.path.clone(),
-                is_promoted: false,
+                is_promoted: promoted,
                 native_rect: None,
                 is_shell_icon: is_explorer_hosted_icon(&entry.path),
                 icon: entry.image.clone(),

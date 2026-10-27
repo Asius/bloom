@@ -18,10 +18,12 @@ the same `EdgeSurface` bottom flares. Dock geometry does not contain tray UI.
 
 3.10.14 tray input was confirmed by the owner. Explorer's overflow chevron is
 measured with UI Automation before hiding the native taskbar. Bloom anchors
-the row there when possible and uses uniform 32 logical-pixel cells to match the
-dock, rather than inheriting smaller native icon rectangles. The row scales with
-the dock and is shifted only as needed to fit the monitor; when it is crowded,
-the application group scrolls without hiding the arrow or network control.
+the row there when possible and uses compact 26 logical-pixel cells with 18px
+icons, rather than inheriting inconsistent native icon rectangles. Its height
+and scale follow the dock. The right edge is retained for the current monitor
+and Explorer session so a changed icon count or transient measurement does not
+move the whole tray. When it is crowded, the application group scrolls without
+hiding the arrow, network, or sound controls.
 If the anchor is unavailable the right-edge fallback is approximate. The hidden
 panel opens above and toward the left. This adjusted layout and DPI behavior
 still require owner verification in the installed app.
@@ -70,7 +72,20 @@ The network control reads connectivity from Windows Network List Manager and
 uses the default Windows connection profile to distinguish Wi-Fi. Left click
 invokes the Windows Quick Settings shortcut; right click opens Windows network
 settings directly. This does not recreate every native context-menu item.
-The UI never asserts Internet connectivity if the status query fails.
+The UI never asserts Internet connectivity if the status query fails. The sound
+control displays the current default endpoint's volume/mute state. Its left
+click requests Windows Quick Settings, and right click opens Windows sound
+settings directly; neither duplicates all native context-menu commands.
+
+Windows' current icon rectangle is compared with the saved taskbar and chevron
+to identify promoted and hidden icons when unambiguous. The registry promotion
+setting remains the fallback. A live GUID confirmed by Explorer does not require
+an exact executable-name match, which can differ for packaged applications;
+duplicate records are deduplicated and a current owner is preferred. An observed
+icon with no registry entry is classified from its live rectangle when possible,
+otherwise it remains in overflow. The observer begins at attachment and cannot
+guarantee an initial snapshot of every application; completeness still needs
+real Windows verification and a safe fallback for unmatched identities.
 
 Newly visible popups identified as belonging to the clicked application are
 repositioned only if they are outside the monitor or overlap the tray bar.

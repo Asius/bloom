@@ -9,7 +9,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
-import { ChevronUp, Globe, Monitor, Wifi } from "lucide-react";
+import { ChevronUp, Globe, Monitor, Wifi, Volume1, Volume2, VolumeX } from "lucide-react";
 import { EdgeSurface } from "./EdgeSurface";
 import { createTrayActionGate, nativeTrayLayout, trayBarGeometry, type TrayIcon, type TraySnapshot, type TrayWindowMetrics } from "../tray";
 import "./SystemTray.css";
@@ -28,6 +28,8 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const [healthy, setHealthy] = useState(false);
 	const [failure, setFailure] = useState("");
 	const [network, setNetwork] = useState<{ connected: boolean; internet: boolean; wifi: boolean | null } | null>(null);
+	const [volume, setVolume] = useState<{ volume: number; is_muted: boolean } | null>(null);
+	const placement = useRef<{ key: string; right: number } | null>(null);
 	const toggle = useRef<HTMLButtonElement>(null);
 	const host = useRef<HTMLSpanElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
@@ -42,6 +44,17 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	useEffect(() => {
 		if (nativeHeight.current !== null) void emit("native-taskbar-height", nativeHeight.current);
 	}, [snapshot?.native_taskbar_height]);
+	useEffect(() => {
+		let cancelled = false;
+		let receivedEvent = false;
+		const subscription = listen<{ volume: number; is_muted: boolean }>("volume-change", event => {
+			receivedEvent = true;
+			if (!cancelled) setVolume(event.payload);
+		});
+		void subscription.then(() => invoke<{ volume: number; is_muted: boolean }>("get_volume_state"))
+			.then(value => { if (!cancelled && !receivedEvent) setVolume(value); }).catch(console.error);
+		return () => { cancelled = true; void subscription.then(unlisten => unlisten()); };
+	}, []);
 	useEffect(() => {
 		const requestHeight = listen("native-taskbar-height-request", () => {
 			if (nativeHeight.current !== null) void emit("native-taskbar-height", nativeHeight.current);
@@ -234,13 +247,20 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const promoted = candidatesPromoted;
 	const icons = liveIcons.filter((icon) => !icon.is_promoted);
 	const nativeAnchor = layout?.anchor;
-	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, nativeAnchor) : null;
+	const placementKey = metrics && snapshot ? `${snapshot.shell_id}:${metrics.x}:${metrics.width}:${metrics.dpi}` : "";
+	if (metrics && nativeAnchor && placementKey && placement.current?.key !== placementKey) {
+		const width = trayBarGeometry(promoted.length, scale, metrics, undefined).width;
+		const right = (nativeAnchor.x - metrics.x) / metrics.dpi + width * scale;
+		placement.current = { key: placementKey, right: Math.min(metrics.width / metrics.dpi - 4, right) };
+	}
+	const rightEdge = placement.current?.key === placementKey ? placement.current.right : undefined;
+	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, rightEdge) : null;
 	const nativeBarStyle: CSSProperties = geometry ? {
 		left: geometry.left, right: "auto", bottom: 0, width: geometry.width, height,
 		transform: `scale(${scale})`, transformOrigin: "bottom left", maxWidth: "none"
 	} : { height, zoom: scale };
 	const columns = Math.min(5, Math.max(1, icons.length));
-	const panelRight = geometry ? Math.max(0, geometry.width - 38) : undefined;
+	const panelRight = geometry ? Math.max(0, geometry.width - 32) : undefined;
 	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[], style?: CSSProperties) => (
 		<button
 			key={icon.id}
@@ -372,7 +392,15 @@ export function SystemTray({ scale, height, metrics }: Props) {
 				title={network ? (network.internet ? "Network: Internet connected" : network.connected ? "Network: no Internet" : "Network: disconnected") : "Network status unavailable"}
 				onClick={() => { setOpen(false); void invoke("open_tray_network", { settings: false }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}
 				onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); void invoke("open_tray_network", { settings: true }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}>
-				{network?.internet && network.wifi !== null ? (network.wifi ? <Wifi size={24} /> : <Monitor size={24} />) : <Globe size={24} />}
+				{network?.internet && network.wifi !== null ? (network.wifi ? <Wifi size={18} /> : <Monitor size={18} />) : <Globe size={18} />}
+			</button>
+			<button type="button" className="bloom-tray-icon bloom-tray-volume"
+				aria-label="Sound and Quick Settings"
+				title={volume ? (volume.is_muted ? "Sound: muted" : `Sound: ${Math.round(volume.volume * 100)}%`) : "Sound settings"}
+				onClick={() => { setOpen(false); void invoke("open_tray_network", { settings: false }).catch(error => message(String(error), { title: "Sound", kind: "error" })); }}
+				onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); void invoke("open_sound_settings"); }}
+				onKeyDown={e => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); void invoke("open_sound_settings"); } }}>
+				{volume?.is_muted ? <VolumeX size={18} /> : volume && volume.volume < .5 ? <Volume1 size={18} /> : <Volume2 size={18} />}
 			</button>
 		</span>
 	);

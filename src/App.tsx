@@ -1955,7 +1955,7 @@ function App() {
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
-		if (isCalendarMode) return 300;
+		if (isCalendarMode) return 350;
 		if (bloomMode === "shelf") return 380;
 		if (bloomMode === "command-center" && isOpen) return 350;
 		if (showMusicOnStatusHover) {
@@ -1983,7 +1983,7 @@ function App() {
 		}
 		// The calendar keeps room for every row of the displayed month.
 		const headerExtra = nativeTaskbarHeight - 36;
-		if (bloomMode === "calendar") return (calendarMonthRows() >= 6 ? 305 : 273) + headerExtra;
+		if (bloomMode === "calendar") return nativeTaskbarHeight + 100 + calendarMonthRows() * 42;
 		// Shelf expands on mode alone (no hover needed: there is no cursor
 		// hover during an OS drag) and is sized to exactly one row of tiles,
 		// plus room for the scrollbar once the tiles overflow it.

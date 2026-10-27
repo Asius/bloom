@@ -10,13 +10,15 @@ import {
 	useLayoutEffect,
 	useMemo,
 	useRef,
-	useState
+	useState,
+	type CSSProperties
 } from "react";
 import { createRoot } from "react-dom/client";
 import { EdgeSurface } from "./components/EdgeSurface";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
 import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
 import { useSettingsSync } from "./hooks/useSettingsSync";
+import { effectiveScale } from "./scales";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { MixerIcon, SpeakerIcon } from "./icons";
 import "./Overlay.css";
@@ -180,9 +182,7 @@ const MIXER_MAX_PANEL_WIDTH =
 	MIXER_PANEL_PADDING * 2 +
 	MIXER_MAX_COLUMNS * MIXER_COLUMN_WIDTH +
 	(MIXER_MAX_COLUMNS - 1) * MIXER_COLUMN_GAP;
-// A HUD card's size in CSS px before `bloom-scale`; the backend's edge
-// hit-testing uses the same 42x196.
-const HUD_CARD_WIDTH = 42;
+// The vertical slider keeps its length; its width follows the dock's base height.
 const HUD_CARD_HEIGHT = 196;
 
 // Last fetched session list, so reopening the mixer renders at the right width
@@ -194,13 +194,15 @@ function VolumeNotch({
 	isMuted,
 	onVolumeChange,
 	mixerExpanded,
-	onMixerExpandedChange
+	onMixerExpandedChange,
+	baseWidth
 }: {
 	volume: number;
 	isMuted: boolean;
 	onVolumeChange: (vol: number) => void;
 	mixerExpanded: boolean;
 	onMixerExpandedChange: (expanded: boolean) => void;
+	baseWidth: number;
 }) {
 	const percentage = Math.round(volume * 100);
 	const barRef = useRef<HTMLDivElement>(null);
@@ -383,7 +385,7 @@ function VolumeNotch({
 	return (
 		<motion.div
 			className="volume-notch-wrapper"
-			style={{ transformOrigin: "left center" }}
+			style={{ transformOrigin: "left center", "--hud-width": `${baseWidth}px` } as CSSProperties}
 			initial={{ scaleX: 0, scaleY: 0.5, opacity: 0, filter: "blur(12px)", y: "-50%" }}
 			animate={{ scaleX: 1, scaleY: 1, opacity: 1, filter: "blur(0px)", y: "-50%" }}
 			exit={
@@ -412,7 +414,7 @@ function VolumeNotch({
 			<motion.div
 				ref={shellRef}
 				className="volume-notch"
-				animate={{ width: mixerExpanded ? 42 + mixerPanelWidth : 42 }}
+				animate={{ width: mixerExpanded ? baseWidth + mixerPanelWidth : baseWidth }}
 				transition={{ type: "spring", bounce: 0, duration: 0.35 }}
 				onAnimationComplete={reportPanelBounds}
 			>
@@ -511,6 +513,16 @@ function VolumeNotch({
 
 function OverlayApp() {
 	const scales = useDesktopScales();
+	const scale = effectiveScale(scales, "dock");
+	const [baseWidth, setBaseWidth] = useState(48);
+	useEffect(() => {
+		const subscription = listen<number>("native-taskbar-height", event => {
+			const value = Number(event.payload);
+			if (Number.isFinite(value) && value >= 32 && value <= 96) setBaseWidth(value);
+		});
+		void subscription.then(() => emit("native-taskbar-height-request"));
+		return () => { void subscription.then(unlisten => unlisten()); };
+	}, []);
 	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
@@ -535,9 +547,6 @@ function OverlayApp() {
 	// Brightness state
 
 	// Shared state
-	const [scale, setScale] = useState(() =>
-		parseFloat(localStorage.getItem("bloom-scale") || "1.0")
-	);
 	const timeoutRef = useRef<any>(null);
 	const hideWindowTimeoutRef = useRef<any>(null);
 	const splashActiveRef = useRef(false);
@@ -558,10 +567,6 @@ function OverlayApp() {
 		invoke("load_settings")
 			.then(async (settings: any) => {
 				if (await reloadIfMirrorWasStale(settings)) return;
-				if (settings && settings["bloom-scale"] !== undefined) {
-					setScale(parseFloat(settings["bloom-scale"]));
-				}
-
 				if (settings && settings["bloom-volume-overlay-enabled"] !== undefined) {
 					setVolumeOverlayEnabled(settings["bloom-volume-overlay-enabled"] === "true");
 				}
@@ -684,8 +689,7 @@ function OverlayApp() {
 
 	useSettingsSync({
 		"bloom-volume-overlay-enabled": setVolumeOverlayEnabled,
-		"bloom-volume-edge-enabled": setVolumeEdgeEnabled,
-		"bloom-scale": setScale
+		"bloom-volume-edge-enabled": setVolumeEdgeEnabled
 	});
 
 	// Side effects: reset overlay mode to idle when overlay is disabled
@@ -802,7 +806,7 @@ function OverlayApp() {
 		const pad = 24 * scale;
 		const cardHeight = HUD_CARD_HEIGHT * scale;
 		const leftWidth =
-			(mixerExpanded ? HUD_CARD_WIDTH + MIXER_MAX_PANEL_WIDTH : HUD_CARD_WIDTH) * scale;
+			(mixerExpanded ? baseWidth + MIXER_MAX_PANEL_WIDTH : baseWidth) * scale;
 		const zone = (x: number, w: number): RegionRect => ({
 			x,
 			y: (height - cardHeight) / 2 - pad,
@@ -895,6 +899,7 @@ function OverlayApp() {
 					>
 						{mode === "volume" && (
 							<VolumeNotch
+								baseWidth={baseWidth}
 								volume={volume}
 								isMuted={isMuted}
 								onVolumeChange={handleVolumeChange}

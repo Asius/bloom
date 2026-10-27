@@ -1568,7 +1568,10 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                                                 let n_left = (nr.x as f64 * scale) as i32;
                                                 let n_right =
                                                     n_left + (nr.width as f64 * scale) as i32;
-                                                let res_h = (crate::tray::native_taskbar_height().unwrap_or(48.0) * scale) as i32;
+                                                let res_h = (crate::tray::native_taskbar_height()
+                                                    .unwrap_or(48.0)
+                                                    * scale)
+                                                    as i32;
                                                 let trigger_y = screen_rect.top + res_h;
 
                                                 if rect.left < n_right - 4
@@ -2883,11 +2886,11 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                     .ok()
                     .flatten()
                     .is_some_and(|m| {
-                        let bloom_scale = crate::utils::get_bloom_scale(app_handle);
+                        let bloom_scale = crate::utils::get_dock_scale(app_handle);
                         let ms = m.size();
                         let mp = m.position();
                         let sc = m.scale_factor() * bloom_scale;
-                        let nw = (42.0 * sc) as i32;
+                        let nw = (crate::tray::native_taskbar_height().unwrap_or(48.0) * sc) as i32;
                         let nh = (196.0 * sc) as i32;
                         let nx = mp.x;
                         let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
@@ -2928,15 +2931,14 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                 }
                 MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
             } else {
-                // The overlay applies `bloom-scale` as CSS zoom, so the cards
-                // are larger than 42x196 CSS px for non-default scales.
-                let bloom_scale = crate::utils::get_bloom_scale(app_handle);
+                // The side volume card follows the dock's scale and base height.
+                let bloom_scale = crate::utils::get_dock_scale(app_handle);
                 let over_left = in_mixer
                     || if let Ok(Some(m)) = ov_win.primary_monitor() {
                         let ms = m.size();
                         let mp = m.position();
                         let sc = m.scale_factor() * bloom_scale;
-                        let nw = (42.0 * sc) as i32;
+                        let nw = (crate::tray::native_taskbar_height().unwrap_or(48.0) * sc) as i32;
                         let nh = (196.0 * sc) as i32;
                         let nx = mp.x;
                         let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
@@ -3288,8 +3290,9 @@ pub fn register_appbar(window: tauri::WebviewWindow) {
         let hwnd = window.hwnd().unwrap();
         let scale = monitor.scale_factor();
         let bloom_scale = crate::utils::get_notch_scale(window.app_handle());
-        let ph = ((420.0 * bloom_scale) * scale) as i32;
-        let pr = ((crate::tray::native_taskbar_height().unwrap_or(48.0) * bloom_scale) * scale) as i32;
+        let ph = ((480.0 * bloom_scale) * scale) as i32;
+        let pr =
+            ((crate::tray::native_taskbar_height().unwrap_or(48.0) * bloom_scale) * scale) as i32;
 
         unsafe {
             use windows::Win32::Foundation::RECT;

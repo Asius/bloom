@@ -51,7 +51,7 @@ pub(super) struct Entry {
     created: u64,
 }
 impl Entry {
-    fn identifier(&self) -> NOTIFYICONIDENTIFIER {
+    pub(super) fn identifier(&self) -> NOTIFYICONIDENTIFIER {
         NOTIFYICONIDENTIFIER {
             cbSize: std::mem::size_of::<NOTIFYICONIDENTIFIER>() as u32,
             hWnd: HWND(self.hwnd as _),

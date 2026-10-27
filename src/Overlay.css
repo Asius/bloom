@@ -112,7 +112,7 @@ body,
 	justify-content: space-between;
 	padding: 16px 0 14px;
 	border-radius: 0 18px 18px 0;
-	width: 42px;
+	width: var(--hud-width, 48px);
 	height: 196px;
 	position: relative;
 	pointer-events: auto;
@@ -132,7 +132,7 @@ body,
 	align-items: center;
 	justify-content: space-between;
 	height: 100%;
-	width: 42px;
+	width: var(--hud-width, 48px);
 	align-self: flex-start;
 	flex-shrink: 0;
 }

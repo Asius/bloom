@@ -479,7 +479,7 @@ pub async fn change_notch_mode(app: AppHandle, mode: String) {
             let m_size = monitor.size();
             let scale = monitor.scale_factor();
             let bloom_scale = crate::utils::get_notch_scale(&app);
-            let target_height = (420.0 * bloom_scale * scale) as u32;
+            let target_height = (480.0 * bloom_scale * scale) as u32;
             let _ = main_win.set_position(tauri::PhysicalPosition::new(m_pos.x, m_pos.y));
             let _ = main_win.set_size(tauri::PhysicalSize::new(m_size.width, target_height));
         }
@@ -2888,7 +2888,7 @@ fn re_register_appbars(app: &AppHandle, settings: &HashMap<String, serde_json::V
     // reserved strip height, and peek/smart must never hold a reservation.
     if let Some(main_win) = app.get_webview_window("main") {
         if let Ok(Some(monitor)) = main_win.primary_monitor() {
-            let height = (420.0 * crate::utils::get_notch_scale(app) * monitor.scale_factor())
+            let height = (480.0 * crate::utils::get_notch_scale(app) * monitor.scale_factor())
                 .round() as u32;
             let _ = main_win.set_size(tauri::PhysicalSize::new(monitor.size().width, height));
         }
