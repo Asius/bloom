@@ -45,6 +45,7 @@ function TrayWindow() {
 		});
 		const size = listen<number>("dock-tray-height", event => setHeight(trayHeight(event.payload, 1)));
 		void size.then(() => { if (!cancelled) void emit("tray-height-request"); });
+		void emit("dock-tray-visibility-request");
 		return () => {
 			cancelled = true;
 			cleanupTheme();

@@ -3,7 +3,10 @@
 use crate::types::IntRect;
 use std::{
     collections::HashMap,
-    sync::{LazyLock, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        LazyLock, Mutex,
+    },
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager, Window};
@@ -19,9 +22,52 @@ struct Surface {
 static SURFACES: LazyLock<Mutex<HashMap<String, Surface>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const LEASE: Duration = Duration::from_secs(8);
+// The tray's input HWND remains independent; its presentation follows the dock.
+static DOCK_WANTS_TRAY: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+pub fn set_dock_tray_visibility(window: Window, visible: bool) {
+    if window.label() != "dock" {
+        return;
+    }
+    let changed = DOCK_WANTS_TRAY.swap(visible, Ordering::SeqCst) != visible;
+    if changed && !visible {
+        let _ = window.app_handle().emit_to("tray", "dock-tray-hidden", ());
+    }
+    sync_visibility(window.app_handle());
+}
 
 fn live(surface: &Surface) -> bool {
     surface.updated.elapsed() < LEASE
+}
+fn should_show(
+    has_bounds: bool,
+    requested: bool,
+    dock_enabled: bool,
+    native_hidden: bool,
+    shutting_down: bool,
+    fullscreen: bool,
+    capture: bool,
+) -> bool {
+    has_bounds
+        && requested
+        && dock_enabled
+        && native_hidden
+        && !shutting_down
+        && !fullscreen
+        && !capture
+}
+fn surface_available(
+    surface: &Surface,
+    window_visible: bool,
+    requested: bool,
+    dock_enabled: bool,
+    native_hidden: bool,
+    dock_visible: bool,
+) -> bool {
+    surface.ready
+        && live(surface)
+        && (window_visible || (!requested && dock_enabled && native_hidden && dock_visible))
 }
 fn inside(rect: &IntRect, x: f64, y: f64) -> bool {
     x >= rect.x as f64
@@ -83,20 +129,23 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
 
 pub fn sync_visibility(app: &AppHandle) {
     use crate::state::{CURRENT_FOREGROUND_FULLSCREEN, NATIVE_TASKBAR_HIDDEN, SHUTTING_DOWN};
-    use std::sync::atomic::Ordering;
     let Some(window) = app.get_webview_window("tray") else {
         return;
     };
-    let has_surface = SURFACES.lock().is_ok_and(|s| {
-        s.get("tray")
-            .is_some_and(|s| live(s) && !s.rects.is_empty())
-    });
-    let visible = has_surface
-        && crate::utils::dock_enabled()
-        && NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed)
-        && !SHUTTING_DOWN.load(Ordering::Relaxed)
-        && !CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed)
-        && !crate::services::capture_ui_active();
+    // Keep the last known bounds while deliberately hidden: background WebView
+    // timers can be throttled. Showing it lets the normal heartbeat resume.
+    let has_surface = SURFACES
+        .lock()
+        .is_ok_and(|s| s.get("tray").is_some_and(|s| !s.rects.is_empty()));
+    let visible = should_show(
+        has_surface,
+        DOCK_WANTS_TRAY.load(Ordering::SeqCst),
+        crate::utils::dock_enabled(),
+        NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed),
+        SHUTTING_DOWN.load(Ordering::Relaxed),
+        CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed),
+        crate::services::capture_ui_active(),
+    );
     if !visible {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
@@ -145,11 +194,17 @@ pub fn report_tray_input(window: Window, control: String) {
 pub fn tray_surface_available(app: AppHandle) -> bool {
     let surfaces = SURFACES.lock().map(|s| s.clone()).unwrap_or_default();
     surfaces.iter().any(|(label, s)| {
-        s.ready
-            && live(s)
-            && app
-                .get_webview_window(label)
-                .is_some_and(|w| w.is_visible().unwrap_or(false))
+        app.get_webview_window(label).is_some_and(|w| {
+            surface_available(
+                s,
+                w.is_visible().unwrap_or(false),
+                DOCK_WANTS_TRAY.load(Ordering::SeqCst),
+                crate::utils::dock_enabled(),
+                crate::state::NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed),
+                app.get_webview_window("dock")
+                    .is_some_and(|dock| dock.is_visible().unwrap_or(false)),
+            )
+        })
     })
 }
 
@@ -251,6 +306,28 @@ mod tests {
         assert!(live(&s));
         s.updated -= LEASE;
         assert!(!live(&s));
+    }
+
+    #[test]
+    fn dock_visibility_gates_the_tray_without_breaking_availability() {
+        assert!(should_show(true, true, true, true, false, false, false));
+        assert!(!should_show(true, false, true, true, false, false, false));
+        assert!(!should_show(true, true, true, true, false, true, false));
+        assert!(!should_show(true, true, true, true, false, false, true));
+        assert!(!should_show(true, true, false, true, false, false, false));
+        let mut surface = Surface {
+            rects: vec![],
+            ready: true,
+            open: false,
+            updated: Instant::now(),
+        };
+        assert!(surface_available(&surface, false, false, true, true, true));
+        assert!(!surface_available(
+            &surface, false, false, true, true, false
+        ));
+        assert!(!surface_available(&surface, false, true, true, true, true));
+        surface.updated -= LEASE;
+        assert!(!surface_available(&surface, false, false, true, true, true));
     }
 
     #[test]

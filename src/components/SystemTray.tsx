@@ -25,6 +25,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const [snapshot, setSnapshot] = useState<TraySnapshot | null>(null);
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
+	const [hovered, setHovered] = useState(false);
 	const [healthy, setHealthy] = useState(false);
 	const [failure, setFailure] = useState("");
 	const [network, setNetwork] = useState<{ connected: boolean; internet: boolean; wifi: boolean | null } | null>(null);
@@ -39,6 +40,18 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const mounted = useRef(true);
 	const state = useRef({ healthy, open });
 	state.current = { healthy, open };
+	const interaction = useRef(false);
+	interaction.current = hovered || open || busy;
+	useEffect(() => { void emit("tray-interaction", interaction.current); }, [hovered, open, busy]);
+	useEffect(() => {
+		const request = listen("tray-interaction-request", () => { void emit("tray-interaction", interaction.current); });
+		const hide = listen("dock-tray-hidden", () => { setHovered(false); setOpen(false); });
+		return () => {
+			void request.then(unlisten => unlisten());
+			void hide.then(unlisten => unlisten());
+			void emit("tray-interaction", false);
+		};
+	}, []);
 	const nativeHeight = useRef<number | null>(null);
 	nativeHeight.current = snapshot?.native_taskbar_height ?? null;
 	useEffect(() => {
@@ -125,6 +138,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		const networkTimer = setInterval(refreshNetwork, 5000);
 		const timer = setInterval(() => {
 			if (Date.now() - lastRefresh.current >= (state.current.open ? 2000 : 10000)) void refresh();
+			if (interaction.current) void emit("tray-interaction", true);
 			report();
 		}, 2000);
 		const dismiss = listen("tray-dismiss", () => {
@@ -347,6 +361,8 @@ export function SystemTray({ scale, height, metrics }: Props) {
 			className={`bloom-tray bloom-tray-right ${open ? "is-open" : ""}`}
 			aria-busy={busy}
 			style={nativeBarStyle}
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
 			onClick={(e) => e.stopPropagation()}
 			onContextMenu={(e) => {
 				e.preventDefault();

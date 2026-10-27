@@ -146,6 +146,7 @@ fn main() {
             get_tray_apps,
             get_tray_icons,
             tray::surface::update_tray_surface,
+            tray::surface::set_dock_tray_visibility,
             tray::surface::tray_surface_available,
             tray::surface::report_tray_input,
             show_tray_context_menu,

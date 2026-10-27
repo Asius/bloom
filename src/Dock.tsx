@@ -5,6 +5,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import "./Dock.css";
 import { EdgeSurface } from "./components/EdgeSurface";
 import { trayHeight } from "./tray";
+import { createVisibilityPublisher, dockShouldHide } from "./dockVisibility";
 import { initTheme } from "./theme";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
@@ -162,6 +163,7 @@ const Dock = memo(function Dock() {
 	} | null>(null);
 	const [isDockHovered, setIsDockHovered] = useState(false);
 	const [isEdgeHovered, setIsEdgeHovered] = useState(false);
+	const [isTrayInteracting, setIsTrayInteracting] = useState(false);
 	const [isOverlapped, setIsOverlapped] = useState(false);
 	const [isVisible, setIsVisible] = useState(true);
 	const [showAddPopup, setShowAddPopup] = useState(false);
@@ -211,7 +213,7 @@ const Dock = memo(function Dock() {
 
 	const isCurrentlyHovered = isDockHovered || isEdgeHovered;
 	const [interactionState, setInteractionState] = useState<"active" | "grace" | "none">("none");
-	const isAnyInteraction = isCurrentlyHovered || !!contextMenu || showAddPopup || nativeMenuOpen;
+	const isAnyInteraction = isCurrentlyHovered || isTrayInteracting || !!contextMenu || showAddPopup || nativeMenuOpen;
 
 	const previewTimerRef = useRef<any>(null);
 	const isPreviewHoveredRef = useRef(false);
@@ -227,10 +229,18 @@ const Dock = memo(function Dock() {
 		}
 	}, [isAnyInteraction]);
 
-	const isHidden =
-		!startupAnimating &&
-		((dockMode === "smart" && isOverlapped && interactionState === "none") ||
-			(dockMode === "peek" && interactionState === "none"));
+	const isHidden = dockShouldHide(startupAnimating, dockMode, isOverlapped, interactionState);
+	const trayVisibility = isReady && isExpanded && !isHidden && isVisible;
+	const latestTrayVisibility = useRef(trayVisibility);
+	latestTrayVisibility.current = trayVisibility;
+	const visibilityPublisher = useMemo(() => createVisibilityPublisher(visible =>
+		invoke("set_dock_tray_visibility", { visible })
+	), []);
+	useEffect(() => { visibilityPublisher.set(trayVisibility); }, [visibilityPublisher, trayVisibility]);
+	useEffect(() => {
+		const subscription = listen("dock-tray-visibility-request", () => visibilityPublisher.set(latestTrayVisibility.current));
+		return () => { void subscription.then(unlisten => unlisten()); };
+	}, [visibilityPublisher]);
 
 	// Adaptive mode (fixed dock only): stretch into a full-width taskbar while a
 	// standard maximized window is in the foreground, so the reserved strip no
@@ -398,6 +408,13 @@ const Dock = memo(function Dock() {
 		const unlistenEdgeHover = listen<boolean>("dock-edge-hover", (event) => {
 			setIsEdgeHovered(event.payload);
 		});
+		let trayInteractionExpiry: ReturnType<typeof setTimeout> | undefined;
+		const unlistenTrayInteraction = listen<boolean>("tray-interaction", event => {
+			if (trayInteractionExpiry) clearTimeout(trayInteractionExpiry);
+			setIsTrayInteracting(event.payload);
+			if (event.payload) trayInteractionExpiry = setTimeout(() => setIsTrayInteracting(false), 10000);
+		});
+		void unlistenTrayInteraction.then(() => emit("tray-interaction-request"));
 
 		const unlistenVisibility = listen<boolean>("visibility-change", (event) => {
 			setIsVisible(event.payload);
@@ -411,6 +428,8 @@ const Dock = memo(function Dock() {
 			unlistenOverlap.then((f) => f());
 			unlistenInstalledApps.then((f) => f());
 			unlistenEdgeHover.then((f) => f());
+			unlistenTrayInteraction.then((f) => f());
+			if (trayInteractionExpiry) clearTimeout(trayInteractionExpiry);
 			unlistenVisibility.then((f) => f());
 			unlistenMaximized.then((f) => f());
 		};

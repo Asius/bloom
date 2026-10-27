@@ -7,7 +7,8 @@ approved HWND and bottom curves remain unchanged.
 The owner reported that the 3.10.8 tray still took no clicks. Its simulated IPC
 tests did not reproduce that native failure. The tray now has a dedicated HWND
 and webview entry. This is a deliberate isolation boundary: the dock's global
-click-through flag, hover/reveal geometry and previews cannot disable tray input.
+click-through flag and previews cannot disable tray input. Its visibility follows
+the dock's Smart/Peek decision, and hovering or opening the tray keeps both visible.
 It costs another webview; no memory or CPU reduction is claimed.
 
 `tray/surface.rs` accepts rectangles only from `tray`, applies a native window
@@ -54,7 +55,10 @@ matches remain errors rather than invoking a different app.
 
 The surface follows dock enablement/native taskbar handoff, capture selection,
 fullscreen state, monitor changes and shutdown. It does not register another
-AppBar. Menu dispatch, Explorer-session identity and stale-icon safeguards share
+AppBar. The dock sends its visibility state in order; an intentionally hidden
+healthy tray remains available for resident-app representation. The last region
+is retained so a throttled hidden webview can be revealed and resume its heartbeat.
+Menu dispatch, Explorer-session identity and stale-icon safeguards share
 the existing tray catalog; the catalog uses Windows UI order when available,
 with a deterministic registry-key fallback if that value is absent.
 
