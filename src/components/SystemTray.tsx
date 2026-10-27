@@ -9,9 +9,17 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
+import { AnimatePresence, motion } from "framer-motion";
 import { ChevronUp, Globe, Monitor, Wifi, Volume1, Volume2, VolumeX } from "lucide-react";
 import { EdgeSurface } from "./EdgeSurface";
-import { createTrayActionGate, nativeTrayLayout, trayBarGeometry, type TrayIcon, type TraySnapshot, type TrayWindowMetrics } from "../tray";
+import {
+	createTrayActionGate,
+	nativeTrayLayout,
+	trayBarGeometry,
+	type TrayIcon,
+	type TraySnapshot,
+	type TrayWindowMetrics
+} from "../tray";
 import "./SystemTray.css";
 
 interface Props {
@@ -26,9 +34,14 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const [open, setOpen] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [hovered, setHovered] = useState(false);
+	const [surfaceVisible, setSurfaceVisible] = useState(false);
 	const [healthy, setHealthy] = useState(false);
 	const [failure, setFailure] = useState("");
-	const [network, setNetwork] = useState<{ connected: boolean; internet: boolean; wifi: boolean | null } | null>(null);
+	const [network, setNetwork] = useState<{
+		connected: boolean;
+		internet: boolean;
+		wifi: boolean | null;
+	} | null>(null);
 	const [volume, setVolume] = useState<{ volume: number; is_muted: boolean } | null>(null);
 	const placement = useRef<{ key: string; right: number } | null>(null);
 	const toggle = useRef<HTMLButtonElement>(null);
@@ -42,13 +55,25 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	state.current = { healthy, open };
 	const interaction = useRef(false);
 	interaction.current = hovered || open || busy;
-	useEffect(() => { void emit("tray-interaction", interaction.current); }, [hovered, open, busy]);
 	useEffect(() => {
-		const request = listen("tray-interaction-request", () => { void emit("tray-interaction", interaction.current); });
-		const hide = listen("dock-tray-hidden", () => { setHovered(false); setOpen(false); });
+		void emit("tray-interaction", interaction.current);
+	}, [hovered, open, busy]);
+	useEffect(() => {
+		const request = listen("tray-interaction-request", () => {
+			void emit("tray-interaction", interaction.current);
+		});
+		const hide = listen("dock-tray-hidden", () => {
+			setHovered(false);
+			setOpen(false);
+		});
+		const visibility = listen<boolean>("tray-presentation-visibility", (event) =>
+			setSurfaceVisible(event.payload)
+		);
+		void visibility.then(() => emit("dock-tray-visibility-request"));
 		return () => {
-			void request.then(unlisten => unlisten());
-			void hide.then(unlisten => unlisten());
+			void request.then((unlisten) => unlisten());
+			void hide.then((unlisten) => unlisten());
+			void visibility.then((unlisten) => unlisten());
 			void emit("tray-interaction", false);
 		};
 	}, []);
@@ -60,19 +85,28 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	useEffect(() => {
 		let cancelled = false;
 		let receivedEvent = false;
-		const subscription = listen<{ volume: number; is_muted: boolean }>("volume-change", event => {
+		const subscription = listen<{ volume: number; is_muted: boolean }>("volume-change", (event) => {
 			receivedEvent = true;
 			if (!cancelled) setVolume(event.payload);
 		});
-		void subscription.then(() => invoke<{ volume: number; is_muted: boolean }>("get_volume_state"))
-			.then(value => { if (!cancelled && !receivedEvent) setVolume(value); }).catch(console.error);
-		return () => { cancelled = true; void subscription.then(unlisten => unlisten()); };
+		void subscription
+			.then(() => invoke<{ volume: number; is_muted: boolean }>("get_volume_state"))
+			.then((value) => {
+				if (!cancelled && !receivedEvent) setVolume(value);
+			})
+			.catch(console.error);
+		return () => {
+			cancelled = true;
+			void subscription.then((unlisten) => unlisten());
+		};
 	}, []);
 	useEffect(() => {
 		const requestHeight = listen("native-taskbar-height-request", () => {
 			if (nativeHeight.current !== null) void emit("native-taskbar-height", nativeHeight.current);
 		});
-		return () => { void requestHeight.then((unlisten) => unlisten()); };
+		return () => {
+			void requestHeight.then((unlisten) => unlisten());
+		};
 	}, []);
 	const report = useCallback(() => {
 		const rects = [host.current, panel.current].filter(Boolean).map((el) => {
@@ -130,9 +164,16 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		const refreshNetwork = () => {
 			if (checkingNetwork) return;
 			checkingNetwork = true;
-			void invoke<typeof network>("tray_network_status").then(value => {
-				if (!cancelled) setNetwork(value);
-			}).catch(() => { if (!cancelled) setNetwork(null); }).finally(() => { checkingNetwork = false; });
+			void invoke<typeof network>("tray_network_status")
+				.then((value) => {
+					if (!cancelled) setNetwork(value);
+				})
+				.catch(() => {
+					if (!cancelled) setNetwork(null);
+				})
+				.finally(() => {
+					checkingNetwork = false;
+				});
 		};
 		refreshNetwork();
 		const networkTimer = setInterval(refreshNetwork, 5000);
@@ -167,7 +208,11 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		};
 		const outside = (event: PointerEvent) => {
 			const target = event.target as Node;
-			if (!actionGate.current.isBusy() && !host.current?.contains(target) && !panel.current?.contains(target))
+			if (
+				!actionGate.current.isBusy() &&
+				!host.current?.contains(target) &&
+				!panel.current?.contains(target)
+			)
 				setOpen(false);
 		};
 		document.addEventListener("pointerdown", outside, true);
@@ -261,18 +306,30 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const promoted = candidatesPromoted;
 	const icons = liveIcons.filter((icon) => !icon.is_promoted);
 	const nativeAnchor = layout?.anchor;
-	const placementKey = metrics && snapshot ? `${snapshot.shell_id}:${metrics.x}:${metrics.width}:${metrics.dpi}` : "";
+	const placementKey =
+		metrics && snapshot ? `${snapshot.shell_id}:${metrics.x}:${metrics.width}:${metrics.dpi}` : "";
 	if (metrics && nativeAnchor && placementKey && placement.current?.key !== placementKey) {
 		const width = trayBarGeometry(promoted.length, scale, metrics, undefined).width;
 		const right = (nativeAnchor.x - metrics.x) / metrics.dpi + width * scale;
-		placement.current = { key: placementKey, right: Math.min(metrics.width / metrics.dpi - 4, right) };
+		placement.current = {
+			key: placementKey,
+			right: Math.min(metrics.width / metrics.dpi - 4, right)
+		};
 	}
 	const rightEdge = placement.current?.key === placementKey ? placement.current.right : undefined;
 	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, rightEdge) : null;
-	const nativeBarStyle: CSSProperties = geometry ? {
-		left: geometry.left, right: "auto", bottom: 0, width: geometry.width, height,
-		transform: `scale(${scale})`, transformOrigin: "bottom left", maxWidth: "none"
-	} : { height, zoom: scale };
+	const nativeBarStyle: CSSProperties = geometry
+		? {
+				left: geometry.left,
+				right: "auto",
+				bottom: 0,
+				width: geometry.width,
+				height,
+				transform: `scale(${scale})`,
+				transformOrigin: "bottom left",
+				maxWidth: "none"
+			}
+		: { height, zoom: scale, transformOrigin: "bottom left" };
 	const columns = Math.min(5, Math.max(1, icons.length));
 	const panelRight = geometry ? Math.max(0, geometry.width - 32) : undefined;
 	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[], style?: CSSProperties) => (
@@ -313,16 +370,23 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		</button>
 	);
 	const list = (
-		<div
+		<motion.div
+			key="tray-flyout"
 			ref={panel}
+			initial={{ opacity: 0, y: 8, scale: 0.97 }}
+			animate={{ opacity: 1, y: 0, scale: 1 }}
+			exit={{ opacity: 0, y: 8, scale: 0.97 }}
+			transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
 			className="bloom-tray-icons"
 			role="toolbar"
 			aria-label="Hidden notification icons"
 			aria-orientation="vertical"
-			style={{
-				"--tray-columns": columns,
-				...(panelRight === undefined ? {} : { right: `${panelRight}px`, left: "auto" })
-			} as CSSProperties}
+			style={
+				{
+					"--tray-columns": columns,
+					...(panelRight === undefined ? {} : { right: `${panelRight}px`, left: "auto" })
+				} as CSSProperties
+			}
 			onWheel={(e) => {
 				e.stopPropagation();
 				// The overflow scrolls vertically, like the Windows hidden-icons panel.
@@ -353,7 +417,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 			}}
 		>
 			{icons.map((icon, index) => iconButton(icon, index, icons))}
-		</div>
+		</motion.div>
 	);
 	return (
 		<span
@@ -369,55 +433,126 @@ export function SystemTray({ scale, height, metrics }: Props) {
 				e.stopPropagation();
 			}}
 		>
-			<EdgeSurface edge="bottom" />
-			{open && list}
-			<button
-				ref={toggle}
-				className="bloom-tray-toggle"
-				type="button"
-				aria-label="Show hidden icons"
-				aria-expanded={open}
-				aria-haspopup="true"
-				disabled={busy}
-				title={failure || "Show hidden icons — right-click for Windows tray"}
-				onClick={(e) => {
-					e.stopPropagation();
-					void show();
-				}}
-				onContextMenu={(e) => {
-					e.preventDefault();
-					e.stopPropagation();
-					void action();
-				}}
-				onKeyDown={(e) => {
-					if (e.key === "Escape") {
-						e.stopPropagation();
-						setOpen(false);
-					}
+			<motion.span
+				className="bloom-tray-content"
+				initial={{ y: 100, opacity: 0 }}
+				animate={{ y: surfaceVisible ? 0 : 100, opacity: surfaceVisible ? 1 : 0 }}
+				transition={{
+					y: { type: "spring", stiffness: 400, damping: 35, mass: 0.8 },
+					opacity: { type: "tween", duration: 0.2 }
 				}}
 			>
-				<ChevronUp size={16} style={{ transform: open ? "rotate(180deg)" : undefined }} />
-			</button>
-			<div className="bloom-tray-promoted" role="toolbar" aria-label="Visible notification icons">
-				{promoted.map((icon, index) =>
-					iconButton(icon, index, promoted)
-				)}
-			</div>
-			<button type="button" className="bloom-tray-icon bloom-tray-network"
-				aria-label="Network and Quick Settings"
-				title={network ? (network.internet ? "Network: Internet connected" : network.connected ? "Network: no Internet" : "Network: disconnected") : "Network status unavailable"}
-				onClick={() => { setOpen(false); void invoke("open_tray_network", { settings: false }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}
-				onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); void invoke("open_tray_network", { settings: true }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}>
-				{network?.internet && network.wifi !== null ? (network.wifi ? <Wifi size={18} /> : <Monitor size={18} />) : <Globe size={18} />}
-			</button>
-			<button type="button" className="bloom-tray-icon bloom-tray-volume"
-				aria-label="Sound and Quick Settings"
-				title={volume ? (volume.is_muted ? "Sound: muted" : `Sound: ${Math.round(volume.volume * 100)}%`) : "Sound settings"}
-				onClick={() => { setOpen(false); void invoke("open_tray_network", { settings: false }).catch(error => message(String(error), { title: "Sound", kind: "error" })); }}
-				onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); void invoke("open_sound_settings"); }}
-				onKeyDown={e => { if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") { e.preventDefault(); void invoke("open_sound_settings"); } }}>
-				{volume?.is_muted ? <VolumeX size={18} /> : volume && volume.volume < .5 ? <Volume1 size={18} /> : <Volume2 size={18} />}
-			</button>
+				<EdgeSurface edge="bottom" />
+				<AnimatePresence initial={false} onExitComplete={report}>
+					{open && list}
+				</AnimatePresence>
+				<button
+					ref={toggle}
+					className="bloom-tray-toggle"
+					type="button"
+					aria-label="Show hidden icons"
+					aria-expanded={open}
+					aria-haspopup="true"
+					disabled={busy}
+					title={failure || "Show hidden icons — right-click for Windows tray"}
+					onClick={(e) => {
+						e.stopPropagation();
+						void show();
+					}}
+					onContextMenu={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						void action();
+					}}
+					onKeyDown={(e) => {
+						if (e.key === "Escape") {
+							e.stopPropagation();
+							setOpen(false);
+						}
+					}}
+				>
+					<ChevronUp size={14} style={{ transform: open ? "rotate(180deg)" : undefined }} />
+				</button>
+				<div className="bloom-tray-promoted" role="toolbar" aria-label="Visible notification icons">
+					{promoted.map((icon, index) => iconButton(icon, index, promoted))}
+				</div>
+				<button
+					type="button"
+					className="bloom-tray-icon bloom-tray-network"
+					aria-label="Network and Quick Settings"
+					title={
+						network
+							? network.internet
+								? "Network: Internet connected"
+								: network.connected
+									? "Network: no Internet"
+									: "Network: disconnected"
+							: "Network status unavailable"
+					}
+					onClick={() => {
+						setOpen(false);
+						void invoke("open_tray_network", { settings: false }).catch((error) =>
+							message(String(error), { title: "Network", kind: "error" })
+						);
+					}}
+					onContextMenu={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						setOpen(false);
+						void invoke("open_tray_network", { settings: true }).catch((error) =>
+							message(String(error), { title: "Network", kind: "error" })
+						);
+					}}
+				>
+					{network?.internet && network.wifi !== null ? (
+						network.wifi ? (
+							<Wifi size={16} />
+						) : (
+							<Monitor size={16} />
+						)
+					) : (
+						<Globe size={16} />
+					)}
+				</button>
+				<button
+					type="button"
+					className="bloom-tray-icon bloom-tray-volume"
+					aria-label="Sound and Quick Settings"
+					title={
+						volume
+							? volume.is_muted
+								? "Sound: muted"
+								: `Sound: ${Math.round(volume.volume * 100)}%`
+							: "Sound settings"
+					}
+					onClick={() => {
+						setOpen(false);
+						void invoke("open_tray_network", { settings: false }).catch((error) =>
+							message(String(error), { title: "Sound", kind: "error" })
+						);
+					}}
+					onContextMenu={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						setOpen(false);
+						void invoke("open_sound_settings");
+					}}
+					onKeyDown={(e) => {
+						if ((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") {
+							e.preventDefault();
+							void invoke("open_sound_settings");
+						}
+					}}
+				>
+					{volume?.is_muted ? (
+						<VolumeX size={16} />
+					) : volume && volume.volume < 0.5 ? (
+						<Volume1 size={16} />
+					) : (
+						<Volume2 size={16} />
+					)}
+				</button>
+			</motion.span>
 		</span>
 	);
 }

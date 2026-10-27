@@ -67,7 +67,7 @@ export function trayBarGeometry(iconCount: number, scale: number, metrics: TrayW
 	const dpi = Number.isFinite(metrics.dpi) && metrics.dpi > 0 ? metrics.dpi : 1;
 	const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
 	const viewport = metrics.width / dpi;
-	const width = Math.min(12 + 26 * (Math.max(0, iconCount) + 3) + 9, Math.max(99, viewport * .45 / factor));
+	const width = Math.min(16 + 22 * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
 	const right = Math.max(0, Math.min(rightEdge ?? viewport - 13, viewport - 4));
 	const left = Math.max(0, right - width * factor);
 	return { width, left };

@@ -1,11 +1,12 @@
 //! Independent tray HWND with a native region, never dock hover click-through.
 //! Dock residents are removed only while a responding tray surface is available.
 use crate::types::IntRect;
+use std::thread;
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, Ordering},
         LazyLock, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -22,8 +23,12 @@ struct Surface {
 static SURFACES: LazyLock<Mutex<HashMap<String, Surface>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const LEASE: Duration = Duration::from_secs(8);
+const HIDE_TRANSITION: Duration = Duration::from_millis(360);
 // The tray's input HWND remains independent; its presentation follows the dock.
 static DOCK_WANTS_TRAY: AtomicBool = AtomicBool::new(false);
+static PRESENTATION_VISIBLE: AtomicBool = AtomicBool::new(false);
+static VISIBILITY_REVISION: AtomicU64 = AtomicU64::new(0);
+static HIDE_PENDING: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
 pub fn set_dock_tray_visibility(window: Window, visible: bool) {
@@ -35,6 +40,10 @@ pub fn set_dock_tray_visibility(window: Window, visible: bool) {
         let _ = window.app_handle().emit_to("tray", "dock-tray-hidden", ());
     }
     sync_visibility(window.app_handle());
+    let actual = PRESENTATION_VISIBLE.load(Ordering::SeqCst);
+    let _ = window
+        .app_handle()
+        .emit_to("tray", "tray-presentation-visibility", actual);
 }
 
 fn live(surface: &Surface) -> bool {
@@ -74,6 +83,54 @@ fn inside(rect: &IntRect, x: f64, y: f64) -> bool {
         && y >= rect.y as f64
         && x < rect.x as f64 + rect.width as f64
         && y < rect.y as f64 + rect.height as f64
+}
+
+fn desired_visibility() -> bool {
+    use crate::state::{CURRENT_FOREGROUND_FULLSCREEN, NATIVE_TASKBAR_HIDDEN, SHUTTING_DOWN};
+    let has_surface = SURFACES.lock().is_ok_and(|surfaces| {
+        surfaces
+            .get("tray")
+            .is_some_and(|surface| !surface.rects.is_empty())
+    });
+    should_show(
+        has_surface,
+        DOCK_WANTS_TRAY.load(Ordering::SeqCst),
+        crate::utils::dock_enabled(),
+        NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed),
+        SHUTTING_DOWN.load(Ordering::Relaxed),
+        CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed),
+        crate::services::capture_ui_active(),
+    )
+}
+
+fn schedule_transition_hide(app: &AppHandle, window: tauri::WebviewWindow, revision: u64) {
+    if HIDE_PENDING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(HIDE_TRANSITION);
+        let app_for_main = app.clone();
+        if app
+            .run_on_main_thread(move || {
+                HIDE_PENDING.store(false, Ordering::SeqCst);
+                if VISIBILITY_REVISION.load(Ordering::SeqCst) != revision
+                    || PRESENTATION_VISIBLE.load(Ordering::SeqCst)
+                    || desired_visibility()
+                {
+                    sync_visibility(&app_for_main);
+                    return;
+                }
+                let _ = window.hide();
+            })
+            .is_err()
+        {
+            HIDE_PENDING.store(false, Ordering::SeqCst);
+        }
+    });
 }
 
 #[tauri::command]
@@ -128,26 +185,38 @@ pub fn update_tray_surface(window: Window, rects: Vec<IntRect>, ready: bool, ope
 }
 
 pub fn sync_visibility(app: &AppHandle) {
-    use crate::state::{CURRENT_FOREGROUND_FULLSCREEN, NATIVE_TASKBAR_HIDDEN, SHUTTING_DOWN};
     let Some(window) = app.get_webview_window("tray") else {
         return;
     };
     // Keep the last known bounds while deliberately hidden: background WebView
     // timers can be throttled. Showing it lets the normal heartbeat resume.
-    let has_surface = SURFACES
-        .lock()
-        .is_ok_and(|s| s.get("tray").is_some_and(|s| !s.rects.is_empty()));
-    let visible = should_show(
-        has_surface,
-        DOCK_WANTS_TRAY.load(Ordering::SeqCst),
-        crate::utils::dock_enabled(),
-        NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed),
-        SHUTTING_DOWN.load(Ordering::Relaxed),
-        CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed),
-        crate::services::capture_ui_active(),
-    );
+    let visible = desired_visibility();
+    let previous = PRESENTATION_VISIBLE.swap(visible, Ordering::SeqCst);
+    let changed = previous != visible;
+    let revision = if changed {
+        VISIBILITY_REVISION.fetch_add(1, Ordering::SeqCst) + 1
+    } else {
+        VISIBILITY_REVISION.load(Ordering::SeqCst)
+    };
     if !visible {
-        if window.is_visible().unwrap_or(false) {
+        if changed {
+            let _ = app.emit_to("tray", "tray-presentation-visibility", false);
+        }
+        if !window.is_visible().unwrap_or(false) {
+            return;
+        }
+        // Smart/Peek use the same short reveal animation as the dock. Forced
+        // safety hides (fullscreen, capture, shutdown, or taskbar recovery)
+        // remain immediate so the tray cannot cover those flows.
+        let animate_hide = !DOCK_WANTS_TRAY.load(Ordering::SeqCst)
+            && crate::utils::dock_enabled()
+            && crate::state::NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed)
+            && !crate::state::SHUTTING_DOWN.load(Ordering::Relaxed)
+            && !crate::state::CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed)
+            && !crate::services::capture_ui_active();
+        if animate_hide {
+            schedule_transition_hide(app, window, revision);
+        } else {
             let _ = window.hide();
         }
         return;
@@ -171,8 +240,12 @@ pub fn sync_visibility(app: &AppHandle) {
     if window.inner_position().ok() != Some(position) {
         let _ = window.set_position(position);
     }
-    if !window.is_visible().unwrap_or(false) {
+    let was_window_hidden = !window.is_visible().unwrap_or(false);
+    if was_window_hidden {
         let _ = window.show();
+    }
+    if changed || was_window_hidden {
+        let _ = app.emit_to("tray", "tray-presentation-visibility", true);
     }
     if let Ok(hwnd) = window.hwnd() {
         // Unlike main/dock, tao's ignore-cursor flag is never enabled for tray.
@@ -332,11 +405,11 @@ mod tests {
 
     #[test]
     fn dedicated_hwnd_takes_tray_and_flyout_but_not_desktop_gap() {
-        use windows::core::w;
         use windows::Win32::Graphics::Gdi::{
             CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion,
         };
         use windows::Win32::UI::WindowsAndMessaging::*;
+        use windows::core::w;
         // An invisible test-owned window; no clicks or changes to installed Bloom.
         unsafe {
             let hwnd = CreateWindowExW(

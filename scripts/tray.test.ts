@@ -35,7 +35,7 @@ describe("native tray placement", () => {
 	});
 	test("uses compact cells, reserves network and audio, and keeps a stable right edge", () => {
 		const normal = trayBarGeometry(3, 1, metrics, 2500);
-		expect(normal.width).toBe(177);
+		expect(normal.width).toBe(148);
 		expect(normal.left + normal.width).toBe(2500);
 		const fewer = trayBarGeometry(1, 1, metrics, 2500);
 		expect(fewer.left + fewer.width).toBe(2500);
