@@ -2,6 +2,7 @@
 //! candidates: Shell_NotifyIconGetRect must confirm each icon before it is used.
 mod live;
 mod model;
+pub(crate) mod network;
 pub(crate) mod surface;
 pub(crate) use live::start as start_live_provider;
 pub(crate) use live::stop as stop_live_provider;
@@ -1279,22 +1280,44 @@ fn is_same_app_family(process_path: &str, app_path: &str) -> bool {
         && process_path.to_lowercase().starts_with(&directory)
 }
 
-fn dock_bar_top() -> Option<i32> {
-    use tauri::Manager;
-    let app = crate::state::DISPLAY_MONITOR_HANDLE.get()?;
-    let scale = app.get_webview_window("dock")?.scale_factor().ok()?;
-    let (position, _) = (*crate::state::DOCK_WINDOW_RECT.lock().ok()?)?;
-    let bar = (*crate::state::DOCK_RECT.lock().ok()?)?;
-    Some(position.y + (bar.y as f64 * scale) as i32)
-}
-
-/// Wait for a newly opened app menu. Keep its own position when it is visible;
-/// recover it near the clicked icon only if Explorer placed it offscreen.
-/// The menu is matched by process family rather than an icon's optional HWND.
-unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Option<(HWND, i32)> {
+unsafe fn keep_menu_clear(menu: HWND, anchor: POINT) -> Option<i32> {
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
+    let mut rect = RECT::default();
+    GetWindowRect(menu, &mut rect).ok()?;
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if !GetMonitorInfoW(
+        MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST),
+        &mut info,
+    )
+    .as_bool()
+    {
+        return None;
+    }
+    if let Some((x, y)) =
+        model::menu_position(rect, info.rcMonitor, surface::bar_screen_rect(), anchor)
+    {
+        let _ = SetWindowPos(
+            menu,
+            None,
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        Some(y + (rect.bottom - rect.top))
+    } else {
+        Some(rect.bottom)
+    }
+}
+
+/// Match newly shown app popups by process family; do not move unrelated windows.
+unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Option<(HWND, i32)> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1200);
     while std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(25));
@@ -1316,44 +1339,14 @@ unsafe fn move_new_menu_to(app_path: &str, before: &[HWND], anchor: POINT) -> Op
         }) else {
             continue;
         };
-        let mut rect = RECT::default();
-        if GetWindowRect(menu, &mut rect).is_err() {
-            return None;
-        }
-        let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-        let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-            ..Default::default()
-        };
-        let monitor = MonitorFromPoint(anchor, MONITOR_DEFAULTTONEAREST);
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
-            return None;
-        }
-        let area = info.rcMonitor;
-        if model::menu_inside_monitor(&rect, &area) {
-            return Some((menu, rect.bottom));
-        }
-        let x = anchor
-            .x
-            .clamp(area.left, (area.right - width).max(area.left));
-        let y = model::menu_y(anchor.y, height, area.top, area.bottom, dock_bar_top());
-        let _ = SetWindowPos(
-            menu,
-            None,
-            x,
-            y,
-            0,
-            0,
-            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-        );
-        return Some((menu, y + height));
+        return keep_menu_clear(menu, anchor).map(|bottom| (menu, bottom));
     }
     None
 }
 
 /// Keep the dock's native-menu hold until the external popup closes. UIA's
 /// ShowContextMenu returns when the popup opens, not when the user dismisses it.
-unsafe fn wait_for_menu_close(menu: HWND, bottom: i32) {
+unsafe fn wait_for_menu_close(menu: HWND, _bottom: i32, anchor: POINT) {
     let mut owner = 0;
     GetWindowThreadProcessId(menu, Some(&mut owner));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -1367,20 +1360,8 @@ unsafe fn wait_for_menu_close(menu: HWND, bottom: i32) {
         if current_owner != owner {
             break;
         }
-        // Steam can reposition its popup after UIA returns. Keep its bottom
-        // above the bar while retaining the existing native-menu hover hold.
-        let mut rect = RECT::default();
-        if GetWindowRect(menu, &mut rect).is_ok() && rect.bottom > bottom {
-            let _ = SetWindowPos(
-                menu,
-                None,
-                rect.left,
-                bottom - (rect.bottom - rect.top),
-                0,
-                0,
-                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
+        // Some applications reposition asynchronously after opening.
+        let _ = keep_menu_clear(menu, anchor);
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
@@ -1450,7 +1431,7 @@ pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
             let menu = move_new_menu_to(&icon.path, &before, cursor);
             if let Some((menu, bottom)) = menu {
                 // Hiding the native owner can dismiss a shell-hosted menu.
-                wait_for_menu_close(menu, bottom);
+                wait_for_menu_close(menu, bottom, cursor);
             } else if let Some(overflow) = exposure
                 .overflow
                 .filter(|hwnd| IsWindowVisible(*hwnd).as_bool())
@@ -1474,7 +1455,7 @@ pub fn interact(key: &str, context_menu: bool) -> Result<(), String> {
             // OneDrive/Drive open a popup on LEFT click as well. Do not hide
             // its native owner immediately after Invoke and dismiss the popup.
             if let Some((menu, bottom)) = move_new_menu_to(&icon.path, &before, cursor) {
-                wait_for_menu_close(menu, bottom);
+                wait_for_menu_close(menu, bottom, cursor);
             }
             Ok(())
         }

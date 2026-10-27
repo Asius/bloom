@@ -16,25 +16,20 @@ desktop outside their union is excluded from the window. The tray is positioned
 at the primary monitor bottom, remains proportional to dock height/scale and uses
 the same `EdgeSurface` bottom flares. Dock geometry does not contain tray UI.
 
-3.10.9 input was confirmed by the owner. The frontend reads the tray HWND's
-physical origin and DPI, places each promoted icon at the rectangle returned by
-`Shell_NotifyIconGetRect`, and measures Explorer's overflow chevron with UI
-Automation before hiding the native taskbar. Explorer is then moved offscreen;
-Bloom translates valid live rectangles back to the saved taskbar coordinates,
-or uses the original per-icon rectangle from the same Explorer session. The
-Bloom chevron is aligned to that rectangle; its hidden-icons panel opens above
-and toward the left, with its right edge aligned to the chevron. If a promoted
-icon has no usable rectangle, the row uses a flow layout anchored to the native
-chevron. If the anchor is unavailable or belongs to an old screen configuration,
-the right-edge fallback is approximate.
-The alignment code compiles, but still requires owner verification against the
-installed Windows taskbar and each display's DPI.
+3.10.14 tray input was confirmed by the owner. Explorer's overflow chevron is
+measured with UI Automation before hiding the native taskbar. Bloom anchors
+the row there when possible and uses uniform 32 logical-pixel cells to match the
+dock, rather than inheriting smaller native icon rectangles. The row scales with
+the dock and is shifted only as needed to fit the monitor; when it is crowded,
+the application group scrolls without hiding the arrow or network control.
+If the anchor is unavailable the right-edge fallback is approximate. The hidden
+panel opens above and toward the left. This adjusted layout and DPI behavior
+still require owner verification in the installed app.
 
 The HWND covers the full primary-monitor width; its native region still limits
-painting and input to the bar and flyout. This prevents clipping icons positioned
-in the native system area. The promoted-icons layer does not intercept the
-chevron. The original horizontal taskbar height supplies the dock and tray base
-height in logical pixels; 48 logical pixels is the fallback if unavailable.
+painting and input to the bar and flyout. The original horizontal taskbar height
+supplies the dock, tray and compact notch base height in logical pixels; 48
+logical pixels is the fallback if unavailable.
 The bottom flares retain the approved style.
 The hidden-icons grid grows with its icon count, caps at five columns, and puts
 the sixth icon on the next row. Its keyboard up/down step follows the actual
@@ -70,6 +65,17 @@ accessible in overflow, where their promotion state is unknown. A double click
 on the same icon is queued while its first callback is completing. The owner
 must verify appearance, positioning, single/double clicks and app menus on the
 installed Windows build.
+
+The network control reads connectivity from Windows Network List Manager and
+uses the default Windows connection profile to distinguish Wi-Fi. Left click
+invokes the Windows Quick Settings shortcut; right click opens Windows network
+settings directly. This does not recreate every native context-menu item.
+The UI never asserts Internet connectivity if the status query fails.
+
+Newly visible popups identified as belonging to the clicked application are
+repositioned only if they are outside the monitor or overlap the tray bar.
+Their bounds are rechecked while they remain visible, since an app can move a
+popup after creation. Unknown or unattributable popup windows are not moved.
 
 Diagnostics distinguish `tray-surface` readiness/open changes from `tray-input`
 (`toggle`, `activate`, `context`). They do not record icon names or paths.

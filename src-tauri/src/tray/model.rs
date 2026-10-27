@@ -1,7 +1,7 @@
 //! Identity, matching and restoration rules, independent of Explorer and UIA.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{POINT, RECT};
 
 pub(super) fn icon_inside(icon: &RECT, bounds: &RECT) -> bool {
     let width = icon.right - icon.left;
@@ -137,6 +137,38 @@ pub(super) fn menu_y(
         dock_top.map_or(anchor, |bar| bar.min(anchor)) - height
     };
     desired.clamp(top, (bottom - height).max(top))
+}
+
+/// Only move a menu if it is offscreen or would cover Bloom's visible bar.
+pub(super) fn menu_position(
+    rect: RECT,
+    area: RECT,
+    bar: Option<RECT>,
+    anchor: POINT,
+) -> Option<(i32, i32)> {
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let overlaps = bar.is_some_and(|b| {
+        rect.left < b.right && rect.right > b.left && rect.top < b.bottom && rect.bottom > b.top
+    });
+    if menu_inside_monitor(&rect, &area) && !overlaps {
+        return None;
+    }
+    let x = if overlaps { rect.left } else { anchor.x }
+        .clamp(area.left, (area.right - width).max(area.left));
+    let upper_edge = bar
+        .filter(|b| x < b.right && x + width > b.left)
+        .map(|b| b.top - 4);
+    let y = if overlaps {
+        upper_edge.unwrap_or(anchor.y) - height
+    } else {
+        menu_y(anchor.y, height, area.top, area.bottom, upper_edge)
+    }
+    .clamp(area.top, (area.bottom - height).max(area.top));
+    Some((x, y))
 }
 
 pub(super) struct IconLabel {
@@ -406,6 +438,50 @@ mod tests {
         assert_eq!(menu_y(1050, 240, 0, 1080, Some(1030)), 790);
         assert_eq!(menu_y(-1060, 240, -1080, 0, Some(-50)), -1052);
         assert_eq!(menu_y(10, 2000, 0, 1080, None), 0);
+    }
+
+    #[test]
+    fn menu_is_moved_only_when_offscreen_or_over_the_actual_tray() {
+        let screen = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let bar = RECT {
+            left: 1640,
+            top: 1020,
+            right: 1850,
+            bottom: 1080,
+        };
+        let anchor = POINT { x: 1700, y: 1050 };
+        let overlap = RECT {
+            left: 1600,
+            top: 800,
+            right: 1840,
+            bottom: 1040,
+        };
+        assert_eq!(
+            menu_position(overlap, screen, Some(bar), anchor),
+            Some((1600, 776))
+        );
+        let clear = RECT {
+            left: 1200,
+            top: 800,
+            right: 1500,
+            bottom: 1070,
+        };
+        assert_eq!(menu_position(clear, screen, Some(bar), anchor), None);
+        let offscreen = RECT {
+            left: 1800,
+            top: 1000,
+            right: 2100,
+            bottom: 1200,
+        };
+        assert_eq!(
+            menu_position(offscreen, screen, Some(bar), anchor),
+            Some((1620, 816))
+        );
     }
 
     fn label(path: &str, name: &str, hint: Option<&str>) -> IconLabel {

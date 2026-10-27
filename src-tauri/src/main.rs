@@ -111,6 +111,8 @@ fn main() {
             open_settings_window,
             open_sound_settings,
             open_system_tray,
+            tray::network::tray_network_status,
+            tray::network::open_tray_network,
             set_ignore_cursor_events,
             set_window_height,
             resize_settings_window,

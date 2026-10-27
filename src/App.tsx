@@ -2,7 +2,7 @@ import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { AnimatePresence, motion, useAnimation } from "framer-motion";
@@ -17,7 +17,7 @@ import {
 	Type,
 	X
 } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import "./App.css";
 import { CompactMediaPlayer } from "./CompactMediaPlayer";
 import { EdgeSurface } from "./components/EdgeSurface";
@@ -249,6 +249,15 @@ const TitleMarquee = ({ title }: { title: string }) => {
 function App() {
 	const scales = useDesktopScales();
 	const scale = effectiveScale(scales, "notch");
+	const [nativeTaskbarHeight, setNativeTaskbarHeight] = useState(48);
+	useEffect(() => {
+		const subscription = listen<number>("native-taskbar-height", event => {
+			const value = Number(event.payload);
+			if (Number.isFinite(value) && value >= 32 && value <= 96) setNativeTaskbarHeight(value);
+		});
+		void subscription.then(() => emit("native-taskbar-height-request"));
+		return () => { void subscription.then(unlisten => unlisten()); };
+	}, []);
 	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
@@ -1973,16 +1982,17 @@ function App() {
 			return isImpacted ? 28.9 : 44.2;
 		}
 		// The calendar keeps room for every row of the displayed month.
-		if (bloomMode === "calendar") return calendarMonthRows() >= 6 ? 305 : 273;
+		const headerExtra = nativeTaskbarHeight - 36;
+		if (bloomMode === "calendar") return (calendarMonthRows() >= 6 ? 305 : 273) + headerExtra;
 		// Shelf expands on mode alone (no hover needed: there is no cursor
 		// hover during an OS drag) and is sized to exactly one row of tiles,
 		// plus room for the scrollbar once the tiles overflow it.
 		if (bloomMode === "shelf") {
-			if (shelfItems.length === 0) return 130;
-			return shelfOverflowing ? 190 : 176;
+			if (shelfItems.length === 0) return 130 + headerExtra;
+			return (shelfOverflowing ? 190 : 176) + headerExtra;
 		}
-		if (bloomMode === "command-center") return isOpen ? 190 : 36;
-		if (bloomMode === "status") return 36;
+		if (bloomMode === "command-center") return isOpen ? 190 + headerExtra : nativeTaskbarHeight;
+		if (bloomMode === "status") return nativeTaskbarHeight;
 		if (isMusicMode && isOpen) {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
 			let h = mediaLayout === "compact" ? (hasProgressBar ? 132 : 116) : 120;
@@ -1991,7 +2001,7 @@ function App() {
 			}
 			return h;
 		}
-		return 36;
+		return nativeTaskbarHeight;
 	};
 
 	const isCalendarMode = bloomMode === "calendar";
@@ -2064,8 +2074,9 @@ function App() {
 					width: "100%",
 					display: "flex",
 					justifyContent: "center",
-					position: "relative"
-				}}
+					position: "relative",
+					"--notch-header-height": `${nativeTaskbarHeight}px`
+				} as CSSProperties}
 			>
 				<motion.div
 					ref={bloomRef}

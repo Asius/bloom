@@ -9,9 +9,9 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
-import { ChevronUp } from "lucide-react";
+import { ChevronUp, Globe, Monitor, Wifi } from "lucide-react";
 import { EdgeSurface } from "./EdgeSurface";
-import { createTrayActionGate, nativeTrayLayout, type TrayIcon, type TrayRect, type TraySnapshot, type TrayWindowMetrics } from "../tray";
+import { createTrayActionGate, nativeTrayLayout, trayBarGeometry, type TrayIcon, type TraySnapshot, type TrayWindowMetrics } from "../tray";
 import "./SystemTray.css";
 
 interface Props {
@@ -27,6 +27,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const [busy, setBusy] = useState(false);
 	const [healthy, setHealthy] = useState(false);
 	const [failure, setFailure] = useState("");
+	const [network, setNetwork] = useState<{ connected: boolean; internet: boolean; wifi: boolean } | null>(null);
 	const toggle = useRef<HTMLButtonElement>(null);
 	const host = useRef<HTMLSpanElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
@@ -98,6 +99,17 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	useEffect(() => {
 		mounted.current = true;
 		void refresh();
+		let checkingNetwork = false;
+		let cancelled = false;
+		const refreshNetwork = () => {
+			if (checkingNetwork) return;
+			checkingNetwork = true;
+			void invoke<typeof network>("tray_network_status").then(value => {
+				if (!cancelled) setNetwork(value);
+			}).catch(() => { if (!cancelled) setNetwork(null); }).finally(() => { checkingNetwork = false; });
+		};
+		refreshNetwork();
+		const networkTimer = setInterval(refreshNetwork, 5000);
 		const timer = setInterval(() => {
 			if (Date.now() - lastRefresh.current >= (state.current.open ? 2000 : 10000)) void refresh();
 			report();
@@ -135,8 +147,10 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		window.addEventListener("blur", blur);
 		window.addEventListener("resize", report);
 		return () => {
+			cancelled = true;
 			mounted.current = false;
 			clearInterval(timer);
+			clearInterval(networkTimer);
 			dismiss.then((f) => f());
 			changes.then((f) => f());
 			window.removeEventListener("blur", blur);
@@ -217,52 +231,16 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const liveIcons = healthy ? (snapshot?.icons ?? []) : [];
 	const candidatesPromoted = liveIcons.filter((icon) => icon.is_promoted);
 	const layout = nativeTrayLayout(healthy ? snapshot : null, metrics);
-	const preciseLayout = layout?.precise ?? false;
 	const promoted = candidatesPromoted;
 	const icons = liveIcons.filter((icon) => !icon.is_promoted);
 	const nativeAnchor = layout?.anchor;
-	const nativeRight = layout?.right ?? 0;
-	const dpi = metrics?.dpi ?? 1;
-	const visualHeight = height * scale;
-	const viewportHeight = metrics ? metrics.height / dpi : window.innerHeight;
-	const barTop = viewportHeight - visualHeight;
-	const nativeBarStyle: CSSProperties = preciseLayout && metrics && nativeAnchor ? {
-		left: (nativeAnchor.x - metrics.x) / dpi,
-		top: barTop,
-		right: "auto",
-		bottom: "auto",
-		width: Math.max(25, (nativeRight - nativeAnchor.x) / dpi),
-		height: visualHeight,
-		zoom: 1
-	} : layout && metrics && nativeAnchor ? {
-		left: (nativeAnchor.x - metrics.x) / dpi,
-		right: "auto",
-		bottom: 0,
-		height,
-		maxWidth: Math.max(25, (metrics.width - (nativeAnchor.x - metrics.x)) / dpi / scale),
-		transform: `scale(${scale})`,
-		transformOrigin: "bottom left"
+	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, nativeAnchor) : null;
+	const nativeBarStyle: CSSProperties = geometry ? {
+		left: geometry.left, right: "auto", bottom: 0, width: geometry.width, height,
+		transform: `scale(${scale})`, transformOrigin: "bottom left", maxWidth: "none"
 	} : { height, zoom: scale };
-	const nativeIconStyle = (rect: TrayRect | null | undefined): CSSProperties | undefined => {
-		if (!preciseLayout || !metrics || !nativeAnchor || !rect) return undefined;
-		return {
-			position: "absolute",
-			left: (rect.x - nativeAnchor.x) / dpi,
-			top: (rect.y - (metrics.y + barTop * dpi)) / dpi,
-			width: rect.width / dpi,
-			height: rect.height / dpi
-		};
-	};
-	const toggleRect = snapshot?.native_chevron;
-	const toggleStyle: CSSProperties | undefined = preciseLayout && metrics && nativeAnchor
-		? toggleRect
-			? nativeIconStyle(toggleRect)
-			: { position: "absolute", left: 0, top: 0, width: 25, height: "100%" }
-		: undefined;
 	const columns = Math.min(5, Math.max(1, icons.length));
-	const panelRight = preciseLayout && metrics && nativeAnchor
-		? Math.max(0, (nativeRight - (nativeAnchor.x + nativeAnchor.width)) / dpi)
-		: undefined;
+	const panelRight = geometry ? Math.max(0, geometry.width - 38) : undefined;
 	const iconButton = (icon: TrayIcon, index: number, group: TrayIcon[], style?: CSSProperties) => (
 		<button
 			key={icon.id}
@@ -346,7 +324,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	return (
 		<span
 			ref={host}
-			className={`bloom-tray bloom-tray-right ${preciseLayout ? "is-native-aligned" : ""} ${open ? "is-open" : ""}`}
+			className={`bloom-tray bloom-tray-right ${open ? "is-open" : ""}`}
 			aria-busy={busy}
 			style={nativeBarStyle}
 			onClick={(e) => e.stopPropagation()}
@@ -364,7 +342,6 @@ export function SystemTray({ scale, height, metrics }: Props) {
 				aria-label="Show hidden icons"
 				aria-expanded={open}
 				aria-haspopup="true"
-				style={toggleStyle}
 				disabled={busy}
 				title={failure || "Show hidden icons — right-click for Windows tray"}
 				onClick={(e) => {
@@ -387,9 +364,16 @@ export function SystemTray({ scale, height, metrics }: Props) {
 			</button>
 			<div className="bloom-tray-promoted" role="toolbar" aria-label="Visible notification icons">
 				{promoted.map((icon, index) =>
-					iconButton(icon, index, promoted, nativeIconStyle(icon.native_rect))
+					iconButton(icon, index, promoted)
 				)}
 			</div>
+			<button type="button" className="bloom-tray-icon bloom-tray-network"
+				aria-label="Network and Quick Settings"
+				title={network ? (network.internet ? "Network: Internet connected" : network.connected ? "Network: no Internet" : "Network: disconnected") : "Network status unavailable"}
+				onClick={() => { setOpen(false); void invoke("open_tray_network", { settings: false }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}
+				onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); void invoke("open_tray_network", { settings: true }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}>
+				{network?.internet ? (network.wifi ? <Wifi size={24} /> : <Monitor size={24} />) : <Globe size={24} />}
+			</button>
 		</span>
 	);
 }

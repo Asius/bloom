@@ -1568,7 +1568,7 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                                                 let n_left = (nr.x as f64 * scale) as i32;
                                                 let n_right =
                                                     n_left + (nr.width as f64 * scale) as i32;
-                                                let res_h = (36.0 * scale) as i32;
+                                                let res_h = (crate::tray::native_taskbar_height().unwrap_or(48.0) * scale) as i32;
                                                 let trigger_y = screen_rect.top + res_h;
 
                                                 if rect.left < n_right - 4
@@ -3289,7 +3289,7 @@ pub fn register_appbar(window: tauri::WebviewWindow) {
         let scale = monitor.scale_factor();
         let bloom_scale = crate::utils::get_notch_scale(window.app_handle());
         let ph = ((420.0 * bloom_scale) * scale) as i32;
-        let pr = ((40.0 * bloom_scale) * scale) as i32; // Scale the reserved top screen space
+        let pr = ((crate::tray::native_taskbar_height().unwrap_or(48.0) * bloom_scale) * scale) as i32;
 
         unsafe {
             use windows::Win32::Foundation::RECT;
@@ -3418,7 +3418,7 @@ fn set_main_appbar_reservation(main_win: tauri::WebviewWindow, reserve: bool) {
     }
 }
 
-/// Whether the notch's 40px top strip should currently be reserved as an AppBar.
+/// Whether the notch's top strip should currently be reserved as an AppBar.
 /// Only fixed mode reserves screen space; smart and peek hide the notch freely.
 /// An unset mode defaults to fixed, matching SETTINGS.md and `re_register_appbars`.
 fn notch_mode_reserves_work_area(mode: Option<&str>) -> bool {

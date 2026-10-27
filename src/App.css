@@ -73,7 +73,7 @@ img {
 	align-items: center;
 	justify-content: center;
 	width: 100%;
-	height: 36px;
+	height: var(--notch-header-height, 48px);
 	position: relative;
 	flex-shrink: 0;
 }
@@ -184,8 +184,8 @@ img {
 .activity-bubble {
 	--bubble-bg: var(--bloom-bg, rgba(0, 0, 0, 0.8));
 	position: absolute;
-	/* Centred on the 36px collapsed pill. */
-	top: 3px;
+	/* Centred on the collapsed pill. */
+	top: calc((var(--notch-header-height, 48px) - 30px) / 2);
 	min-width: 30px;
 	height: 30px;
 	padding: 0;
@@ -964,10 +964,10 @@ img {
 
 .calendar-content {
 	position: absolute;
-	top: 36px;
+	top: var(--notch-header-height, 48px);
 	left: 0;
 	width: 100%;
-	height: calc(100% - 36px);
+	height: calc(100% - var(--notch-header-height, 48px));
 	box-sizing: border-box;
 	z-index: 2;
 }
@@ -975,10 +975,10 @@ img {
 /* Command Center Panel - Minimal */
 .command-center-content-minimal {
 	position: absolute;
-	top: 36px;
+	top: var(--notch-header-height, 48px);
 	left: 0;
 	width: 100%;
-	height: calc(100% - 36px);
+	height: calc(100% - var(--notch-header-height, 48px));
 	box-sizing: border-box;
 	z-index: 2;
 	padding: 12px 14px 12px 14px;
@@ -994,10 +994,10 @@ img {
 /* Shelf panel */
 .shelf-content {
 	position: absolute;
-	top: 36px;
+	top: var(--notch-header-height, 48px);
 	left: 0;
 	width: 100%;
-	height: calc(100% - 36px);
+	height: calc(100% - var(--notch-header-height, 48px));
 	box-sizing: border-box;
 	z-index: 2;
 	padding: 12px 14px;

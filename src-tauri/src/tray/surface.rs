@@ -175,6 +175,29 @@ pub fn any_open() -> bool {
         .is_ok_and(|s| s.values().any(|s| s.open && live(s)))
 }
 
+/// The first reported surface is the visible bar; convert its bounds to
+/// physical screen coordinates before comparing them with native menus.
+pub(super) fn bar_screen_rect() -> Option<windows::Win32::Foundation::RECT> {
+    let surface = SURFACES.lock().ok()?.get("tray")?.clone();
+    if !live(&surface) {
+        return None;
+    }
+    let rect = surface.rects.first()?;
+    let app = crate::state::DISPLAY_MONITOR_HANDLE.get()?;
+    let window = app.get_webview_window("tray")?;
+    let origin = window.inner_position().ok()?;
+    let dpi = window.scale_factor().ok()?;
+    if !dpi.is_finite() || dpi <= 0.0 {
+        return None;
+    }
+    Some(windows::Win32::Foundation::RECT {
+        left: origin.x + (rect.x as f64 * dpi).floor() as i32,
+        top: origin.y + (rect.y as f64 * dpi).floor() as i32,
+        right: origin.x + ((rect.x + rect.width) as f64 * dpi).ceil() as i32,
+        bottom: origin.y + ((rect.y + rect.height) as f64 * dpi).ceil() as i32,
+    })
+}
+
 pub fn dismiss_outside(app: &AppHandle, point: POINT) {
     let surfaces = SURFACES.lock().map(|s| s.clone()).unwrap_or_default();
     for (label, s) in surfaces {

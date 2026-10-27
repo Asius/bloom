@@ -62,6 +62,17 @@ export function trayHeight(height: number, scale: number) {
 	return Math.max(32, Math.min(height / safeScale || 48, 96));
 }
 
+/** A 32px dock-sized cell per control; clip and scroll only the app group. */
+export function trayBarGeometry(iconCount: number, scale: number, metrics: TrayWindowMetrics, anchor: TrayRect | undefined) {
+	const dpi = Number.isFinite(metrics.dpi) && metrics.dpi > 0 ? metrics.dpi : 1;
+	const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
+	const viewport = metrics.width / dpi;
+	const width = Math.min(12 + 32 * (Math.max(0, iconCount) + 2) + 6, Math.max(76, viewport * .45 / factor));
+	const desired = anchor ? (anchor.x - metrics.x) / dpi : viewport - width * factor - 13;
+	const left = Math.max(0, Math.min(desired, viewport - width * factor - 4));
+	return { width, left };
+}
+
 /** A double click may arrive while the first callback is still completing. */
 export function createTrayActionGate<T extends { id: string }>() {
 	let busy = false;

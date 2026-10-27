@@ -45,9 +45,9 @@ Left, double and right clicks send versioned callbacks asynchronously to the
 validated owner window. Version 4 packs screen coordinates and UID; older
 versions use the legacy parameters. A slow app/menu loop does not disable all
 Bloom tray buttons. Activation no longer requires finding Slack by its position
-or label. Native app popups are retained at their own on-screen position; a
-newly appearing popup belonging to the clicked application is moved near the
-click only when its original position is outside that monitor.
+  or label. Newly appearing popups attributed to the clicked application keep
+  their on-screen position unless they overlap Bloom's tray; offscreen or
+  overlapping popups are moved to available space and watched while visible.
 
 The UIA fallback was also repaired: never show a hidden cached flyout HWND as
 though it were current, require a Button rather than its image child, allow
@@ -71,7 +71,8 @@ images. These counts are observations, not a coverage guarantee for every app.
 
 Owner testing of installed Slack, WhatsApp, OneDrive/Drive menus, actual input,
 DPI, Explorer restart, fullscreen, Capturas and update/exit remains separate.
-This does not implement network/volume/clock controls, drag reorder, native
+  The network control uses Windows Quick Settings and network settings; this
+  does not implement native volume/clock controls, drag reorder, native
 hover cards or notification balloons. It does not claim Windows-wide parity.
 The private wire prefix can change in a Windows update; fallback stays required.
 

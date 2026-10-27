@@ -635,12 +635,14 @@ fn dispatch(token: &str, context: bool, double: bool) -> Option<Result<(), Strin
         }
         // Some applications locate a popup through their native icon rectangle
         // instead of the v4 click coordinates. Recover a newly shown popup only
-        // when it is offscreen, without holding the tray buttons disabled.
+        // when it is offscreen or covers the bar, without blocking input.
         let path = entry.path;
         let before: Vec<isize> = before.iter().map(|h| h.0 as isize).collect();
         std::thread::spawn(move || {
             let before: Vec<HWND> = before.iter().map(|h| HWND(*h as _)).collect();
-            let _ = move_new_menu_to(&path, &before, point);
+            if let Some((menu, bottom)) = move_new_menu_to(&path, &before, point) {
+                wait_for_menu_close(menu, bottom, point);
+            }
         });
         Ok(())
     })())
