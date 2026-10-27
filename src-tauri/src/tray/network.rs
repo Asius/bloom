@@ -9,6 +9,17 @@ pub struct NetworkStatus {
     wifi: Option<bool>,
 }
 
+fn is_wifi(wlan: Option<bool>, adapter_type: Option<u32>) -> Option<bool> {
+    if wlan == Some(true) {
+        return Some(true);
+    }
+    match adapter_type {
+        Some(6) => Some(false), // ethernetCsmacd
+        Some(71) => Some(true), // ieee80211
+        _ => None,
+    }
+}
+
 fn read_status() -> Result<NetworkStatus, String> {
     unsafe {
         use windows::Win32::{
@@ -36,12 +47,19 @@ fn read_status() -> Result<NetworkStatus, String> {
             .IsConnectedToInternet()
             .map_err(|e| e.to_string())?
             .as_bool();
-        // The default profile distinguishes Wi-Fi from a wired connection;
-        // no profile is normal when the machine is offline.
+        // A non-WLAN profile can also be a VPN, cellular or virtual adapter.
+        // Only label it Ethernet when the adapter's IANA type actually says so.
         let wifi =
             windows::Networking::Connectivity::NetworkInformation::GetInternetConnectionProfile()
-                .and_then(|profile| profile.IsWlanConnectionProfile())
-                .ok();
+                .ok()
+                .and_then(|profile| {
+                    let wlan = profile.IsWlanConnectionProfile().ok();
+                    let adapter_type = profile
+                        .NetworkAdapter()
+                        .and_then(|a| a.IanaInterfaceType())
+                        .ok();
+                    is_wifi(wlan, adapter_type)
+                });
         Ok(NetworkStatus {
             connected,
             internet,
@@ -62,6 +80,14 @@ pub async fn tray_network_status(window: Window) -> Result<NetworkStatus, String
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn network_type_does_not_mislabel_vpn_or_unknown_adapters_as_ethernet() {
+        assert_eq!(super::is_wifi(Some(true), None), Some(true));
+        assert_eq!(super::is_wifi(Some(false), Some(6)), Some(false));
+        assert_eq!(super::is_wifi(None, Some(71)), Some(true));
+        assert_eq!(super::is_wifi(Some(false), Some(131)), None);
+        assert_eq!(super::is_wifi(None, None), None);
+    }
     #[test]
     #[ignore = "read-only Windows network API smoke test; run explicitly"]
     fn windows_reports_network_state() {
