@@ -115,7 +115,7 @@ export function AppearanceTab({
 						type="range"
 						min="0.1"
 						max="1.0"
-						step="0.05"
+						step="0.01"
 						value={themeOpacity}
 						onChange={(e) => handleOpacityChange(parseFloat(e.target.value))}
 						className="settings-slider"

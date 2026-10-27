@@ -141,8 +141,8 @@ export async function applyTheme(
 	const opExpanded = Math.min(1.0, op + 0.05);
 
 	if (resolvedMode === "light") {
-		root.style.setProperty("--bloom-bg", `rgba(255, 255, 255, ${op})`);
-		root.style.setProperty("--bloom-bg-expanded", `rgba(245, 245, 247, ${opExpanded})`);
+		root.style.setProperty("--bloom-bg", `rgba(243, 243, 243, ${op})`);
+		root.style.setProperty("--bloom-bg-expanded", `rgba(249, 249, 249, ${opExpanded})`);
 		root.style.setProperty("--bloom-text", "#1c1c1e");
 		root.style.setProperty("--bloom-text-muted", "rgba(28, 28, 30, 0.65)");
 		root.style.setProperty("--bloom-border", "rgba(0, 0, 0, 0.12)");
@@ -233,8 +233,8 @@ export async function applyTheme(
 		}
 	} else {
 		// default/dark
-		root.style.setProperty("--bloom-bg", `rgba(0, 0, 0, ${op})`);
-		root.style.setProperty("--bloom-bg-expanded", `rgba(0, 0, 0, ${opExpanded})`);
+		root.style.setProperty("--bloom-bg", `rgba(32, 32, 32, ${op})`);
+		root.style.setProperty("--bloom-bg-expanded", `rgba(44, 44, 44, ${opExpanded})`);
 		root.style.setProperty("--bloom-text", "#ffffff");
 		root.style.setProperty("--bloom-text-muted", "rgba(255, 255, 255, 0.6)");
 		root.style.setProperty("--bloom-border", "rgba(255, 255, 255, 0.1)");

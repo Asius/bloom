@@ -72,8 +72,8 @@ export function trayBarGeometry(iconCount: number, scale: number, metrics: TrayW
 	const dpi = Number.isFinite(metrics.dpi) && metrics.dpi > 0 ? metrics.dpi : 1;
 	const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
 	const viewport = metrics.width / dpi;
-	// Button widths (22px), three 2px gaps, plus 9px of breathing room per side.
-	const width = Math.min(24 + 22 * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
+	// Button widths (28px), three 2px gaps, plus 9px of breathing room per side.
+	const width = Math.min(24 + 28 * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
 	const right = Math.max(0, Math.min(rightEdge ?? viewport - 13, viewport - 4));
 	const left = Math.max(0, right - width * factor);
 	return { width, left };
