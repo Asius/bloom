@@ -7,9 +7,12 @@ describe("dock and tray visibility", () => {
 		expect(dockShouldHide(false, "smart", true, "active")).toBe(false);
 		expect(dockShouldHide(false, "smart", true, "grace")).toBe(false);
 		expect(dockShouldHide(false, "smart", false, "none")).toBe(false);
+		expect(dockShouldHide(false, "smart", false, "none", true)).toBe(true);
+		expect(dockShouldHide(false, "smart", false, "active", true)).toBe(false);
 	});
 	test("fixed stays visible, Peek hides without interaction and startup can finish", () => {
 		expect(dockShouldHide(false, "fixed", true, "none")).toBe(false);
+		expect(dockShouldHide(false, "fixed", false, "none", true)).toBe(false);
 		expect(dockShouldHide(false, "peek", false, "none")).toBe(true);
 		expect(dockShouldHide(false, "peek", false, "active")).toBe(false);
 		expect(dockShouldHide(true, "smart", true, "none")).toBe(false);

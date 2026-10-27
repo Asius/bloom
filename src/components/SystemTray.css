@@ -71,6 +71,8 @@
 	flex: 1 1 auto;
 	align-items: center;
 	gap: inherit;
+	width: 100%;
+	height: 100%;
 	padding: 0;
 	position: relative;
 	min-width: 0;

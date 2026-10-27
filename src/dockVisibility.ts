@@ -1,8 +1,14 @@
 export type DockInteraction = "active" | "grace" | "none";
 
 /** Both desktop surfaces follow the dock's existing Smart/Peek decision. */
-export function dockShouldHide(startup: boolean, mode: string, overlapped: boolean, interaction: DockInteraction): boolean {
-	return !startup && ((mode === "smart" && overlapped && interaction === "none") ||
+export function dockShouldHide(
+	startup: boolean,
+	mode: string,
+	overlapped: boolean,
+	interaction: DockInteraction,
+	maximized = false
+): boolean {
+	return !startup && ((mode === "smart" && (overlapped || maximized) && interaction === "none") ||
 		(mode === "peek" && interaction === "none"));
 }
 

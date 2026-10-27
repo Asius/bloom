@@ -105,3 +105,10 @@ and a layered style without `WS_EX_TRANSPARENT`. This does not prove that the
 installed WebView receives real mouse input. Owner tests remain mandatory:
 arrow, left/right clicks, native menus, Capturas, fullscreen recovery, scale/DPI,
 disable/enable and native taskbar restoration on exit.
+
+The tray's animated content fills the complete host rectangle so its
+`EdgeSurface` uses the same base height as the dock instead of collapsing to the
+icon row. In Smart mode, a standard maximized-window signal is also a hide
+condition; the same dock visibility state drives both surfaces. Physical
+Windows verification is still required for maximize/restore transitions and
+the approved tray silhouette at the user's DPI.

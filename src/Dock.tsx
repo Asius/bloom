@@ -229,7 +229,7 @@ const Dock = memo(function Dock() {
 		}
 	}, [isAnyInteraction]);
 
-	const isHidden = dockShouldHide(startupAnimating, dockMode, isOverlapped, interactionState);
+	const isHidden = dockShouldHide(startupAnimating, dockMode, isOverlapped, interactionState, isMaximized);
 	const trayVisibility = isReady && isExpanded && !isHidden && isVisible;
 	const latestTrayVisibility = useRef(trayVisibility);
 	latestTrayVisibility.current = trayVisibility;
