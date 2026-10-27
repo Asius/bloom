@@ -15,9 +15,7 @@ import { ChevronUp, Globe, Monitor, Wifi, Volume1, Volume2, VolumeX } from "luci
 import { EdgeSurface } from "./EdgeSurface";
 import {
 	createTrayActionGate,
-	nativeTrayLayout,
-	trayBarGeometry,
-	nativeTrayCellWidth,
+	createTrayPlacement,
 	type TrayIcon,
 	type TraySnapshot,
 	type TrayWindowMetrics
@@ -45,7 +43,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 		wifi: boolean | null;
 	} | null>(null);
 	const [volume, setVolume] = useState<{ volume: number; is_muted: boolean } | null>(null);
-	const placement = useRef<{ key: string; right: number } | null>(null);
+	const placement = useRef(createTrayPlacement());
 	const toggle = useRef<HTMLButtonElement>(null);
 	const host = useRef<HTMLSpanElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
@@ -304,23 +302,12 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	};
 	const liveIcons = healthy ? (snapshot?.icons ?? []) : [];
 	const candidatesPromoted = liveIcons.filter((icon) => icon.is_promoted);
-	const layout = nativeTrayLayout(healthy ? snapshot : null, metrics);
 	const promoted = candidatesPromoted;
-	const cellWidth = nativeTrayCellWidth(snapshot, metrics);
-	const icons = liveIcons.filter((icon) => !icon.is_promoted);
-	const nativeAnchor = layout?.anchor;
-	const placementKey =
-		metrics && snapshot ? `${snapshot.shell_id}:${metrics.x}:${metrics.width}:${metrics.dpi}` : "";
-	if (metrics && nativeAnchor && placementKey && placement.current?.key !== placementKey) {
-		const width = trayBarGeometry(promoted.length, scale, metrics, undefined, cellWidth).width;
-		const right = (nativeAnchor.x - metrics.x) / metrics.dpi + width * scale;
-		placement.current = {
-			key: placementKey,
-			right: Math.min(metrics.width / metrics.dpi - 4, right)
-		};
-	}
-	const rightEdge = placement.current?.key === placementKey ? placement.current.right : undefined;
-	const geometry = metrics ? trayBarGeometry(promoted.length, scale, metrics, rightEdge, cellWidth) : null;
+    const icons = liveIcons.filter((icon) => !icon.is_promoted);
+    const geometry = metrics && healthy && snapshot
+        ? placement.current(snapshot, metrics, scale, promoted.length)
+        : null;
+    const cellWidth = geometry?.cellWidth ?? 28;
 	const nativeBarStyle: CSSProperties & { "--tray-row-cell"?: string } = geometry
 		? {
 				"--tray-row-cell": `${cellWidth}px`,

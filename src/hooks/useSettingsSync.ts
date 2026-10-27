@@ -1,3 +1,4 @@
+import { noteSettingChange } from "./settingsMirror";
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 
@@ -34,6 +35,7 @@ export function useSettingsSync(
 	useEffect(() => {
 		const unlistenSC = listen<{ key: string; value: any }>("settings-changed", (event) => {
 			const { key, value } = event.payload;
+			noteSettingChange(key, value);
 			const handler = handlersRef.current[key];
 			if (handler && value !== null && value !== undefined) {
 				handler(convertSettingValue(value));
@@ -44,6 +46,7 @@ export function useSettingsSync(
 			"settings-external-changed",
 			(event) => {
 				const { key, value } = event.payload;
+			noteSettingChange(key, value);
 
 				if (key === "bloom-weather-lat" || key === "bloom-weather-lon") {
 					localStorage.removeItem(key);

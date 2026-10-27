@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import "./Dock.css";
 import { EdgeSurface } from "./components/EdgeSurface";
-import { traySurfaceHeight } from "./tray";
+import { traySurfaceHeight, DEFAULT_TASKBAR_HEIGHT, DEFAULT_TRAY_HEIGHT } from "./tray";
 import { createVisibilityPublisher, dockShouldHide } from "./dockVisibility";
 import { initTheme } from "./theme";
 import { useSettingsSync } from "./hooks/useSettingsSync";
@@ -102,8 +102,8 @@ const Dock = memo(function Dock() {
 	const scales = useDesktopScales();
 	const scale = effectiveScale(scales, "dock");
 	useBloomFontScale(scales.font);
-	const trayBarHeight = useRef(42);
-	const [nativeTaskbarHeight, setNativeTaskbarHeight] = useState(48);
+	const trayBarHeight = useRef(DEFAULT_TRAY_HEIGHT);
+	const [nativeTaskbarHeight, setNativeTaskbarHeight] = useState(DEFAULT_TASKBAR_HEIGHT);
 	useEffect(() => {
 		const heightListener = listen<number>("native-taskbar-height", (event) => {
 			const value = Number(event.payload);
@@ -114,10 +114,17 @@ const Dock = memo(function Dock() {
 	}, []);
 	useEffect(() => {
 		const request = listen("tray-height-request", () => {
-			void emit("dock-tray-height", trayBarHeight.current || 48);
+			void emit("dock-tray-height", trayBarHeight.current);
 		});
 		return () => { void request.then(unlisten => unlisten()); };
 	}, []);
+    // Base metrics, not Framer's intermediate animated layout height.
+    useEffect(() => {
+        const next = traySurfaceHeight(nativeTaskbarHeight, 1);
+        trayBarHeight.current = next;
+        void emit("dock-tray-height", next);
+    }, [nativeTaskbarHeight]);
+
 	useEffect(() => {
 		return initTheme();
 	}, []);
@@ -299,15 +306,7 @@ const Dock = memo(function Dock() {
 		const updateRect = () => {
 			if (dockRef.current) {
 				const rect = dockRef.current.getBoundingClientRect();
-				if (isExpanded && !isHidden && rect.width > 40) {
-					// Framer's layout transform briefly retains the previous visual
-					// width. Use the settled layout box so closing an app also shrinks the tray.
-					const next = traySurfaceHeight(dockRef.current.offsetHeight * scale, scale);
-					if (Math.abs(trayBarHeight.current - next) >= .5) {
-						trayBarHeight.current = next;
-						void emit("dock-tray-height", next);
-					}
-				}
+
 				const hasPreview = !!previewData;
 				invoke("update_dock_rect", {
 					rect: {

@@ -12,7 +12,7 @@ import {
 	type UpdateStatus
 } from "../updater";
 import { useSettingsSync } from "../hooks/useSettingsSync";
-import { reloadIfMirrorWasStale } from "../hooks/settingsMirror";
+import { reloadIfMirrorWasStale, noteSettingChange, initialSettingValue, settingsRevision } from "../hooks/settingsMirror";
 import { hexToHsl } from "../theme";
 import {
 	addCustomFolder,
@@ -170,12 +170,11 @@ export function useSettings() {
 	// ── Load all settings from backend + localStorage ──
 	const loadAllSettings = useCallback(async () => {
 		try {
+			const revision = settingsRevision();
 			const settings: Record<string, string> = await invoke("load_settings");
-			if (await reloadIfMirrorWasStale(settings)) return;
+			if (await reloadIfMirrorWasStale(settings, new Set(), revision)) return;
 			const getVal = (key: string) => {
-				const val = settings[key];
-				if (val !== undefined && val !== null) return String(val);
-				return localStorage.getItem(key);
+				return initialSettingValue(key, settings[key], localStorage.getItem(key), revision);
 			};
 
 			const apply = <T>(
@@ -256,6 +255,7 @@ export function useSettings() {
 	// write. A failed save reloads the page from persisted values and leaves a
 	// visible error instead of keeping an optimistic control value on screen.
 	const saveSetting = (key: string, value: string | null): Promise<boolean> => {
+		noteSettingChange(key, value);
 		const operation = saveQueue.current.then(async () => {
 			if (saveFailed.current) return false;
 			try {

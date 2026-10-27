@@ -1,9 +1,10 @@
+import { createThemeStartup } from "./themeStartup";
 import { accentForeground } from "./themeColors";
 import "./appearance.css";
 import "./accessibility.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
+import { reloadIfMirrorWasStale, noteSettingChange, settingsRevision } from "./hooks/settingsMirror";
 
 let systemTransparency = true;
 let systemAccent: string | null = null;
@@ -291,42 +292,6 @@ export function initTheme() {
 	// Fast synchronous draw using cached localStorage
 	applyTheme(syncMode, syncColor, syncOpacity, syncSaturation, syncBrightness);
 
-	// Sync settings.json in background to avoid flickers
-	invoke<Record<string, any>>("load_settings")
-		.then(async (settings) => {
-			// Don't write a stale mirror value back while the window reloads.
-			if (await reloadIfMirrorWasStale(settings)) return;
-			const mode = settings["bloom-theme-mode"] ? String(settings["bloom-theme-mode"]) : syncMode;
-			const color = settings["bloom-theme-color"]
-				? String(settings["bloom-theme-color"])
-				: syncColor;
-			const opacityVal = settings["bloom-theme-opacity"]
-				? parseFloat(String(settings["bloom-theme-opacity"]))
-				: syncOpacity;
-			const saturationVal = settings["bloom-theme-saturation"]
-				? parseFloat(String(settings["bloom-theme-saturation"]))
-				: syncSaturation;
-			const brightnessVal = settings["bloom-theme-brightness"]
-				? parseFloat(String(settings["bloom-theme-brightness"]))
-				: syncBrightness;
-
-			if (
-				mode !== syncMode ||
-				color !== syncColor ||
-				opacityVal !== syncOpacity ||
-				saturationVal !== syncSaturation ||
-				brightnessVal !== syncBrightness
-			) {
-				localStorage.setItem("bloom-theme-mode", mode);
-				localStorage.setItem("bloom-theme-color", color);
-				localStorage.setItem("bloom-theme-opacity", String(opacityVal));
-				localStorage.setItem("bloom-theme-saturation", String(saturationVal));
-				localStorage.setItem("bloom-theme-brightness", String(brightnessVal));
-				applyTheme(mode, color, opacityVal, saturationVal, brightnessVal);
-			}
-		})
-		.catch(console.error);
-
 	// Helper: read all theme values from localStorage and apply
 	const applyThemeFromStorage = () => {
 		const mode = localStorage.getItem("bloom-theme-mode") || "system";
@@ -345,14 +310,14 @@ export function initTheme() {
 		"bloom-theme-brightness"
 	];
 
+	const startup = createThemeStartup(bloomThemeKeys, localStorage, applyThemeFromStorage);
 	// Listen to setting changes broadcasted from settings window
 	// (localStorage sync is handled by saveAndLocal in Settings.tsx; we just apply the theme)
 	const settingsPromise = listen<{ key: string; value: any }>("settings-changed", (event) => {
 		const { key, value } = event.payload;
 		if (bloomThemeKeys.includes(key)) {
-			if (value === null || value === undefined) localStorage.removeItem(key);
-			else localStorage.setItem(key, String(value));
-			applyThemeFromStorage();
+			noteSettingChange(key, value);
+			startup.change(key, value);
 		}
 	});
 
@@ -376,12 +341,20 @@ export function initTheme() {
 		(event) => {
 			const { key, value } = event.payload;
 			if (bloomThemeKeys.includes(key)) {
-				if (value === null || value === undefined) localStorage.removeItem(key);
-				else localStorage.setItem(key, String(value));
-				applyThemeFromStorage();
+				noteSettingChange(key, value);
+			startup.change(key, value);
 			}
 		}
 	);
+
+    let cancelled = false;
+    // Install both listeners before requesting the initial snapshot.
+    void Promise.all([settingsPromise, externalPromise]).then(async () => {
+        if (cancelled) return;
+        const revision = settingsRevision();
+        const settings = await invoke<Record<string, unknown>>("load_settings");
+        await startup.hydrate(settings, preserved => reloadIfMirrorWasStale(settings, preserved, revision));
+    }).catch(console.error);
 
 	void invoke<string>("get_system_accent_color").then(color => {
         if (/^#[0-9a-f]{6}$/i.test(color)) {
@@ -403,6 +376,8 @@ export function initTheme() {
     for (const query of accessibilityQueries) query.addEventListener("change", applyThemeFromStorage);
 
 	return () => {
+		cancelled = true;
+		startup.stop();
 		settingsPromise.then((f) => f());
 		accentPromise.then((f) => f());
 		externalPromise.then((f) => f());

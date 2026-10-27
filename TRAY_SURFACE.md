@@ -123,3 +123,8 @@ contains the horizontal padding, allowing the background to fill the host while
 retaining the icon inset. A headless Edge fixture using the actual styles showed
 the rounded surface and 9px inset; the installed Tauri window still needs the
 owner's visual confirmation.
+
+## Estabilidad de métricas al arrancar
+Dock y tray comparten una altura de respaldo de 42px (base 48 menos 6). El dock comunica la altura derivada de la base nativa, sin medir la caja que Framer modifica durante las animaciones; las respuestas del handshake rechazan alturas no finitas/fuera de rango y callbacks posteriores al desmontaje.
+La primera geometría usable fija el espaciado y el borde derecho para esa sesión de Explorer/monitor/DPI/escala de Bloom. Si al arrancar falta una medición nativa se conserva el respaldo de 28px hasta una recalibración explícita; una medición o ancla tardía no desplaza una bandeja visible. Cambiar el número de iconos conserva el borde derecho y adapta el ancho, como antes. Un cambio de escala, DPI, monitor o sesión permite recalibrar. No se alteran clics, proveedor vivo, visibilidad ni menús nativos.
+Pruebas automáticas cubren medición tardía, ancla ausente/tardía, menos iconos y cambios de sesión/DPI/escala. Arranque, reinicio, Capturas y maximizar/restaurar en la versión instalada quedan pendientes del propietario.

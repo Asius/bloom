@@ -8,7 +8,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { SystemTray } from "./components/SystemTray";
 import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
 import { effectiveScale } from "./scales";
-import { trayHeight, type TrayWindowMetrics } from "./tray";
+import { trayHeight, DEFAULT_TRAY_HEIGHT, type TrayWindowMetrics } from "./tray";
 import { initTheme } from "./theme";
 import "./tray-window.css";
 
@@ -17,7 +17,7 @@ function TrayWindow() {
 	const scales = useDesktopScales();
 	const scale = effectiveScale(scales, "dock");
 	useBloomFontScale(scales.font);
-	const [height, setHeight] = useState(48);
+	const [height, setHeight] = useState(DEFAULT_TRAY_HEIGHT);
 	const [metrics, setMetrics] = useState<TrayWindowMetrics | null>(null);
 	const [loaded, setLoaded] = useState(false);
 	useEffect(() => {
@@ -44,7 +44,11 @@ function TrayWindow() {
 		void invoke("load_settings").catch(console.error).finally(() => {
 			if (!cancelled) setLoaded(true);
 		});
-		const size = listen<number>("dock-tray-height", event => setHeight(trayHeight(event.payload, 1)));
+		const size = listen<number>("dock-tray-height", event => {
+            if (!cancelled && Number.isFinite(event.payload) && event.payload >= 32 && event.payload <= 96) {
+                setHeight(trayHeight(event.payload, 1));
+            }
+        });
 		void size.then(() => { if (!cancelled) void emit("tray-height-request"); });
 		return () => {
 			cancelled = true;

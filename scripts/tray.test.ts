@@ -7,6 +7,8 @@ import {
 	nativeTrayCellWidth,
 	trayHeight,
 	traySurfaceHeight,
+	createTrayPlacement,
+	DEFAULT_TRAY_HEIGHT,
 	type TrayIcon,
 	type TraySnapshot
 } from "../src/tray";
@@ -172,4 +174,48 @@ test("native tray spacing ignores rows, invalid gaps and physical DPI", () => {
  expect(nativeTrayCellWidth({shell_id:"fixture",icons:[icon(100),icon(164),icon(228)]},metrics)).toBe(32);
  expect(nativeTrayCellWidth({shell_id:"fixture",icons:[icon(100),icon(164,2000)]},metrics)).toBe(28);
  expect(nativeTrayCellWidth(null,metrics)).toBe(28);
+});
+
+
+describe("stable tray metrics", () => {
+ const metrics = { x:0, y:1000, width:2560, height:440, dpi:1 };
+ const icon = (x:number): TrayIcon => ({id:String(x),name:"fixture",path:"fixture.exe",is_promoted:true,is_shell_icon:false,icon:null,native_rect:{x,y:1400,width:20,height:20}});
+ const initial: TraySnapshot = {shell_id:"session-1",icons:[icon(2360),icon(2388),icon(2416)],native_chevron:{x:2320,y:1400,width:24,height:24}};
+ test("dock and tray share the fallback surface height", () => {
+  expect(DEFAULT_TRAY_HEIGHT).toBe(traySurfaceHeight(48,1));
+  expect(traySurfaceHeight(48,1)).toBe(traySurfaceHeight(72,1.5));
+ });
+ test("late native spacing and transient anchors cannot move the visible tray", () => {
+  const resolve = createTrayPlacement();
+  const first = resolve({...initial,icons:initial.icons.map(i=>({...i,native_rect:null}))}, metrics,1,3);
+  const next = resolve({...initial,icons:[icon(2360),icon(2392),icon(2424)],native_chevron:{x:2280,y:1400,width:24,height:24}},metrics,1,3);
+  expect(next).toEqual(first);
+ });
+ test("late native anchors do not move the safe fallback", () => {
+  const resolve = createTrayPlacement();
+  const first = resolve({...initial,icons:[],native_chevron:null},metrics,1,0);
+  expect(resolve({...initial,icons:[]},metrics,1,0)).toEqual(first);
+ });
+ test("icon removal keeps the right edge and cell spacing", () => {
+  const resolve = createTrayPlacement();
+  const first = resolve(initial,metrics,1,3);
+  const fewer = resolve({...initial,icons:[icon(2360)]},metrics,1,1);
+  expect(fewer.left + fewer.width).toBe(first.left + first.width);
+  expect(fewer.cellWidth).toBe(first.cellWidth);
+ });
+ test("a new Explorer session or explicit scale change recalibrates placement", () => {
+  const resolve = createTrayPlacement();
+  resolve(initial,metrics,1,3);
+  const updated = {...initial,shell_id:"session-2",icons:[icon(2360),icon(2392),icon(2424)]};
+  expect(resolve(updated,metrics,1,3).cellWidth).toBe(32);
+  const scaled=resolve(updated,metrics,1.2,3);
+  expect(scaled.left + scaled.width * 1.2).toBeLessThanOrEqual(2556);
+ });
+ test("monitor and DPI changes discard old native coordinates", () => {
+  const resolve = createTrayPlacement();
+  resolve(initial,metrics,1,3);
+  const changed=resolve(initial,{x:-3840,y:1440,width:3840,height:720,dpi:2},1,3);
+  expect(changed.left).toBeGreaterThanOrEqual(0);
+  expect(changed.left+changed.width).toBeLessThanOrEqual(1916);
+ });
 });

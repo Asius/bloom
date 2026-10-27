@@ -67,6 +67,29 @@ export function traySurfaceHeight(height: number, scale: number) {
 	return Math.max(32, trayHeight(height, scale) - 6);
 }
 
+export const DEFAULT_TASKBAR_HEIGHT = 48;
+export const DEFAULT_TRAY_HEIGHT = traySurfaceHeight(DEFAULT_TASKBAR_HEIGHT, 1);
+
+/** Freeze the first usable placement. Late snapshots must not move the bar.
+ * Explicit scale, monitor/DPI or Explorer-session changes start a new placement.
+ */
+export function createTrayPlacement() {
+	let placement: { key: string; right: number; cellWidth: number } | null = null;
+	return (snapshot: TraySnapshot, metrics: TrayWindowMetrics, scale: number, count: number) => {
+		const key = `${snapshot.shell_id}:${metrics.x}:${metrics.width}:${metrics.dpi}:${scale}`;
+		if (placement?.key !== key) {
+			const cellWidth = nativeTrayCellWidth(snapshot, metrics);
+			const initial = trayBarGeometry(count, scale, metrics, undefined, cellWidth);
+			const anchor = nativeTrayLayout(snapshot, metrics)?.anchor;
+			const right = anchor
+				? Math.min(metrics.width / metrics.dpi - 4, (anchor.x - metrics.x) / metrics.dpi + initial.width * scale)
+				: initial.left + initial.width * scale;
+			placement = { key, right, cellWidth };
+		}
+		return { ...trayBarGeometry(count, scale, metrics, placement.right, placement.cellWidth), cellWidth: placement.cellWidth };
+	};
+}
+
 /** Compact system cells; keep the right edge fixed as icons come and go. */
 export function nativeTrayCellWidth(snapshot: TraySnapshot | null, metrics: TrayWindowMetrics | null): number {
 	if (!snapshot || !metrics || metrics.dpi <= 0) return 28;

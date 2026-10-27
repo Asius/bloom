@@ -1,3 +1,5 @@
+import { hasRecentSetting } from "../initialSettings";
+export { noteSettingChange, initialSettingValue, settingsRevision } from "../initialSettings";
 import { invoke } from "@tauri-apps/api/core";
 
 // Keys that live only in localStorage by design and never in settings.json.
@@ -21,7 +23,7 @@ const mirroredAtStartup = Object.keys(localStorage).filter((key) => key.startsWi
  * and the window reloads once, so it starts from the defaults. Resolves to
  * true when a reload was triggered.
  */
-export async function reloadIfMirrorWasStale(settings: Record<string, unknown> | null | undefined) {
+export async function reloadIfMirrorWasStale(settings: Record<string, unknown> | null | undefined, preservedKeys: ReadonlySet<string> = new Set(), sinceRevision = 0) {
 	const fileKeys = Object.keys(settings ?? {}).filter((key) => key.startsWith("bloom-"));
 	const stale = mirroredAtStartup.filter(
 		(key) => !fileKeys.includes(key) && !LOCAL_ONLY_KEYS.has(key)
@@ -35,7 +37,10 @@ export async function reloadIfMirrorWasStale(settings: Record<string, unknown> |
 	) {
 		return false;
 	}
-	stale.forEach((key) => localStorage.removeItem(key));
+	// Events can arrive while the readability check is pending.
+	const removable = stale.filter(key => !preservedKeys.has(key) && !hasRecentSetting(key, sinceRevision));
+	if (removable.length === 0) return false;
+	removable.forEach((key) => localStorage.removeItem(key));
 	location.reload();
 	return true;
 }
