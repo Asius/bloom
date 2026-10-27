@@ -6,20 +6,29 @@ use tauri::Window;
 pub struct NetworkStatus {
     connected: bool,
     internet: bool,
-    wifi: bool,
+    wifi: Option<bool>,
 }
 
-#[tauri::command]
-pub async fn tray_network_status(window: Window) -> Result<NetworkStatus, String> {
-    if window.label() != "tray" {
-        return Err("Only the tray can request network status.".into());
-    }
-    tauri::async_runtime::spawn_blocking(|| unsafe {
+fn read_status() -> Result<NetworkStatus, String> {
+    unsafe {
         use windows::Win32::{
             Networking::NetworkListManager::{INetworkListManager, NetworkListManager},
-            System::Com::{CoCreateInstance, CLSCTX_ALL},
+            System::{
+                Com::{CoCreateInstance, CLSCTX_ALL},
+                WinRT::{RoInitialize, RoUninitialize, RO_INIT_MULTITHREADED},
+            },
         };
-        let _com = super::ComApartment::new()?;
+        // WinRT initialization also initializes COM for Network List Manager.
+        RoInitialize(RO_INIT_MULTITHREADED).map_err(|e| e.to_string())?;
+        struct Runtime;
+        impl Drop for Runtime {
+            fn drop(&mut self) {
+                unsafe {
+                    RoUninitialize();
+                }
+            }
+        }
+        let _runtime = Runtime;
         let manager: INetworkListManager =
             CoCreateInstance(&NetworkListManager, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
         let connected = manager.IsConnected().map_err(|e| e.to_string())?.as_bool();
@@ -32,15 +41,37 @@ pub async fn tray_network_status(window: Window) -> Result<NetworkStatus, String
         let wifi =
             windows::Networking::Connectivity::NetworkInformation::GetInternetConnectionProfile()
                 .and_then(|profile| profile.IsWlanConnectionProfile())
-                .unwrap_or(false);
+                .ok();
         Ok(NetworkStatus {
             connected,
             internet,
             wifi,
         })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
+}
+
+#[tauri::command]
+pub async fn tray_network_status(window: Window) -> Result<NetworkStatus, String> {
+    if window.label() != "tray" {
+        return Err("Only the tray can request network status.".into());
+    }
+    tauri::async_runtime::spawn_blocking(read_status)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[ignore = "read-only Windows network API smoke test; run explicitly"]
+    fn windows_reports_network_state() {
+        let status = super::read_status().expect("Windows network APIs must respond");
+        assert!(!status.internet || status.connected);
+        println!(
+            "connected={} internet={} wifi={:?}",
+            status.connected, status.internet, status.wifi
+        );
+    }
 }
 
 #[tauri::command]

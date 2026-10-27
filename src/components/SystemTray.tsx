@@ -27,7 +27,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 	const [busy, setBusy] = useState(false);
 	const [healthy, setHealthy] = useState(false);
 	const [failure, setFailure] = useState("");
-	const [network, setNetwork] = useState<{ connected: boolean; internet: boolean; wifi: boolean } | null>(null);
+	const [network, setNetwork] = useState<{ connected: boolean; internet: boolean; wifi: boolean | null } | null>(null);
 	const toggle = useRef<HTMLButtonElement>(null);
 	const host = useRef<HTMLSpanElement>(null);
 	const panel = useRef<HTMLDivElement>(null);
@@ -372,7 +372,7 @@ export function SystemTray({ scale, height, metrics }: Props) {
 				title={network ? (network.internet ? "Network: Internet connected" : network.connected ? "Network: no Internet" : "Network: disconnected") : "Network status unavailable"}
 				onClick={() => { setOpen(false); void invoke("open_tray_network", { settings: false }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}
 				onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setOpen(false); void invoke("open_tray_network", { settings: true }).catch(error => message(String(error), { title: "Network", kind: "error" })); }}>
-				{network?.internet ? (network.wifi ? <Wifi size={24} /> : <Monitor size={24} />) : <Globe size={24} />}
+				{network?.internet && network.wifi !== null ? (network.wifi ? <Wifi size={24} /> : <Monitor size={24} />) : <Globe size={24} />}
 			</button>
 		</span>
 	);

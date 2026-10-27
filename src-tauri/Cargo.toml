@@ -67,6 +67,7 @@ windows = { version = "0.61", features = [
 	"Win32_NetworkManagement_Ndis",
 	"Win32_NetworkManagement_WNet",
 	"Win32_Networking_NetworkListManager",
+	"Win32_System_WinRT",
 	"Networking_Connectivity"
 ] }
 base64 = "0.22"
