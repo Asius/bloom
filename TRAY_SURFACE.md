@@ -23,7 +23,8 @@ the row there when possible and uses compact 26 logical-pixel cells with 18px
 icons, rather than inheriting inconsistent native icon rectangles. Its scale
 follows the dock; at the standard 48px base, the visible surface is 6 logical
 pixels shorter, stays attached to the bottom edge, and keeps controls aligned
-with the dock. The wider side insets keep icons from crowding the rounded edge.
+with the dock. Its 18px upper corners and background fallback match the dock;
+the wider side insets keep icons from crowding the rounded edge.
 The right edge is retained for the current monitor and Explorer session so a
 changed icon count or transient measurement cannot move the whole tray. When it
 is crowded, the application group scrolls without
