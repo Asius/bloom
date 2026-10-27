@@ -4,6 +4,6 @@
  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
 @media (forced-colors: active) {
- :root { --bloom-bg: Canvas !important; --bloom-bg-expanded: Canvas !important; --bloom-text: CanvasText !important; --bloom-text-muted: CanvasText !important; --bloom-border: CanvasText !important; --bloom-accent: Highlight !important; }
+ :root { --bloom-bg: Canvas !important; --bloom-bg-expanded: Canvas !important; --bloom-text: CanvasText !important; --bloom-text-muted: CanvasText !important; --bloom-border: CanvasText !important; --bloom-accent: Highlight !important; --bloom-on-accent: HighlightText !important; }
  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid Highlight !important; outline-offset: -2px; }
 }

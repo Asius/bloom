@@ -1,9 +1,14 @@
+import { accentForeground } from "./themeColors";
+import "./appearance.css";
 import "./accessibility.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
 
 let systemTransparency = true;
+let systemAccent: string | null = null;
+let themeRevision = 0;
+let materialEnabled: boolean | undefined;
 
 // Convert a hex color string to rgba with a specified alpha
 function hexToRgba(hex: string, alpha: number): string {
@@ -117,6 +122,7 @@ export async function applyTheme(
 	saturation?: number,
 	brightness?: number
 ) {
+	const revision = ++themeRevision;
 	const root = document.documentElement;
 	const resolvedMode =
 		mode === "system"
@@ -142,18 +148,24 @@ export async function applyTheme(
 
 	const opaque = !systemTransparency || window.matchMedia("(forced-colors: active)").matches || window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
 	root.classList.toggle("bloom-opaque", opaque);
-	void invoke("configure_native_material", { enabled: !opaque }).catch(() => {});
+	if (materialEnabled !== !opaque) {
+        const enabled = !opaque;
+        materialEnabled = enabled;
+        void invoke("configure_native_material", { enabled }).catch(() => {
+            if (materialEnabled === enabled) materialEnabled = undefined;
+        });
+    }
 	const op = opaque ? 1 : Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
 	const opExpanded = Math.min(1.0, op + 0.05);
 
 	if (resolvedMode === "light") {
 		root.style.setProperty("--bloom-bg", `rgba(243, 243, 243, ${op})`);
 		root.style.setProperty("--bloom-bg-expanded", `rgba(249, 249, 249, ${opExpanded})`);
-		root.style.setProperty("--bloom-text", "#1c1c1e");
+		root.style.setProperty("--bloom-text", "#1a1a1a");
 		root.style.setProperty("--bloom-text-muted", "rgba(28, 28, 30, 0.65)");
 		root.style.setProperty("--bloom-border", "rgba(0, 0, 0, 0.12)");
 		root.style.setProperty("--bloom-group-bg", "rgba(0, 0, 0, 0.04)");
-		root.style.setProperty("--bloom-accent", "#007aff");
+		root.style.setProperty("--bloom-accent", systemAccent ?? "#0067c0");
 		root.style.setProperty("--bloom-scrollbar-thumb", "rgba(0, 0, 0, 0.15)");
 		root.classList.add("light-mode");
 		root.classList.remove("dark-mode");
@@ -198,6 +210,7 @@ export async function applyTheme(
 	} else if (resolvedMode === "adaptive") {
 		try {
 			const accentHex = await invoke<string>("get_system_accent_color");
+			if (revision !== themeRevision) return;
 			const hsl = hexToHsl(accentHex);
 			hsl.s = saturation * 100;
 			hsl.l = brightness * 100;
@@ -234,24 +247,27 @@ export async function applyTheme(
 				root.classList.remove("light-mode");
 			}
 		} catch (e) {
+			if (revision !== themeRevision) return;
 			console.error("Failed to apply adaptive theme:", e);
 			applyTheme("system", customColor, op, saturation, brightness);
 		}
 	} else {
-		// default/dark
+		// Neutral Windows-style dark surfaces
 		root.style.setProperty("--bloom-bg", `rgba(32, 32, 32, ${op})`);
 		root.style.setProperty("--bloom-bg-expanded", `rgba(44, 44, 44, ${opExpanded})`);
 		root.style.setProperty("--bloom-text", "#ffffff");
 		root.style.setProperty("--bloom-text-muted", "rgba(255, 255, 255, 0.6)");
 		root.style.setProperty("--bloom-border", "rgba(255, 255, 255, 0.1)");
 		root.style.setProperty("--bloom-group-bg", "rgba(255, 255, 255, 0.04)");
-		root.style.setProperty("--bloom-accent", "#007aff");
+		root.style.setProperty("--bloom-accent", systemAccent ?? "#60cdff");
 		root.style.setProperty("--bloom-scrollbar-thumb", "rgba(255, 255, 255, 0.1)");
 		root.classList.add("dark-mode");
 		root.classList.remove("light-mode");
 		root.classList.add("theme-dark");
 		root.classList.remove("theme-light", "theme-custom", "theme-adaptive");
 	}
+	root.style.colorScheme = root.classList.contains("light-mode") ? "light" : "dark";
+	root.style.setProperty("--bloom-on-accent", accentForeground(root.style.getPropertyValue("--bloom-accent")));
 }
 
 export function initTheme() {
@@ -343,6 +359,8 @@ export function initTheme() {
 	// Listen to system accent color updates in case of adaptive theme
 	const accentPromise = listen<string>("system-accent-changed", (event) => {
 		const currentMode = localStorage.getItem("bloom-theme-mode") || "system";
+		if (/^#[0-9a-f]{6}$/i.test(event.payload)) systemAccent = event.payload;
+		if (["system", "light", "dark"].includes(currentMode)) applyThemeFromStorage();
 		if (currentMode === "adaptive") {
 			const opacity = parseFloat(localStorage.getItem("bloom-theme-opacity") || "0.92");
 			const saturation = parseFloat(localStorage.getItem("bloom-theme-saturation") || "0.50");
@@ -365,8 +383,15 @@ export function initTheme() {
 		}
 	);
 
-	refreshSystemTransparency();
-	window.addEventListener("focus", refreshSystemTransparency);
+	void invoke<string>("get_system_accent_color").then(color => {
+        if (/^#[0-9a-f]{6}$/i.test(color)) {
+            systemAccent = color;
+            const mode = localStorage.getItem("bloom-theme-mode") || "system";
+            if (["system", "light", "dark"].includes(mode)) applyThemeFromStorage();
+        }
+    }).catch(() => {});
+    refreshSystemTransparency();
+    window.addEventListener("focus", refreshSystemTransparency);
 	const colorScheme = window.matchMedia?.("(prefers-color-scheme: light)");
 	const onColorSchemeChange = () => {
 		if ((localStorage.getItem("bloom-theme-mode") || "system") === "system") {
@@ -374,6 +399,8 @@ export function initTheme() {
 		}
 	};
 	colorScheme?.addEventListener("change", onColorSchemeChange);
+    const accessibilityQueries = [window.matchMedia("(forced-colors: active)"), window.matchMedia("(prefers-reduced-transparency: reduce)")];
+    for (const query of accessibilityQueries) query.addEventListener("change", applyThemeFromStorage);
 
 	return () => {
 		settingsPromise.then((f) => f());
@@ -381,5 +408,6 @@ export function initTheme() {
 		externalPromise.then((f) => f());
 		colorScheme?.removeEventListener("change", onColorSchemeChange);
 		window.removeEventListener("focus", refreshSystemTransparency);
+		for (const query of accessibilityQueries) query.removeEventListener("change", applyThemeFromStorage);
 	};
 }

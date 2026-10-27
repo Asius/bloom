@@ -16,7 +16,16 @@ export function SettingRow({
 
 	return (
 		<>
-			<div className={className} onClick={onClick}>
+			<div className={className} onClick={onClick}
+				role={onClick ? "button" : undefined}
+				tabIndex={onClick ? 0 : undefined}
+				onKeyDown={onClick ? event => {
+					if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+						event.preventDefault();
+						onClick();
+					}
+				} : undefined}
+			>
 				<div className="setting-icon-bg">
 					<Icon size={14} strokeWidth={1.5} />
 				</div>

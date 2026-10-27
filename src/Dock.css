@@ -29,10 +29,10 @@ body {
 	top: -36px;
 	left: 50%;
 	transform: translate(-50%, 4px) scale(0.95);
-	background: rgba(0, 0, 0, 0.7);
-	color: white;
+	background: var(--bloom-bg-expanded);
+	color: var(--bloom-text);
 	padding: 4px 10px;
-	border-radius: 6px;
+	border-radius: var(--bloom-control-radius);
 	font-size: calc(12px * var(--bloom-font-scale, 1));
 	font-family: "Segoe UI", system-ui, sans-serif;
 	pointer-events: none;
@@ -57,11 +57,11 @@ body {
 	bottom: calc(100% + 20px);
 	left: 50%;
 	transform: translateX(-50%) !important;
-	background: rgba(30, 30, 30, 0.85);
+	background: var(--bloom-bg-expanded);
 	backdrop-filter: blur(20px);
 	-webkit-backdrop-filter: blur(20px);
-	border: 1px solid rgba(255, 255, 255, 0.15);
-	border-radius: 12px;
+	border: 1px solid var(--bloom-border);
+	border-radius: var(--bloom-panel-radius);
 	padding: 8px;
 	display: flex;
 	flex-direction: column;
@@ -179,14 +179,14 @@ body {
 .preview-item img {
 	max-width: 220px;
 	max-height: 130px;
-	border-radius: 6px;
+	border-radius: var(--bloom-control-radius);
 	object-fit: cover;
 	background: rgba(0, 0, 0, 0.5);
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .preview-label {
-	color: rgba(255, 255, 255, 0.9);
+	color: var(--bloom-text);
 	font-size: calc(12px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	white-space: nowrap;
@@ -204,7 +204,7 @@ body {
 	gap: 12px;
 	padding: 0 8px;
 	box-sizing: border-box;
-	border-radius: 18px 18px 0 0;
+	border-radius: var(--bloom-edge-radius) var(--bloom-edge-radius) 0 0;
 	/* Painted by the .edge-surface child (see components/EdgeSurface.css). */
 	--surface-bg: var(--bloom-bg, rgba(0, 0, 0, 0.8));
 	isolation: isolate;
@@ -263,7 +263,7 @@ body {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	border-radius: 12px;
+	border-radius: var(--bloom-panel-radius);
 	background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 100%);
 	color: var(--bloom-text, white);
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -362,7 +362,7 @@ body {
 	background: var(--bloom-bg-expanded, rgba(40, 40, 40, 0.95));
 	backdrop-filter: blur(20px);
 	border: 1px solid var(--bloom-border, rgba(255, 255, 255, 0.1));
-	border-radius: 12px;
+	border-radius: var(--bloom-panel-radius);
 	padding: 6px;
 	z-index: 9999;
 	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
@@ -377,7 +377,7 @@ body {
 	padding: 8px 12px;
 	color: var(--bloom-text, white);
 	font-size: calc(13px * var(--bloom-font-scale, 1));
-	border-radius: 6px;
+	border-radius: var(--bloom-control-radius);
 	cursor: pointer;
 	font-weight: 500;
 	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -417,7 +417,7 @@ body {
 	background: var(--bloom-bg-expanded, rgba(40, 40, 40, 0.98));
 	backdrop-filter: blur(25px);
 	border: 1px solid var(--bloom-border, rgba(255, 255, 255, 0.1));
-	border-radius: 12px;
+	border-radius: var(--bloom-panel-radius);
 	padding: 6px;
 	min-width: 140px;
 	display: none;
@@ -491,7 +491,7 @@ body {
 	gap: 10px;
 	margin: 10px 10px 4px;
 	padding: 10px 12px;
-	border-radius: 12px;
+	border-radius: var(--bloom-panel-radius);
 	background: var(--bloom-group-bg, rgba(255, 255, 255, 0.06));
 }
 
@@ -570,7 +570,7 @@ body {
 .popup-skeleton-line {
 	flex: 1;
 	height: 12px;
-	border-radius: 6px;
+	border-radius: var(--bloom-control-radius);
 }
 
 @keyframes popup-pulse {

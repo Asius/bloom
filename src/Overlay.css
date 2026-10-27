@@ -65,12 +65,7 @@ body,
 
 .update-splash-text {
 	color: var(--bloom-text, rgba(255, 255, 255, 0.9));
-	font-family:
-		"Inter",
-		-apple-system,
-		BlinkMacSystemFont,
-		"Segoe UI",
-		sans-serif;
+	font-family: var(--bloom-font-family);
 	font-size: calc(14px * var(--bloom-font-scale, 1));
 	font-weight: 500;
 	margin-bottom: 16px;
@@ -195,12 +190,7 @@ body,
 .volume-notch-action-percent {
 	font-size: calc(10px * var(--bloom-font-scale, 1));
 	font-weight: 700;
-	font-family:
-		"Inter",
-		-apple-system,
-		BlinkMacSystemFont,
-		"Segoe UI",
-		sans-serif;
+	font-family: var(--bloom-font-family);
 	letter-spacing: -0.02em;
 }
 
@@ -267,12 +257,7 @@ body,
 	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.6));
 	font-size: calc(11px * var(--bloom-font-scale, 1));
 	font-weight: 500;
-	font-family:
-		"Inter",
-		-apple-system,
-		BlinkMacSystemFont,
-		"Segoe UI",
-		sans-serif;
+	font-family: var(--bloom-font-family);
 	text-align: center;
 	grid-column: 1 / -1;
 	display: flex;
@@ -347,12 +332,7 @@ body,
 	color: var(--bloom-text, white);
 	font-size: 9px;
 	font-weight: 700;
-	font-family:
-		"Inter",
-		-apple-system,
-		BlinkMacSystemFont,
-		"Segoe UI",
-		sans-serif;
+	font-family: var(--bloom-font-family);
 	transition: opacity 0.16s ease;
 }
 
@@ -374,12 +354,7 @@ body,
 	font-weight: 700;
 	font-variant-numeric: tabular-nums;
 	letter-spacing: -0.02em;
-	font-family:
-		"Inter",
-		-apple-system,
-		BlinkMacSystemFont,
-		"Segoe UI",
-		sans-serif;
+	font-family: var(--bloom-font-family);
 	opacity: 0;
 	transition: opacity 0.16s ease;
 }

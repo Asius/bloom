@@ -1,0 +1,22 @@
+/* Shared visual metrics. Bloom scale changes surface geometry; text scale only text. */
+:root {
+	--bloom-font-family: "Segoe UI", system-ui, sans-serif;
+	--bloom-edge-radius: 18px;
+	--bloom-panel-radius: 12px;
+	--bloom-control-radius: 6px;
+	--bloom-material-blur: 24px;
+	--bloom-material-saturation: 125%;
+	--bloom-on-accent: #fff;
+}
+body { font-family: var(--bloom-font-family); }
+button, input, select, textarea { font-family: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="button"]:focus-visible {
+	outline: 2px solid var(--bloom-accent, #0067c0);
+	outline-offset: -2px;
+}
+.toggle-switch input:focus-visible + .slider {
+	outline: 2px solid var(--bloom-accent, #0067c0);
+	outline-offset: 3px;
+}
+.bloom-opaque .settings-container, .bloom-opaque .preview-tooltip,
+.bloom-opaque .bloom-tray-icons { backdrop-filter: none; -webkit-backdrop-filter: none; }
