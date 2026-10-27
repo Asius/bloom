@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
 import "./Dock.css";
 import { EdgeSurface } from "./components/EdgeSurface";
-import { trayHeight } from "./tray";
+import { traySurfaceHeight } from "./tray";
 import { createVisibilityPublisher, dockShouldHide } from "./dockVisibility";
 import { initTheme } from "./theme";
 import { useSettingsSync } from "./hooks/useSettingsSync";
@@ -101,7 +101,7 @@ const Dock = memo(function Dock() {
 	const scales = useDesktopScales();
 	const scale = effectiveScale(scales, "dock");
 	useBloomFontScale(scales.font);
-	const trayBarHeight = useRef(0);
+	const trayBarHeight = useRef(42);
 	const [nativeTaskbarHeight, setNativeTaskbarHeight] = useState(48);
 	useEffect(() => {
 		const heightListener = listen<number>("native-taskbar-height", (event) => {
@@ -301,7 +301,7 @@ const Dock = memo(function Dock() {
 				if (isExpanded && !isHidden && rect.width > 40) {
 					// Framer's layout transform briefly retains the previous visual
 					// width. Use the settled layout box so closing an app also shrinks the tray.
-					const next = trayHeight(dockRef.current.offsetHeight * scale, scale);
+					const next = traySurfaceHeight(dockRef.current.offsetHeight * scale, scale);
 					if (Math.abs(trayBarHeight.current - next) >= .5) {
 						trayBarHeight.current = next;
 						void emit("dock-tray-height", next);

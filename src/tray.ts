@@ -62,12 +62,18 @@ export function trayHeight(height: number, scale: number) {
 	return Math.max(32, Math.min(height / safeScale || 48, 96));
 }
 
+/** Leave a small visual inset so the system tray stays lighter than the dock. */
+export function traySurfaceHeight(height: number, scale: number) {
+	return Math.max(32, trayHeight(height, scale) - 6);
+}
+
 /** Compact system cells; keep the right edge fixed as icons come and go. */
 export function trayBarGeometry(iconCount: number, scale: number, metrics: TrayWindowMetrics, rightEdge: number | undefined) {
 	const dpi = Number.isFinite(metrics.dpi) && metrics.dpi > 0 ? metrics.dpi : 1;
 	const factor = Number.isFinite(scale) && scale > 0 ? scale : 1;
 	const viewport = metrics.width / dpi;
-	const width = Math.min(16 + 22 * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
+	// Button widths (22px), three 2px gaps, plus 9px of breathing room per side.
+	const width = Math.min(24 + 22 * (Math.max(0, iconCount) + 3), Math.max(99, viewport * .45 / factor));
 	const right = Math.max(0, Math.min(rightEdge ?? viewport - 13, viewport - 4));
 	const left = Math.max(0, right - width * factor);
 	return { width, left };

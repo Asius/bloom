@@ -1,10 +1,25 @@
 import { describe, expect, test } from "bun:test";
-import { createNativeTrayAction, createTrayActionGate, nativeTrayLayout, trayBarGeometry, trayHeight, type TrayIcon, type TraySnapshot } from "../src/tray";
+import {
+	createNativeTrayAction,
+	createTrayActionGate,
+	nativeTrayLayout,
+	trayBarGeometry,
+	trayHeight,
+	traySurfaceHeight,
+	type TrayIcon,
+	type TraySnapshot
+} from "../src/tray";
 test("the tray follows dock height and Bloom scale", () => {
 	expect(trayHeight(54, 1.5)).toBe(36);
 	expect(trayHeight(32, 1)).toBe(32);
 	expect(trayHeight(52, 1)).toBe(52);
 	expect(trayHeight(100, 1)).toBe(96);
+});
+
+test("the tray surface stays slightly shorter than the dock and aligns to its base", () => {
+	expect(traySurfaceHeight(48, 1)).toBe(42);
+	expect(traySurfaceHeight(72, 1.5)).toBe(42);
+	expect(traySurfaceHeight(32, 1)).toBe(32);
 });
 
 describe("native tray placement", () => {
@@ -35,7 +50,7 @@ describe("native tray placement", () => {
 	});
 	test("uses compact cells, reserves network and audio, and keeps a stable right edge", () => {
 		const normal = trayBarGeometry(3, 1, metrics, 2500);
-		expect(normal.width).toBe(148);
+		expect(normal.width).toBe(156);
 		expect(normal.left + normal.width).toBe(2500);
 		const fewer = trayBarGeometry(1, 1, metrics, 2500);
 		expect(fewer.left + fewer.width).toBe(2500);

@@ -20,10 +20,13 @@ the same `EdgeSurface` bottom flares. Dock geometry does not contain tray UI.
 3.10.14 tray input was confirmed by the owner. Explorer's overflow chevron is
 measured with UI Automation before hiding the native taskbar. Bloom anchors
 the row there when possible and uses compact 26 logical-pixel cells with 18px
-icons, rather than inheriting inconsistent native icon rectangles. Its height
-and scale follow the dock. The right edge is retained for the current monitor
-and Explorer session so a changed icon count or transient measurement does not
-move the whole tray. When it is crowded, the application group scrolls without
+icons, rather than inheriting inconsistent native icon rectangles. Its scale
+follows the dock; at the standard 48px base, the visible surface is 6 logical
+pixels shorter, stays attached to the bottom edge, and keeps controls aligned
+with the dock. The wider side insets keep icons from crowding the rounded edge.
+The right edge is retained for the current monitor and Explorer session so a
+changed icon count or transient measurement cannot move the whole tray. When it
+is crowded, the application group scrolls without
 hiding the arrow, network, or sound controls.
 If the anchor is unavailable the right-edge fallback is approximate. The hidden
 panel opens above and toward the left. This adjusted layout and DPI behavior
