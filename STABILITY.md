@@ -20,6 +20,12 @@ Menú contextual del icono propio de Bloom:
 
 No se crean paneles ni se modifica la distribución aprobada. Un panel de diagnóstico, reordenación de iconos y notificaciones reales requieren entregas posteriores. Acrylic para dock/tray necesita una máscara independiente; no se activa sobre sus márgenes transparentes. En Windows sin soporte de backdrop DWM se usa el respaldo sólido.
 
+## Dependencias revisadas antes de publicar
+
+Se actualiza exclusivamente `rustls` 0.23.45 → 0.23.46 en Cargo.lock, parche revisado en PR #10. El árbol Windows confirma su uso por el actualizador HTTPS; no se integran actualizaciones masivas. Check/Clippy y 97 pruebas Rust vuelven a pasar tras el parche. La auditoría Bun solo cubre el lockfile JavaScript, no sustituye la revisión de Cargo.
+
+Quedan dos alertas anteriores documentadas, sin ocultarlas: `glib` no aparece en el árbol de compilación Windows de esta app; `rand` 0.7.3 llega por `phf_generator` y la alerta exige un logger reentrante con características concretas. Bloom no define ese logger. Esto delimita el alcance observado, no declara la alerta corregida ni autoriza una actualización incompatible del árbol de Tauri.
+
 ## Medición reproducible de rendimiento
 
 Con Bloom instalado en ejecución, ejecutar manualmente desde el repositorio:
