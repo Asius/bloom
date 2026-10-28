@@ -6,6 +6,7 @@ pub(crate) mod network;
 pub(crate) mod surface;
 pub(crate) use live::start as start_live_provider;
 pub(crate) use live::stop as stop_live_provider;
+pub(crate) use live::{diagnostic, request_restart};
 
 use crate::types::IntRect;
 use model::{icon_identity, normalized_label, OperationGuard, Restoration};

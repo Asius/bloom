@@ -4069,12 +4069,27 @@ pub fn get_system_transparency() -> Option<bool> {
 /// Native material for the rectangular Settings window. Edge surfaces need a
 /// separate composition mask before a whole-HWND backdrop can be enabled.
 #[tauri::command]
-pub fn configure_native_material(window: Window, enabled: bool) -> Result<(), String> {
-    if window.label() != "settings" { return Ok(()); }
-    use tauri::utils::{WindowEffect, config::WindowEffectsConfig};
+pub async fn configure_native_material(window: Window, enabled: bool) -> Result<String, String> {
+    if window.label() != "settings" { return Ok("unsupported-surface".into()); }
     let allowed = enabled && get_system_transparency() != Some(false);
-    let effects = allowed.then(|| WindowEffectsConfig {
-        effects: vec![WindowEffect::Acrylic], ..Default::default()
-    });
-    window.set_effects(effects).map_err(|error| error.to_string())
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let target = window.clone();
+    window.run_on_main_thread(move || {
+        use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW, DWMSBT_NONE};
+        let result = target.hwnd().map_err(|error| error.to_string()).and_then(|hwnd| {
+            let kind = if allowed { DWMSBT_TRANSIENTWINDOW } else { DWMSBT_NONE };
+            unsafe {
+                DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &kind as *const _ as _, std::mem::size_of_val(&kind) as u32)
+            }.map_err(|error| error.to_string())
+        });
+        let status = match result {
+            Ok(()) if allowed => "accepted",
+            Ok(()) => "disabled",
+            Err(_) => "unavailable",
+        };
+        crate::diagnostics::material_status(status);
+        // A successful HRESULT confirms DWM accepted the request, not the visual result.
+        let _ = tx.send(status.to_string());
+    }).map_err(|error| error.to_string())?;
+    rx.await.map_err(|error| error.to_string())
 }

@@ -1,5 +1,7 @@
 # Apariencia compartida de Bloom
 
+Actualizaci贸n 3.10.23: transparencia de Windows propagada mediante evento nativo; estado Acrylic comprobado directamente con el HRESULT de DWM en Ajustes y respaldo s贸lido si no est谩 disponible. Peticiones serializadas, sin aceptar respuestas superadas. Ver [STABILITY.md](STABILITY.md) para alcance, diagn贸stico y pruebas instaladas pendientes. El 茅xito de DWM no demuestra el resultado visual del compositor.
+
 Los temas integrados usan superficies neutras claras (243/249) y oscuras (32/44), opacidad configurable y el acento le铆do de Windows. Los controles HTML reciben color-scheme para que sus men煤s nativos sigan el tema. Las superficies comparten Segoe UI, radios de borde/panel/control y saturaci贸n del material desde appearance.css. El color sobre el acento se elige por luminancia para mantener contraste.
 
 ## Correcciones de esta revisi贸n
@@ -16,5 +18,5 @@ Los temas integrados usan superficies neutras claras (243/249) y oscuras (32/44)
 La simulaci贸n no valida Acrylic nativo ni el compositor de escritorio. La lectura real de preferencias y acento, los men煤s de apps, el DPI y maximizar/restaurar requieren prueba instalada. Acrylic contin煤a limitado a Ajustes; dock/tray conservan sus curvas y fondos CSS mientras se resuelve la m谩scara nativa. La paleta aproxima Windows; no afirma equivalencia exacta con Explorer.
 
 ## Carga inicial protegida
-Los listeners de tema se instalan antes de pedir el snapshot. Los cambios o borrados recibidos durante esa carga conservan prioridad por clave; desmontar la vista impide aplicar la respuesta tard韆. El control del espejo local vuelve a comprobar las claves protegidas despu閟 de esperar la lectura del archivo. Ajustes compara revisiones por petici髇, de modo que una carga nueva (por ejemplo tras importar) acepta el archivo y solo descarta valores superados durante esa petici髇.
-Validaci髇 adicional: respuestas antiguas, borrados durante espera, cancelaci髇, importaci髇 posterior y claves sin cambios cubiertas autom醫icamente. No equivale a una prueba del orden de eventos en la app instalada.
+Los listeners de tema se instalan antes de pedir el snapshot. Los cambios o borrados recibidos durante esa carga conservan prioridad por clave; desmontar la vista impide aplicar la respuesta tard铆a. El control del espejo local vuelve a comprobar las claves protegidas despu茅s de esperar la lectura del archivo. Ajustes compara revisiones por petici贸n, de modo que una carga nueva (por ejemplo tras importar) acepta el archivo y solo descarta valores superados durante esa petici贸n.
+Validaci贸n adicional: respuestas antiguas, borrados durante espera, cancelaci贸n, importaci贸n posterior y claves sin cambios cubiertas autom谩ticamente. No equivale a una prueba del orden de eventos en la app instalada.

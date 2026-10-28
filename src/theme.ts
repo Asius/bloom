@@ -1,5 +1,6 @@
 import { createThemeStartup } from "./themeStartup";
 import { accentForeground } from "./themeColors";
+import { createMaterialSync, type MaterialStatus } from "./nativeMaterial";
 import "./appearance.css";
 import "./accessibility.css";
 import { invoke } from "@tauri-apps/api/core";
@@ -9,7 +10,18 @@ import { reloadIfMirrorWasStale, noteSettingChange, settingsRevision } from "./h
 let systemTransparency = true;
 let systemAccent: string | null = null;
 let themeRevision = 0;
-let materialEnabled: boolean | undefined;
+let materialFallback = false;
+const syncMaterial = createMaterialSync(
+    enabled => invoke<MaterialStatus>("configure_native_material", { enabled }),
+    status => {
+        document.documentElement.dataset.nativeMaterial = status;
+        const fallback = status === "unavailable";
+        if (materialFallback !== fallback) {
+            materialFallback = fallback;
+            void applyTheme(localStorage.getItem("bloom-theme-mode") || "system", localStorage.getItem("bloom-theme-color") || "#007aff");
+        }
+    }
+);
 
 // Convert a hex color string to rgba with a specified alpha
 function hexToRgba(hex: string, alpha: number): string {
@@ -147,15 +159,10 @@ export async function applyTheme(
 		brightness = cachedBrightness !== null ? parseFloat(cachedBrightness) : 0.15;
 	}
 
-	const opaque = !systemTransparency || window.matchMedia("(forced-colors: active)").matches || window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
+	const systemOpaque = !systemTransparency || window.matchMedia("(forced-colors: active)").matches || window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
+    const opaque = systemOpaque || materialFallback;
 	root.classList.toggle("bloom-opaque", opaque);
-	if (materialEnabled !== !opaque) {
-        const enabled = !opaque;
-        materialEnabled = enabled;
-        void invoke("configure_native_material", { enabled }).catch(() => {
-            if (materialEnabled === enabled) materialEnabled = undefined;
-        });
-    }
+    void syncMaterial(!systemOpaque);
 	const op = opaque ? 1 : Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
 	const opExpanded = Math.min(1.0, op + 0.05);
 
@@ -272,9 +279,12 @@ export async function applyTheme(
 }
 
 export function initTheme() {
+    let cancelled = false;
+    let transparencyRevision = 0;
 	const refreshSystemTransparency = () => {
+        const request = ++transparencyRevision;
         void invoke<boolean | null>("get_system_transparency").then(value => {
-            if (value !== null && value !== systemTransparency) {
+            if (!cancelled && request === transparencyRevision && typeof value === "boolean" && value !== systemTransparency) {
                 systemTransparency = value;
                 applyThemeFromStorage();
             }
@@ -347,7 +357,13 @@ export function initTheme() {
 		}
 	);
 
-    let cancelled = false;
+    const transparencyPromise = listen<boolean | null>("system-transparency-changed", event => {
+        ++transparencyRevision;
+        if (!cancelled && typeof event.payload === "boolean" && event.payload !== systemTransparency) {
+            systemTransparency = event.payload;
+            applyThemeFromStorage();
+        }
+    });
     // Install both listeners before requesting the initial snapshot.
     void Promise.all([settingsPromise, externalPromise]).then(async () => {
         if (cancelled) return;
@@ -364,6 +380,8 @@ export function initTheme() {
         }
     }).catch(() => {});
     refreshSystemTransparency();
+    // Subscribe first, then re-read to cover a change during listener setup.
+    void transparencyPromise.then(() => { if (!cancelled) refreshSystemTransparency(); }).catch(console.error);
     window.addEventListener("focus", refreshSystemTransparency);
 	const colorScheme = window.matchMedia?.("(prefers-color-scheme: light)");
 	const onColorSchemeChange = () => {
@@ -381,6 +399,7 @@ export function initTheme() {
 		settingsPromise.then((f) => f());
 		accentPromise.then((f) => f());
 		externalPromise.then((f) => f());
+        transparencyPromise.then(f => f());
 		colorScheme?.removeEventListener("change", onColorSchemeChange);
 		window.removeEventListener("focus", refreshSystemTransparency);
 		for (const query of accessibilityQueries) query.removeEventListener("change", applyThemeFromStorage);

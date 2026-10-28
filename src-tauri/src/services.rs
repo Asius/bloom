@@ -4188,6 +4188,7 @@ unsafe extern "system" fn display_monitor_proc(
         }
         WM_DWMCOLORIZATIONCOLORCHANGED | WM_SETTINGCHANGE => {
             if let Some(app_handle) = DISPLAY_MONITOR_HANDLE.get() {
+                let _ = app_handle.emit("system-transparency-changed", crate::commands::get_system_transparency());
                 let color_hex = if let Some(c) = crate::commands::get_windows_accent_color() {
                     c
                 } else {

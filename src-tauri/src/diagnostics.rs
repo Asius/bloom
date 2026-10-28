@@ -2,10 +2,41 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_LOG_BYTES: u64 = 1024 * 1024;
 static LOG_PATH: OnceLock<Mutex<PathBuf>> = OnceLock::new();
+static MATERIAL_STATUS: AtomicU8 = AtomicU8::new(0);
+
+pub fn material_status(status: &str) {
+    MATERIAL_STATUS.store(match status { "accepted" => 1, "disabled" => 2, _ => 3 }, Ordering::Release);
+    record("native-material", status);
+}
+
+/// Deliberately constructed allow-list: never export logs, titles, tooltips,
+/// paths, application names, process IDs, settings or clipboard content.
+pub fn support_report(app: &tauri::AppHandle) -> String {
+    use tauri::Manager;
+    let mut windows: Vec<_> = app.webview_windows().into_values().map(|window| {
+        serde_json::json!({
+            "surface": window.label(),
+            "visible": window.is_visible().ok(),
+            "scale_factor": window.scale_factor().ok()
+        })
+    }).collect();
+    windows.sort_by_key(|value| value["surface"].as_str().unwrap_or_default().to_string());
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "platform": "windows",
+        "transparency": crate::commands::get_system_transparency(),
+        "settings_material": match MATERIAL_STATUS.load(Ordering::Acquire) {
+            1 => "accepted", 2 => "disabled", 3 => "unavailable", _ => "not-requested"
+        },
+        "tray": crate::tray::diagnostic(),
+        "surfaces": windows
+    }).to_string()
+}
 
 pub fn initialize() {
     let Some(local_data) = std::env::var_os("LOCALAPPDATA") else {

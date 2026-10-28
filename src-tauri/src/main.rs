@@ -385,10 +385,6 @@ fn main() {
             }
 
             if let Some(settings_win) = app.get_webview_window("settings") {
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = window_vibrancy::apply_mica(&settings_win, None);
-                }
                 let win_clone = settings_win.clone();
                 settings_win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -405,7 +401,9 @@ fn main() {
                     MenuItem::with_id(app, "restart", "Restart Bloom", true, None::<&str>)?;
                 let settings_item =
                     MenuItem::with_id(app, "settings", "Open Settings", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&settings_item, &restart_item, &quit_item])?;
+                let refresh_item = MenuItem::with_id(app, "refresh-tray", "Restart system tray", true, None::<&str>)?;
+                let diagnostics_item = MenuItem::with_id(app, "diagnostics", "Copy Bloom diagnostics", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&settings_item, &refresh_item, &diagnostics_item, &restart_item, &quit_item])?;
                 let ah = app.handle().clone();
                 TrayIconBuilder::new()
                     .icon(app.default_window_icon().unwrap().clone())
@@ -440,6 +438,13 @@ fn main() {
                         }
                         "settings" => {
                             crate::commands::open_settings_window(ah.clone());
+                        }
+                        "refresh-tray" => tray::request_restart(),
+                        "diagnostics" => {
+                            use tauri_plugin_clipboard_manager::ClipboardExt;
+                            let report = diagnostics::support_report(&ah);
+                            let result = ah.clipboard().write_text(report);
+                            diagnostics::record("support-report", if result.is_ok() { "copied" } else { "clipboard unavailable" });
                         }
                         _ => {}
                     })

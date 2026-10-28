@@ -2,7 +2,7 @@
 //! activation after a controlled fixture test. See TRAY_LIVE.md.
 use super::*;
 use std::{
-    sync::{mpsc, LazyLock, Mutex, OnceLock},
+    sync::{mpsc, LazyLock, Mutex, MutexGuard, OnceLock},
     time::{Duration, Instant},
 };
 use windows::Win32::{
@@ -92,6 +92,47 @@ static STARTED: OnceLock<()> = OnceLock::new();
 static DROPPED: AtomicBool = AtomicBool::new(false);
 static STOP_REQUEST: AtomicBool = AtomicBool::new(false);
 static STOPPED: AtomicBool = AtomicBool::new(false);
+static RESET_REQUEST: AtomicBool = AtomicBool::new(false);
+static ATTACHED: AtomicBool = AtomicBool::new(false);
+
+// Never trust an inventory left behind by a panicking writer. Keep the token
+// counter so a re-registration cannot revive a previously issued action token.
+fn lock_inventory(mutex: &Mutex<Store>) -> (MutexGuard<'_, Store>, bool) {
+    match mutex.lock() {
+        Ok(store) => (store, false),
+        Err(poisoned) => {
+            let mut store = poisoned.into_inner();
+            store.entries.clear();
+            store.shell.clear();
+            mutex.clear_poison();
+            (store, true)
+        }
+    }
+}
+
+fn inventory() -> MutexGuard<'static, Store> {
+    let (store, recovered) = lock_inventory(&STORE);
+    if recovered {
+        DROPPED.store(true, Ordering::Release);
+        crate::diagnostics::record("tray-provider", "inventory invalidated after poisoned lock");
+    }
+    store
+}
+
+pub(crate) fn request_restart() {
+    RESET_REQUEST.store(true, Ordering::Release);
+    crate::diagnostics::record("tray-provider", "manual restart requested");
+}
+
+pub(crate) fn diagnostic() -> serde_json::Value {
+    let store = inventory();
+    serde_json::json!({
+        "observer_attached": ATTACHED.load(Ordering::Acquire),
+        "live_icons": store.entries.len(),
+        "restart_pending": RESET_REQUEST.load(Ordering::Acquire),
+        "worker_stopped": STOPPED.load(Ordering::Acquire)
+    })
+}
 struct Inbox {
     shell: isize,
     pid: u32,
@@ -285,9 +326,7 @@ fn ingest(store: &mut Store, packet: Packet) -> bool {
 }
 
 pub(super) fn snapshot(shell: &str) -> Vec<Entry> {
-    let Ok(mut store) = STORE.lock() else {
-        return vec![];
-    };
+    let mut store = inventory();
     if store.shell != shell {
         return vec![];
     }
@@ -304,6 +343,7 @@ struct Observer {
 }
 impl Drop for Observer {
     fn drop(&mut self) {
+        ATTACHED.store(false, Ordering::Release);
         unsafe {
             let _ = UnhookWindowsHookEx(self.hook);
             if GetPropW(self.shell, PROPERTY).0 == self.receiver.0 {
@@ -497,7 +537,7 @@ fn run(
                 if session.is_some_and(|s| !s.is_current()) {
                     observer.take();
                     session = None;
-                    STORE.lock().unwrap().entries.clear();
+                    inventory().entries.clear();
                     dirty = true;
                 }
                 last_session_check = Instant::now();
@@ -516,11 +556,12 @@ fn run(
                     });
                     match attach(&path, shell, hwnd) {
                         Ok(value) => {
-                            let mut store = STORE.lock().unwrap();
+                            let mut store = inventory();
                             store.shell = shell.id();
                             store.entries.clear();
                             drop(store);
                             observer = Some(value);
+                            ATTACHED.store(true, Ordering::Release);
                             session = Some(shell);
                             crate::diagnostics::record("tray-provider", "observer attached");
                             if refresh {
@@ -542,19 +583,21 @@ fn run(
             // Encoding/store work happens outside Explorer and its send.
             for packet in rx.try_iter().take(128) {
                 if session.is_some_and(|s| s.is_current()) {
-                    dirty |= ingest(&mut STORE.lock().unwrap(), packet);
+                    dirty |= ingest(&mut inventory(), packet);
                 }
             }
-            if DROPPED.swap(false, Ordering::Relaxed) {
-                STORE.lock().unwrap().entries.clear();
+            let restart = RESET_REQUEST.swap(false, Ordering::AcqRel);
+            if DROPPED.swap(false, Ordering::AcqRel) || restart {
+                inventory().entries.clear();
                 dirty = true;
                 crate::diagnostics::record(
                     "tray-provider",
-                    "message gap/queue overflow; invalidated live state",
+                    "resynchronizing observer; invalidated live state",
                 );
                 observer.take();
                 session = None;
-                next_attach = Instant::now() + Duration::from_secs(5);
+                INBOX.with(|slot| *slot.borrow_mut() = None);
+                next_attach = Instant::now() + if restart { Duration::ZERO } else { Duration::from_secs(5) };
             }
             if dirty && last_emit.elapsed() >= Duration::from_millis(250) {
                 if let Some(app) = &app {
@@ -566,7 +609,7 @@ fn run(
             let _ = MsgWaitForMultipleObjectsEx(None, 100, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         }
         drop(observer);
-        STORE.lock().unwrap().entries.clear();
+        inventory().entries.clear();
         INBOX.with(|slot| *slot.borrow_mut() = None);
         let _ = DestroyWindow(hwnd);
     }
@@ -652,6 +695,22 @@ fn dispatch(token: &str, context: bool, double: bool) -> Option<Result<(), Strin
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicU64;
+    #[test]
+    fn poisoned_inventory_discards_identity_but_preserves_token_sequence() {
+        let mutex = Mutex::new(Store { shell: "old-shell".into(), next: 71, entries: vec![] });
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = mutex.lock().unwrap();
+            panic!("controlled inventory failure");
+        });
+        let (store, recovered) = lock_inventory(&mutex);
+        assert!(recovered);
+        assert!(store.shell.is_empty());
+        assert!(store.entries.is_empty());
+        assert_eq!(store.next, 71);
+        drop(store);
+        assert!(!mutex.is_poisoned());
+        assert!(!lock_inventory(&mutex).1);
+    }
     #[test]
     fn callbacks_preserve_legacy_uid_and_v4_signed_coordinates() {
         let p = POINT { x: -120, y: 1000 };

@@ -1,6 +1,6 @@
 [package]
 name = "bloom"
-version = "3.10.22"
+version = "3.10.23"
 description = ""
 authors = ["Asius", "Sehajveer Singh (original Bloom)"]
 edition = "2021"
@@ -74,7 +74,6 @@ base64 = "0.22"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-updater = "2"
-window-vibrancy = "0.7.1"
 wmi = "0.14"
 tokio = { version = "1", features = ["time", "sync"] }
 webview2-com = "0.38"

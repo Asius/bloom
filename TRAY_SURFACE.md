@@ -124,7 +124,7 @@ retaining the icon inset. A headless Edge fixture using the actual styles showed
 the rounded surface and 9px inset; the installed Tauri window still needs the
 owner's visual confirmation.
 
-## Estabilidad de m閠ricas al arrancar
+## Estabilidad de m茅tricas al arrancar
 Dock y tray comparten una altura de respaldo de 42px (base 48 menos 6). El dock comunica la altura derivada de la base nativa, sin medir la caja que Framer modifica durante las animaciones; las respuestas del handshake rechazan alturas no finitas/fuera de rango y callbacks posteriores al desmontaje.
-La primera geometr韆 usable fija el espaciado y el borde derecho para esa sesi髇 de Explorer/monitor/DPI/escala de Bloom. Si al arrancar falta una medici髇 nativa se conserva el respaldo de 28px hasta una recalibraci髇 expl韈ita; una medici髇 o ancla tard韆 no desplaza una bandeja visible. Cambiar el n鷐ero de iconos conserva el borde derecho y adapta el ancho, como antes. Un cambio de escala, DPI, monitor o sesi髇 permite recalibrar. No se alteran clics, proveedor vivo, visibilidad ni men鷖 nativos.
-Pruebas autom醫icas cubren medici髇 tard韆, ancla ausente/tard韆, menos iconos y cambios de sesi髇/DPI/escala. Arranque, reinicio, Capturas y maximizar/restaurar en la versi髇 instalada quedan pendientes del propietario.
+La primera geometr铆a usable fija el espaciado y el borde derecho para esa sesi贸n de Explorer/monitor/DPI/escala de Bloom. Si al arrancar falta una medici贸n nativa se conserva el respaldo de 28px hasta una recalibraci贸n expl铆cita; una medici贸n o ancla tard铆a no desplaza una bandeja visible. Cambiar el n煤mero de iconos conserva el borde derecho y adapta el ancho, como antes. Un cambio de escala, DPI, monitor o sesi贸n permite recalibrar. No se alteran clics, proveedor vivo, visibilidad ni men煤s nativos.
+Pruebas autom谩ticas cubren medici贸n tard铆a, ancla ausente/tard铆a, menos iconos y cambios de sesi贸n/DPI/escala. Arranque, reinicio, Capturas y maximizar/restaurar en la versi贸n instalada quedan pendientes del propietario.

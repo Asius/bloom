@@ -1,5 +1,7 @@
 # Live notification-area provider
 
+3.10.23 adds a native Bloom menu action to restart the observer without restarting Explorer. A poisoned inventory is discarded, preserving the monotonically increasing token counter; queued state is resynchronized through the existing bounded retry. Copy Bloom diagnostics exports an allow-listed local support summary without application names, paths, titles or log contents. See [STABILITY.md](STABILITY.md) for the installed regression matrix and limitations.
+
 Bloom 3.10.12 keeps the approved tray layout and adds a live data/action path.
 Registry history is no longer the only image source. Native UI Automation is
 retained for icons whose registration/callback is unavailable.
