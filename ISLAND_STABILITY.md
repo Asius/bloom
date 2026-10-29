@@ -29,3 +29,9 @@ La comprobación de navegador usa IPC simulado. El propietario debe repetir la s
 ## Distribución
 
 Un solo instalador NSIS de Windows x64. La firma .sig y latest.json son necesarios para el actualizador; ZIP/TAR de fuentes los genera GitHub. Las versiones antiguas y sus MSI se mantienen como historial. No se compilan instaladores de otros sistemas ni MSI en las nuevas entregas.
+
+## Dependencia de documentos
+
+GitHub notificó [GHSA-m665-v7pm-7grj](https://github.com/advisories/GHSA-m665-v7pm-7grj) después de subir la corrección de vistas. El lector ZIP pasa de 4.6.1 a 9.0.5, versión indicada como corregida en ese aviso. Bloom lee entradas conocidas en memoria para vistas previas; no reproduce la cadena de extracción y ejecución descrita en el aviso.
+
+El actualizador conserva 2.12.0 con TLS y proxy de Windows, retirando su feature opcional zip (ZIP/TAR heredados). Recibe los instaladores NSIS firmados directamente. Así no se conserva otra copia antigua de zip ni se incorpora una actualización amplia de Tauri/WebView durante esta corrección. Las pruebas nuevas cubren un documento con XML comprimido, el límite de tamaño y un archivo dañado. La actualización instalada N-1 sigue pendiente del propietario.

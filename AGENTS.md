@@ -38,4 +38,6 @@ Since 3.11.1, publish one Windows x64 NSIS setup.exe only (plus its updater sign
 
 Island view changes use a keyed immediate replacement, with container springs and entrance fades. Do not restore independent exit-presence queues for music and tool panels. Geometry and JSX share islandView(); media snapshot equality includes seek permission and position timestamp. Visualizer is shared by both players without importing App. Browser regression uses scripts/preview-island.mjs in target/ui-preview; never ship IPC mocks or infer native Windows behavior from this fixture.
 
+For the NSIS-only channel, updater 2.12.0 is pinned with rustls-tls and system-proxy, without its optional zip feature. Shelf previews use the reviewed zip 9.0.5. Do not re-enable legacy archive updater formats or leave an affected second zip version in the lockfile; review future updater/platform upgrades separately. See ISLAND_STABILITY.md.
+
 The agent owns technical checks; the owner tests installed behavior. Publication, pure tests and browser IPC mocks do not prove native Windows behavior. List pending owner cases per release and keep roadmap status honest. Do not replace the installed app or control the owner's desktop as an automatic publication step.

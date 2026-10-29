@@ -297,6 +297,62 @@ fn shell_thumbnail(path: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn fixture_path() -> std::path::PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "bloom-office-preview-{}-{}-{}.docx",
+            std::process::id(),
+            crate::utils::get_now_ms(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn office_preview_reads_deflated_xml_without_extracting_files() {
+        use std::io::Write;
+        let path = fixture_path();
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        archive.start_file("word/document.xml", options).unwrap();
+        archive
+            .write_all(b"<w:p><w:t>Document preview</w:t></w:p>")
+            .unwrap();
+        // Irrelevant paths are never extracted by the preview reader.
+        archive
+            .start_file("unrelated/ignored.txt", options)
+            .unwrap();
+        archive.write_all(b"unused").unwrap();
+        drop(archive.finish().unwrap());
+        let text = office_text(&path, "docx");
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(text.as_deref(), Some("Document preview"));
+    }
+
+    #[test]
+    fn oversized_and_damaged_office_entries_fail_without_a_preview() {
+        use std::io::Write;
+        let path = fixture_path();
+        let mut archive = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        archive
+            .start_file(
+                "word/document.xml",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated),
+            )
+            .unwrap();
+        archive
+            .write_all(&vec![b'x'; MAX_ENTRY_BYTES as usize + 1])
+            .unwrap();
+        drop(archive.finish().unwrap());
+        let oversized = office_text(&path, "docx");
+        std::fs::write(&path, b"not a ZIP document").unwrap();
+        let damaged = office_text(&path, "docx");
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(oversized, None);
+        assert_eq!(damaged, None);
+    }
+
     #[test]
     fn extracts_paragraph_text() {
         let xml = r#"<w:document><w:body><w:p><w:r><w:t>Hello &amp; welcome</w:t></w:r></w:p><w:p><w:r><w:t xml:space="preserve">Second  line</w:t></w:r></w:p></w:body></w:document>"#;
