@@ -34,4 +34,8 @@ Work on main following Asius/bloom by default. Every commit needs a short conven
 
 The owner authorizes normal pushes, reviewing/updating/merging PRs, tags and Releases permanently. Never move published tags or log signing secrets. Review dependency updates individually. Synchronize all four versions; verify local checks plus CI/CodeQL on the exact revision before tagging; wait for Release completion and verify latest manifest, full downloads, SHA-256 and updater signatures.
 
+Since 3.11.1, publish one Windows x64 NSIS setup.exe only (plus its updater signature and latest.json). Keep bundle.targets=["nsis"] and the Release workflow's --bundles nsis argument. Do not delete or retag historical releases. GitHub's generated source archives are not additional installers.
+
+Island view changes use a keyed immediate replacement, with container springs and entrance fades. Do not restore independent exit-presence queues for music and tool panels. Geometry and JSX share islandView(); media snapshot equality includes seek permission and position timestamp. Visualizer is shared by both players without importing App. Browser regression uses scripts/preview-island.mjs in target/ui-preview; never ship IPC mocks or infer native Windows behavior from this fixture.
+
 The agent owns technical checks; the owner tests installed behavior. Publication, pure tests and browser IPC mocks do not prove native Windows behavior. List pending owner cases per release and keep roadmap status honest. Do not replace the installed app or control the owner's desktop as an automatic publication step.

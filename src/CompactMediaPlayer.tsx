@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
-import { Visualizer } from "./App";
+import { Visualizer } from "./components/Visualizer";
+import type { MediaInfo } from "./mediaInfo";
 import {
 	PlayIcon,
 	PauseIcon,
@@ -14,22 +15,9 @@ import {
 	VolumeHighIcon
 } from "./icons";
 
-interface MediaInfo {
-	title: string;
-	artist: string;
-	is_playing: boolean;
-	has_media: boolean;
-	artwork?: string[];
-	position_ms?: number;
-	duration_ms?: number;
-	seek_enabled?: boolean;
-	position_updated_at?: number;
-}
-
 interface CompactMediaPlayerProps {
 	mediaInfo: MediaInfo;
 	albumArtUrl: string | null;
-	albumArtKey: number;
 	isPlaying: boolean;
 	volume: number;
 	volumeExpanded: boolean;
@@ -112,7 +100,6 @@ function formatRemaining(elapsed: number, duration: number): string {
 export function CompactMediaPlayer({
 	mediaInfo,
 	albumArtUrl,
-	albumArtKey,
 	isPlaying,
 	volume,
 	volumeExpanded,
@@ -201,7 +188,7 @@ export function CompactMediaPlayer({
 					<AnimatePresence mode="wait" initial={false}>
 						{albumArtUrl ? (
 							<motion.img
-								key={`art-${albumArtKey}`}
+								key={albumArtUrl}
 								src={albumArtUrl}
 								alt="Art"
 								draggable={false}
@@ -241,6 +228,7 @@ export function CompactMediaPlayer({
 						<div className="cmp-track-fill" style={{ width: `${progressPercent}%` }} />
 						{seekEnabled && (
 							<input
+								aria-label="Playback position"
 								ref={seekRef}
 								type="range"
 								className="cmp-seek"
@@ -277,6 +265,7 @@ export function CompactMediaPlayer({
 
 				<div className="cmp-main-controls">
 					<motion.button
+						aria-label="Previous track"
 						className="cmp-btn"
 						onClick={(e) => {
 							e.stopPropagation();
@@ -295,6 +284,7 @@ export function CompactMediaPlayer({
 					</motion.button>
 
 					<motion.button
+						aria-label={isPlaying ? "Pause" : "Play"}
 						className="cmp-btn cmp-play"
 						onClick={(e) => {
 							e.stopPropagation();
@@ -317,6 +307,7 @@ export function CompactMediaPlayer({
 					</motion.button>
 
 					<motion.button
+						aria-label="Next track"
 						className="cmp-btn"
 						onClick={(e) => {
 							e.stopPropagation();
@@ -363,6 +354,7 @@ export function CompactMediaPlayer({
 							<div className="cmp-volume-track">
 								<div className="cmp-volume-fill" style={{ width: `${volume * 100}%` }} />
 								<input
+									aria-label="Media volume"
 									type="range"
 									className="cmp-volume-slider"
 									min={0}

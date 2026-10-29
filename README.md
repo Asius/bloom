@@ -11,6 +11,8 @@ Una isla interactiva para Windows que complementa el escritorio. La barra de tar
 - Modos Fixed/Smart/Peek, temas claro/oscuro y escala de texto independiente.
 - Actualización firmada desde [Asius/bloom](https://github.com/Asius/bloom/releases/latest).
 
+Desde 3.11.1 se publica un único instalador Windows x64 `.exe` (NSIS), acompañado de firma y manifiesto para las actualizaciones. [Corrección de transiciones y prueba de interfaz](ISLAND_STABILITY.md).
+
 La línea 3.11 retira el dock y bandeja propios de la línea 3.10. No requiere reinstalar ni reiniciar Explorer al usar la actualización integrada. Ver [migración y pruebas](ISLAND_MIGRATION.md).
 
 ## Desarrollo

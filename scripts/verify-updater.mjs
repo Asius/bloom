@@ -86,7 +86,15 @@ if (manifest) {
 	}
 
 	const platforms = manifest.platforms ?? {};
-	const required = ["windows-x86_64", "windows-x86_64-nsis", "windows-x86_64-msi"];
+	// New releases ship one NSIS installer. Still verify MSI entries when
+	// inspecting an older release; their absence is valid for NSIS-only builds.
+	const required = [
+		...new Set([
+			"windows-x86_64",
+			"windows-x86_64-nsis",
+			...Object.keys(platforms).filter((key) => key.startsWith("windows-"))
+		])
+	];
 	for (const key of required) {
 		const entry = platforms[key];
 		if (!entry?.url || !entry?.signature) {

@@ -1,3 +1,6 @@
+import { islandView, type IslandMode } from "./islandView";
+import { sameMediaInfo, type MediaInfo } from "./mediaInfo";
+import { Visualizer } from "./components/Visualizer";
 import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
@@ -17,7 +20,15 @@ import {
 	Type,
 	X
 } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	type CSSProperties
+} from "react";
 import "./App.css";
 import { CompactMediaPlayer } from "./CompactMediaPlayer";
 import { EdgeSurface } from "./components/EdgeSurface";
@@ -93,62 +104,6 @@ function GreenDownArrowIcon() {
 	);
 }
 
-export const Visualizer = memo(function Visualizer({
-	isPlaying,
-	bars = 5,
-	height = 20
-}: {
-	isPlaying: boolean;
-	bars?: number;
-	height?: number;
-}) {
-	const [audioData, setAudioData] = useState<number[]>(new Array(bars).fill(0.18));
-
-	useEffect(() => {
-		if (!isPlaying) {
-			setAudioData(new Array(bars).fill(0.18));
-			return;
-		}
-
-		const unlisten = listen<{ frequencies: number[] }>("audio-visualization", (event) => {
-			// If we receive fewer frequencies than bars, repeat or interpolate
-			// If more, slice
-			let data = event.payload.frequencies;
-			if (data.length > bars) data = data.slice(0, bars);
-			while (data.length < bars) data.push(0.18);
-			setAudioData(data);
-		});
-
-		return () => {
-			unlisten.then((fn) => fn());
-		};
-	}, [isPlaying, bars]);
-
-	return (
-		<div
-			className="visualizer-horizontal"
-			style={{ height: `${height}px`, width: `${bars * 6}px` }}
-		>
-			{audioData.map((value, i) => (
-				<motion.div
-					key={i}
-					className="bar-horizontal"
-					animate={{
-						scaleY: isPlaying ? Math.max(0.2, value) : 0.1,
-						opacity: isPlaying ? 0.95 : 0.5
-					}}
-					transition={{
-						type: "spring",
-						stiffness: 600,
-						damping: 30,
-						mass: 0.5
-					}}
-				/>
-			))}
-		</div>
-	);
-});
-
 // Number of week rows the current month occupies. Calendar mode sizes the
 // notch to the month so five-row months stay compact and six-row months never
 // clip the last row.
@@ -158,18 +113,6 @@ const calendarMonthRows = () => {
 	const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 	return Math.ceil((firstWeekday + daysInMonth) / 7);
 };
-
-interface MediaInfo {
-	title: string;
-	artist: string;
-	is_playing: boolean;
-	has_media: boolean;
-	artwork?: string[];
-	position_ms?: number;
-	duration_ms?: number;
-	seek_enabled?: boolean;
-	position_updated_at?: number;
-}
 
 // A shelf file's preview from the backend: a picture when one can be made,
 // else the opening text of a document or text file, and whether it's a folder
@@ -189,7 +132,7 @@ interface ShelfItem {
 	timestamp: number;
 }
 
-type BloomMode = "music" | "calendar" | "command-center" | "status" | "shelf";
+type BloomMode = IslandMode;
 
 // The shelf is a short-lived stash: one row, newest first, oldest evicted.
 const SHELF_MAX_ITEMS = 10;
@@ -266,8 +209,6 @@ function App() {
 		() => localStorage.getItem("bloom-time-format-24h") === "true"
 	);
 
-
-
 	// The status widget whose tooltip is open, the side of the pill it hangs
 	// from, and the distance from the widget to just past that edge.
 	const [statusTooltip, setStatusTooltip] = useState<{
@@ -304,16 +245,11 @@ function App() {
 		is_playing: false,
 		has_media: false
 	});
-	const [albumArtUrl, setAlbumArtUrl] = useState<string | null>(null);
-	const [albumArtKey, setAlbumArtKey] = useState(0);
+	const albumArtUrl = mediaInfo.artwork?.[0] ?? null;
 	const [volume, setVolume] = useState(0.5);
 	const [isMuted, setIsMuted] = useState(false);
 	// Sliders show 0 while muted, matching the overlay HUD.
 	const displayVolume = isMuted ? 0 : volume;
-	// Null until the first successful fetch so the pill can't flash a wrong
-	// default on startup.
-
-
 
 	// System metrics for status widgets
 	const [cpuUsage, setCpuUsage] = useState(0);
@@ -417,7 +353,7 @@ function App() {
 			...measureElements([
 				[".activity-bubble", 16],
 				[".status-tooltip", 28],
-				[".screen-corner", 0],
+				[".screen-corner", 0]
 			])
 		);
 		sendNotchRegion(wanted);
@@ -1441,8 +1377,6 @@ function App() {
 	};
 	rememberPanelRef.current = rememberPanel;
 
-	// Called by views that take typed input; see releaseNotchHover.
-
 	// In peek mode, briefly show the notch when a new track starts or playback
 	// resumes. The notch itself never switches views for media; the collapsed
 	// pill follows the live-activity rule below.
@@ -1554,42 +1488,10 @@ function App() {
 			const info = event.payload;
 			if (!info) return;
 
-			setMediaInfo((prev) => {
-				// Find if artwork changed by checking the first element
-				const prevArt = prev.artwork?.[0];
-				const nextArt = info.artwork?.[0];
-				const artChanged = prevArt !== nextArt;
-
-				if (
-					prev.title === info.title &&
-					prev.artist === info.artist &&
-					prev.is_playing === info.is_playing &&
-					prev.has_media === info.has_media &&
-					!artChanged &&
-					prev.position_ms === info.position_ms &&
-					prev.duration_ms === info.duration_ms
-				) {
-					return prev;
-				}
-
-				// Update playing state separately for the hook triggers
-				setIsPlaying(info.is_playing);
-
-				if (info.artwork && info.artwork.length > 0) {
-					const newArt = info.artwork[0];
-					setAlbumArtUrl((prev) => {
-						if (prev !== newArt) {
-							setAlbumArtKey((k) => k + 1);
-							return newArt;
-						}
-						return prev;
-					});
-				} else {
-					setAlbumArtUrl(null);
-				}
-
-				return info;
-			});
+			// Keep state updaters pure: playback/artwork no longer schedule other
+			// state updates while React evaluates a previous snapshot.
+			setIsPlaying(info.is_playing);
+			setMediaInfo((previous) => (sameMediaInfo(previous, info) ? previous : info));
 		});
 
 		return () => {
@@ -1598,7 +1500,6 @@ function App() {
 	}, []);
 
 	// Media controls via Tauri commands
-	/* Unused saveAndBroadcast removed to fix TS build error */
 	const togglePlayPause = useCallback(async () => {
 		try {
 			await invoke("media_play_pause");
@@ -1882,6 +1783,14 @@ function App() {
 		return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
 	};
 
+	const activeView = islandView({
+		open: isOpen,
+		mode: bloomMode,
+		calendarEnabled: settingsCalendarEnabled,
+		musicEnabled: settingsMusicModeEnabled,
+		hasMedia: mediaInfo.has_media
+	});
+
 	// Music mode shows any time we have media info (playing or paused) and music mode setting is enabled
 	const isMusicMode = mediaInfo.has_media && bloomMode === "music" && settingsMusicModeEnabled;
 	// A media session remains reachable on hover after its activity fades, or
@@ -1901,8 +1810,8 @@ function App() {
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
 		if (isCalendarMode) return 350;
-		if (bloomMode === "shelf") return 380;
-		if (bloomMode === "command-center" && isOpen) return 350;
+		if (activeView === "shelf") return 380;
+		if (activeView === "command-center") return 350;
 		if (showMusicOnStatusHover) {
 			return 170 + (settingsVisualizerEnabled ? 30 : 0);
 		}
@@ -1910,7 +1819,7 @@ function App() {
 			const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
 			return Math.max(Math.min(200 + totalWidgets * 50, 380) - clock24hTrim, statusFitWidth);
 		}
-		if (isMusicMode && isOpen) return mediaLayout === "compact" ? 300 : 340;
+		if (activeView === "music") return mediaLayout === "compact" ? 300 : 340;
 		if (showUpdatePulse && !isHovered) return 200;
 
 		let w = 140 - clock24hTrim;
@@ -1928,17 +1837,17 @@ function App() {
 		}
 		// The calendar keeps room for every row of the displayed month.
 		const headerExtra = notchHeaderHeight - 36;
-		if (bloomMode === "calendar") return notchHeaderHeight + 100 + calendarMonthRows() * 42;
+		if (activeView === "calendar") return notchHeaderHeight + 100 + calendarMonthRows() * 42;
 		// Shelf expands on mode alone (no hover needed: there is no cursor
 		// hover during an OS drag) and is sized to exactly one row of tiles,
 		// plus room for the scrollbar once the tiles overflow it.
-		if (bloomMode === "shelf") {
+		if (activeView === "shelf") {
 			if (shelfItems.length === 0) return 130 + headerExtra;
 			return (shelfOverflowing ? 190 : 176) + headerExtra;
 		}
-		if (bloomMode === "command-center") return isOpen ? 190 + headerExtra : notchHeaderHeight;
-		if (bloomMode === "status") return notchHeaderHeight;
-		if (isMusicMode && isOpen) {
+		if (activeView === "command-center") return 190 + headerExtra;
+		if (activeView === "collapsed") return notchHeaderHeight;
+		if (activeView === "music") {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
 			let h = mediaLayout === "compact" ? (hasProgressBar ? 132 : 116) : 120;
 			if (mediaLayout === "compact") {
@@ -1949,7 +1858,7 @@ function App() {
 		return notchHeaderHeight;
 	};
 
-	const isCalendarMode = bloomMode === "calendar";
+	const isCalendarMode = activeView === "calendar";
 	// Arrows switch between the two tool panels; wheel/swipe can also open one
 	// directly from the collapsed pill or a live activity.
 	const showPanelArrows =
@@ -2014,14 +1923,16 @@ function App() {
 			</AnimatePresence>
 
 			<div
-				style={{
-					zoom: scale,
-					width: "100%",
-					display: "flex",
-					justifyContent: "center",
-					position: "relative",
-					"--notch-header-height": `${notchHeaderHeight}px`
-				} as CSSProperties}
+				style={
+					{
+						zoom: scale,
+						width: "100%",
+						display: "flex",
+						justifyContent: "center",
+						position: "relative",
+						"--notch-header-height": `${notchHeaderHeight}px`
+					} as CSSProperties
+				}
 			>
 				<motion.div
 					ref={bloomRef}
@@ -2079,572 +1990,269 @@ function App() {
 					}}
 				>
 					<EdgeSurface edge="top" flares={isImpacted} />
-					<AnimatePresence mode="wait">
-						{isExpanded && (
-							<motion.div
-								key="bloom-content"
-								initial={{ opacity: 0 }}
-								animate={{ opacity: 1 }}
-								exit={{ opacity: 0 }}
-								transition={{ duration: 0.1 }}
-								style={{
-									width: "100%",
-									height: "100%",
-									display: "flex",
-									flexDirection: "column",
-									alignItems: "center",
-									position: "relative",
-									borderRadius: "inherit"
-								}}
-							>
-								{/* Faster Waiting Transition Area */}
-								<AnimatePresence mode="wait">
-									{isOpen && isMusicMode && !isCalendarMode ? (
-										<motion.div
-											key="expanded-music"
-											className="expanded-music-container"
-											initial={{ opacity: 0, scale: 0.98 }}
-											animate={{ opacity: 1, scale: 1 }}
-											exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.1 } }}
-											transition={{ type: "spring", stiffness: 500, damping: 30 }}
-										>
-											{mediaLayout === "compact" ? (
-												<CompactMediaPlayer
-													mediaInfo={mediaInfo}
-													albumArtUrl={albumArtUrl}
-													albumArtKey={albumArtKey}
-													isPlaying={isPlaying}
-													volume={displayVolume}
-													volumeExpanded={compactVolumeExpanded}
-													onVolumeExpandedChange={setCompactVolumeExpanded}
-													onTogglePlayPause={togglePlayPause}
-													onVolumeChange={handleVolumeChange}
-													prevFront={prevFront}
-													prevBack={prevBack}
-													nextFront={nextFront}
-													nextBack={nextBack}
-													onAnimatePrev={animatePrev}
-													onAnimateNext={animateNext}
-													onLayoutChange={(layout) => {
-														setMediaLayout(layout);
-														localStorage.setItem("bloom-media-layout", layout);
+
+					{isExpanded && (
+						<motion.div
+							key={activeView}
+							data-island-view={activeView}
+							initial={{ opacity: 0 }}
+							animate={{ opacity: 1 }}
+
+							transition={{ duration: 0.1 }}
+							style={{
+								width: "100%",
+								height: "100%",
+								display: "flex",
+								flexDirection: "column",
+								alignItems: "center",
+								position: "relative",
+								borderRadius: "inherit"
+							}}
+						>
+							{/* One view owns the panel area; only its entrance is animated. */}
+
+							{activeView === "music" ? (
+								<motion.div
+									key="expanded-music"
+									className="expanded-music-container"
+									initial={{ opacity: 0, scale: 0.98 }}
+									animate={{ opacity: 1, scale: 1 }}
+
+									transition={{ type: "spring", stiffness: 500, damping: 30 }}
+								>
+									{mediaLayout === "compact" ? (
+										<CompactMediaPlayer
+											mediaInfo={mediaInfo}
+											albumArtUrl={albumArtUrl}
+											isPlaying={isPlaying}
+											volume={displayVolume}
+											volumeExpanded={compactVolumeExpanded}
+											onVolumeExpandedChange={setCompactVolumeExpanded}
+											onTogglePlayPause={togglePlayPause}
+											onVolumeChange={handleVolumeChange}
+											prevFront={prevFront}
+											prevBack={prevBack}
+											nextFront={nextFront}
+											nextBack={nextBack}
+											onAnimatePrev={animatePrev}
+											onAnimateNext={animateNext}
+											onLayoutChange={(layout) => {
+												setMediaLayout(layout);
+												localStorage.setItem("bloom-media-layout", layout);
+												invoke("save_setting", {
+													key: "bloom-media-layout",
+													value: layout
+												}).catch(console.error);
+												window.dispatchEvent(
+													new CustomEvent("settings-changed", {
+														detail: { key: "media-layout", value: layout }
+													})
+												);
+											}}
+										/>
+									) : (
+										<div className="compact-premium-layout">
+											<div className="album-art-section">
+												<motion.div
+													className="premium-album-art"
+													whileHover={{ scale: 1.05 }}
+													whileTap={{ scale: 0.95 }}
+													onClick={(e) => {
+														e.stopPropagation();
+														setMediaLayout("compact");
+														localStorage.setItem("bloom-media-layout", "compact");
 														invoke("save_setting", {
 															key: "bloom-media-layout",
-															value: layout
+															value: "compact"
 														}).catch(console.error);
 														window.dispatchEvent(
 															new CustomEvent("settings-changed", {
-																detail: { key: "media-layout", value: layout }
+																detail: { key: "media-layout", value: "compact" }
 															})
 														);
 													}}
-												/>
-											) : (
-												<div className="compact-premium-layout">
-													<div className="album-art-section">
-														<motion.div
-															className="premium-album-art"
-															whileHover={{ scale: 1.05 }}
-															whileTap={{ scale: 0.95 }}
+													style={{ cursor: "pointer" }}
+												>
+													<AnimatePresence mode="wait" initial={false}>
+														{albumArtUrl ? (
+															<motion.img
+																key={albumArtUrl}
+																src={albumArtUrl}
+																alt="Art"
+																initial={{ rotateY: 90, opacity: 0 }}
+																animate={{ rotateY: 0, opacity: 1 }}
+																exit={{ rotateY: -90, opacity: 0 }}
+																transition={{ duration: 0.3, ease: "easeInOut" }}
+																style={{ width: "100%", height: "100%", objectFit: "cover" }}
+															/>
+														) : (
+															<motion.div
+																key="placeholder"
+																className="art-placeholder-mini"
+																initial={{ rotateY: 90, opacity: 0 }}
+																animate={{ rotateY: 0, opacity: 1 }}
+																exit={{ rotateY: -90, opacity: 0 }}
+																transition={{ duration: 0.3, ease: "easeInOut" }}
+															>
+																<MusicNoteIcon size={32} className="music-placeholder-svg" />
+															</motion.div>
+														)}
+													</AnimatePresence>
+												</motion.div>
+											</div>
+
+											<div className="metadata-controls-section-middle">
+												<div className="track-header-row">
+													<div className="track-info-middle">
+														<TitleMarquee title={mediaInfo.title} />
+														<span className="premium-artist">{mediaInfo.artist}</span>
+													</div>
+													<div className="header-visualizer-wrap">
+														<div className="header-visualizer">
+															<Visualizer isPlaying={isPlaying} bars={5} height={18} />
+														</div>
+														<motion.button
+															className="classic-audio-output-btn"
 															onClick={(e) => {
 																e.stopPropagation();
-																setMediaLayout("compact");
-																localStorage.setItem("bloom-media-layout", "compact");
-																invoke("save_setting", {
-																	key: "bloom-media-layout",
-																	value: "compact"
-																}).catch(console.error);
-																window.dispatchEvent(
-																	new CustomEvent("settings-changed", {
-																		detail: { key: "media-layout", value: "compact" }
-																	})
-																);
+																invoke("open_sound_settings").catch(() => {});
 															}}
-															style={{ cursor: "pointer" }}
+															whileTap={{ scale: 0.9 }}
+															title="Audio Output"
 														>
-															<AnimatePresence mode="wait" initial={false}>
-																{albumArtUrl ? (
-																	<motion.img
-																		key={`art-${albumArtKey}`}
-																		src={albumArtUrl}
-																		alt="Art"
-																		initial={{ rotateY: 90, opacity: 0 }}
-																		animate={{ rotateY: 0, opacity: 1 }}
-																		exit={{ rotateY: -90, opacity: 0 }}
-																		transition={{ duration: 0.3, ease: "easeInOut" }}
-																		style={{ width: "100%", height: "100%", objectFit: "cover" }}
-																	/>
-																) : (
-																	<motion.div
-																		key="placeholder"
-																		className="art-placeholder-mini"
-																		initial={{ rotateY: 90, opacity: 0 }}
-																		animate={{ rotateY: 0, opacity: 1 }}
-																		exit={{ rotateY: -90, opacity: 0 }}
-																		transition={{ duration: 0.3, ease: "easeInOut" }}
-																	>
-																		<MusicNoteIcon size={32} className="music-placeholder-svg" />
-																	</motion.div>
-																)}
-															</AnimatePresence>
-														</motion.div>
-													</div>
-
-													<div className="metadata-controls-section-middle">
-														<div className="track-header-row">
-															<div className="track-info-middle">
-																<TitleMarquee title={mediaInfo.title} />
-																<span className="premium-artist">{mediaInfo.artist}</span>
-															</div>
-															<div className="header-visualizer-wrap">
-																<div className="header-visualizer">
-																	<Visualizer isPlaying={isPlaying} bars={5} height={18} />
-																</div>
-																<motion.button
-																	className="classic-audio-output-btn"
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		invoke("open_sound_settings").catch(() => {});
-																	}}
-																	whileTap={{ scale: 0.9 }}
-																	title="Audio Output"
-																>
-																	<HeadphonesIcon size={20} style={{ opacity: 0.5 }} />
-																</motion.button>
-															</div>
-														</div>
-
-														<div className="controls-row-sleek">
-															<motion.button
-																className="sleek-btn previous-btn"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	animatePrev();
-																}}
-																whileHover={{ scale: 1.2 }}
-																whileTap={{ scale: 0.9 }}
-																transition={{ type: "spring", stiffness: 400, damping: 25 }}
-															>
-																<div
-																	style={{
-																		position: "relative",
-																		width: 32,
-																		height: 16,
-																		overflow: "hidden"
-																	}}
-																>
-																	<motion.div
-																		animate={prevBack}
-																		style={{
-																			position: "absolute",
-																			inset: 0,
-																			display: "flex",
-																			alignItems: "center",
-																			justifyContent: "center"
-																		}}
-																	>
-																		<SkipBackIcon size={32} />
-																	</motion.div>
-																	<motion.div
-																		animate={prevFront}
-																		style={{
-																			position: "absolute",
-																			inset: 0,
-																			display: "flex",
-																			alignItems: "center",
-																			justifyContent: "center"
-																		}}
-																	>
-																		<SkipBackIcon size={32} />
-																	</motion.div>
-																</div>
-															</motion.button>
-
-															<motion.button
-																className="sleek-btn play-pause-btn-floating"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	togglePlayPause();
-																}}
-																whileHover={{ scale: 1.2 }}
-																whileTap={{ scale: 0.95 }}
-																transition={{ type: "spring", stiffness: 400, damping: 25 }}
-															>
-																<AnimatePresence mode="wait" initial={false}>
-																	<motion.div
-																		key={isPlaying ? "pause" : "play"}
-																		initial={{ opacity: 0, scale: 0.8 }}
-																		animate={{ opacity: 1, scale: 1 }}
-																		exit={{ opacity: 0, scale: 0.8 }}
-																		transition={{ duration: 0.15 }}
-																		style={{
-																			display: "flex",
-																			alignItems: "center",
-																			justifyContent: "center"
-																		}}
-																	>
-																		{isPlaying ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
-																	</motion.div>
-																</AnimatePresence>
-															</motion.button>
-
-															<motion.button
-																className="sleek-btn next-btn"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	animateNext();
-																}}
-																whileHover={{ scale: 1.2 }}
-																whileTap={{ scale: 0.9 }}
-																transition={{ type: "spring", stiffness: 400, damping: 25 }}
-															>
-																<div
-																	style={{
-																		position: "relative",
-																		width: 32,
-																		height: 16,
-																		overflow: "hidden"
-																	}}
-																>
-																	<motion.div
-																		animate={nextBack}
-																		style={{
-																			position: "absolute",
-																			inset: 0,
-																			display: "flex",
-																			alignItems: "center",
-																			justifyContent: "center"
-																		}}
-																	>
-																		<SkipForwardIcon size={32} />
-																	</motion.div>
-																	<motion.div
-																		animate={nextFront}
-																		style={{
-																			position: "absolute",
-																			inset: 0,
-																			display: "flex",
-																			alignItems: "center",
-																			justifyContent: "center"
-																		}}
-																	>
-																		<SkipForwardIcon size={32} />
-																	</motion.div>
-																</div>
-															</motion.button>
-														</div>
-
-														<div className="volume-slider-container">
-															<VolumeLowIcon size={12} style={{ opacity: 0.5 }} />
-															<div className="slider-track-premium">
-																<input
-																	type="range"
-																	min="0"
-																	max="1"
-																	step="0.01"
-																	value={displayVolume}
-																	onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-																	onPointerDown={(e) => e.stopPropagation()}
-																	onClick={(e) => e.stopPropagation()}
-																	className="premium-slider"
-																/>
-																<div
-																	className="slider-progress-fill"
-																	style={{ width: `${displayVolume * 100}%` }}
-																/>
-															</div>
-															<VolumeHighIcon size={14} style={{ opacity: 0.5 }} />
-														</div>
+															<HeadphonesIcon size={20} style={{ opacity: 0.5 }} />
+														</motion.button>
 													</div>
 												</div>
-											)}
-										</motion.div>
-									) : (
-										<motion.div
-											key="standard-view-group"
-											initial={{ opacity: 0, y: -5 }}
-											animate={{ opacity: 1, y: 0 }}
-											exit={{ opacity: 0, y: 5, transition: { duration: 0.1 } }}
-											transition={{ duration: 0.2 }}
-											style={{ width: "100%" }}
-										>
-											<div className="main-row">
-												<AnimatePresence mode="wait">
-													{showUpdatePulse && !isHovered ? (
-														<motion.div
-															key="update-pulse-view"
-															initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
-															animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-															exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
-															className="power-pulse-content"
+
+												<div className="controls-row-sleek">
+													<motion.button
+														aria-label="Previous track"
+														className="sleek-btn previous-btn"
+														onClick={(e) => {
+															e.stopPropagation();
+															animatePrev();
+														}}
+														whileHover={{ scale: 1.2 }}
+														whileTap={{ scale: 0.9 }}
+														transition={{ type: "spring", stiffness: 400, damping: 25 }}
+													>
+														<div
+															style={{
+																position: "relative",
+																width: 32,
+																height: 16,
+																overflow: "hidden"
+															}}
 														>
-															<GreenDownArrowIcon />
-															<span className="label" style={{ color: "#32D74B" }}>
-																Update Available
-															</span>
-														</motion.div>
-													) : (
-														<motion.div
-															key="standard-view"
-															className="main-row-inner"
-															initial={{ opacity: 0 }}
-															animate={{ opacity: 1 }}
-															exit={{ opacity: 0 }}
+															<motion.div
+																animate={prevBack}
+																style={{
+																	position: "absolute",
+																	inset: 0,
+																	display: "flex",
+																	alignItems: "center",
+																	justifyContent: "center"
+																}}
+															>
+																<SkipBackIcon size={32} />
+															</motion.div>
+															<motion.div
+																animate={prevFront}
+																style={{
+																	position: "absolute",
+																	inset: 0,
+																	display: "flex",
+																	alignItems: "center",
+																	justifyContent: "center"
+																}}
+															>
+																<SkipBackIcon size={32} />
+															</motion.div>
+														</div>
+													</motion.button>
+
+													<motion.button
+														aria-label={isPlaying ? "Pause" : "Play"}
+														className="sleek-btn play-pause-btn-floating"
+														onClick={(e) => {
+															e.stopPropagation();
+															togglePlayPause();
+														}}
+														whileHover={{ scale: 1.2 }}
+														whileTap={{ scale: 0.95 }}
+														transition={{ type: "spring", stiffness: 400, damping: 25 }}
+													>
+														<AnimatePresence mode="wait" initial={false}>
+															<motion.div
+																key={isPlaying ? "pause" : "play"}
+																initial={{ opacity: 0, scale: 0.8 }}
+																animate={{ opacity: 1, scale: 1 }}
+																exit={{ opacity: 0, scale: 0.8 }}
+																transition={{ duration: 0.15 }}
+																style={{
+																	display: "flex",
+																	alignItems: "center",
+																	justifyContent: "center"
+																}}
+															>
+																{isPlaying ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
+															</motion.div>
+														</AnimatePresence>
+													</motion.button>
+
+													<motion.button
+														aria-label="Next track"
+														className="sleek-btn next-btn"
+														onClick={(e) => {
+															e.stopPropagation();
+															animateNext();
+														}}
+														whileHover={{ scale: 1.2 }}
+														whileTap={{ scale: 0.9 }}
+														transition={{ type: "spring", stiffness: 400, damping: 25 }}
+													>
+														<div
+															style={{
+																position: "relative",
+																width: 32,
+																height: 16,
+																overflow: "hidden"
+															}}
 														>
-															{/* Left: music on hover while a paused session remains, otherwise status widgets */}
-															<div className="side-content left">
-																{showCompactMusicIcons && settingsVisualizerEnabled ? (
-																	<AnimatePresence>
-																		{settingsVisualizerEnabled && (
-																			<motion.div
-																				key="visualizer"
-																				initial={{ scale: 0.8, opacity: 0 }}
-																				animate={{ scale: 1, opacity: 1 }}
-																				exit={{ scale: 0.8, opacity: 0 }}
-																			>
-																				<Visualizer isPlaying={isPlaying} />
-																			</motion.div>
-																		)}
-																	</AnimatePresence>
-																) : !showCompactMusicIcons &&
-																  isHovered &&
-																  statusWidgets.left.length > 0 ? (
-																	<motion.div
-																		key="left-widgets"
-																		ref={leftWidgetsRef}
-																		className="passive-features-group"
-																		initial={{ opacity: 0 }}
-																		animate={{ opacity: 1 }}
-																		exit={{ opacity: 0 }}
-																		transition={{ duration: 0.2 }}
-																	>
-																		{statusWidgets.left.map(renderStatusWidget)}
-																	</motion.div>
-																) : null}
-															</div>
+															<motion.div
+																animate={nextBack}
+																style={{
+																	position: "absolute",
+																	inset: 0,
+																	display: "flex",
+																	alignItems: "center",
+																	justifyContent: "center"
+																}}
+															>
+																<SkipForwardIcon size={32} />
+															</motion.div>
+															<motion.div
+																animate={nextFront}
+																style={{
+																	position: "absolute",
+																	inset: 0,
+																	display: "flex",
+																	alignItems: "center",
+																	justifyContent: "center"
+																}}
+															>
+																<SkipForwardIcon size={32} />
+															</motion.div>
+														</div>
+													</motion.button>
+												</div>
 
-															{/* Center - Time (always visible) */}
-															<div className="time-center" ref={timeCenterRef}>
-																<AnimatePresence>
-																	{showPanelArrows && (
-																		<motion.button
-																			key="panel-prev"
-																			type="button"
-																			className="panel-arrow prev"
-																			aria-label="Previous panel"
-																			initial={{ opacity: 0, x: 4 }}
-																			animate={{ opacity: 1, x: 0 }}
-																			exit={{ opacity: 0, x: 4 }}
-																			transition={{ duration: 0.15 }}
-																			onClick={(e) => {
-																				e.stopPropagation();
-																				cyclePanel(-1);
-																			}}
-																		>
-																			<ChevronLeft size={12} strokeWidth={2.5} />
-																		</motion.button>
-																	)}
-																</AnimatePresence>
-																<div className="time-flip-container" onClick={toggleCalendarMode}>
-																	<AnimatePresence initial={false}>
-																		{
-																			<motion.span
-																				key="clock"
-																				className="time"
-																				initial={{ rotateX: -90, opacity: 0 }}
-																				animate={{ rotateX: 0, opacity: 1 }}
-																				exit={{ rotateX: 90, opacity: 0 }}
-																				transition={{ type: "spring", stiffness: 600, damping: 30 }}
-																			>
-																				{time}
-																			</motion.span>
-																		}
-																	</AnimatePresence>
-																</div>
-																<AnimatePresence>
-																	{showPanelArrows && (
-																		<motion.button
-																			key="panel-next"
-																			type="button"
-																			className="panel-arrow next"
-																			aria-label="Next panel"
-																			initial={{ opacity: 0, x: -4 }}
-																			animate={{ opacity: 1, x: 0 }}
-																			exit={{ opacity: 0, x: -4 }}
-																			transition={{ duration: 0.15 }}
-																			onClick={(e) => {
-																				e.stopPropagation();
-																				cyclePanel(1);
-																			}}
-																		>
-																			<ChevronRight size={12} strokeWidth={2.5} />
-																		</motion.button>
-																	)}
-																</AnimatePresence>
-																{updateAvailable && showUpdateIndicator && (
-																	<div className="update-dot" />
-																)}
-															</div>
-
-															{/* Right: album art on a retained music session, otherwise status widgets */}
-															<div className="side-content right">
-																{showCompactMusicIcons &&
-																(settingsAlbumArtEnabled || showMusicOnStatusHover) ? (
-																	<AnimatePresence mode="wait">
-																		<motion.div
-																			key="album-art"
-																			className="album-art-transition-wrapper"
-																			initial={{ opacity: 0, scale: 0.8 }}
-																			animate={{ opacity: 1, scale: 1 }}
-																			exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
-																			transition={{ duration: 0.12 }}
-																		>
-																			<button
-																				className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
-																				aria-label="Open music"
-																				onClick={(e) => {
-																					e.stopPropagation();
-																					openNotch("music");
-																				}}
-																				onContextMenu={(e) => {
-																					e.preventDefault();
-																					e.stopPropagation();
-																					skipPrevious();
-																				}}
-																			>
-																				<div className="album-art-inner">
-																					<AnimatePresence mode="wait" initial={false}>
-																						{settingsAlbumArtEnabled && albumArtUrl ? (
-																							<motion.img
-																								key={`compact-art-${albumArtKey}`}
-																								src={albumArtUrl}
-																								alt="Art"
-																								draggable={false}
-																								initial={{ rotateY: 90, opacity: 0 }}
-																								animate={{ rotateY: 0, opacity: 1 }}
-																								exit={{ rotateY: -90, opacity: 0 }}
-																								transition={{ duration: 0.25, ease: "easeInOut" }}
-																								style={{
-																									width: "100%",
-																									height: "100%",
-																									objectFit: "cover"
-																								}}
-																							/>
-																						) : (
-																							<motion.div
-																								key="compact-placeholder"
-																								className="album-art-placeholder"
-																								initial={{ rotateY: 90, opacity: 0 }}
-																								animate={{ rotateY: 0, opacity: 1 }}
-																								exit={{ rotateY: -90, opacity: 0 }}
-																								transition={{ duration: 0.25, ease: "easeInOut" }}
-																							>
-																								<MusicNoteIcon className="music-placeholder-svg-small" />
-																							</motion.div>
-																						)}
-																					</AnimatePresence>
-																				</div>
-																			</button>
-																		</motion.div>
-																	</AnimatePresence>
-																) : !showCompactMusicIcons &&
-																  isHovered &&
-																  statusWidgets.right.length > 0 ? (
-																	<motion.div
-																		key="right-widgets"
-																		ref={rightWidgetsRef}
-																		className="passive-features-group"
-																		initial={{ opacity: 0 }}
-																		animate={{ opacity: 1 }}
-																		exit={{ opacity: 0 }}
-																		transition={{ duration: 0.2 }}
-																	>
-																		{statusWidgets.right.map(renderStatusWidget)}
-																	</motion.div>
-																) : null}
-															</div>
-														</motion.div>
-													)}
-												</AnimatePresence>
-											</div>
-										</motion.div>
-									)}
-								</AnimatePresence>
-
-
-
-
-
-								{/* Command Center Panel */}
-								<AnimatePresence>
-									{bloomMode === "command-center" && (
-										<motion.div
-											className="command-center-content-minimal"
-											onClick={(e) => e.stopPropagation()}
-											initial={{ opacity: 0 }}
-											animate={{ opacity: 1 }}
-											exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-											transition={{ type: "spring", stiffness: 400, damping: 30 }}
-										>
-											{/* Pills Grid */}
-											<div className="cc-pills-grid cc-pills-island">
-
-												{/* Notch Mode Pill */}
-												<button type="button"
-													className={`cc-pill-tile ${notchMode === "fixed" ? "active" : ""}`}
-													onClick={toggleNotchModeSetting}
-													title="Cycle notch mode: Fixed / Smart / Peek"
-												>
-													<div className="cc-pill-icon-wrapper">
-														<NotchIcon />
-													</div>
-													<div className="cc-pill-info">
-														<span className="cc-pill-title">Notch Mode</span>
-														<span className="cc-pill-status">
-															{notchMode === "fixed"
-																? "Fixed"
-																: notchMode === "smart"
-																	? "Smart"
-																	: "Peek"}
-														</span>
-													</div>
-												</button>
-											</div>
-
-											{/* Circular Actions Row */}
-											<div className="cc-circular-actions-row">
-												<button
-													className="cc-circular-btn"
-													onClick={(e) => {
-														e.stopPropagation();
-														openSettingsWindow();
-													}}
-													title="Bloom Settings"
-												>
-													<SettingsIcon />
-												</button>
-												<button
-													className="cc-circular-btn"
-													onClick={(e) => {
-														e.stopPropagation();
-														invoke("restart_bloom");
-													}}
-													title="Restart Bloom"
-												>
-													<ReloadIcon />
-												</button>
-											</div>
-
-											{/* Classic Sliders Area */}
-											<div className="cc-classic-sliders-area">
-												{/* Volume Slider */}
-												<div className="cc-classic-slider-row">
-													<div className="cc-classic-slider-label">
-														<VolumeLowIcon style={{ opacity: 0.5 }} />
-														<span>Volume</span>
-													</div>
-													<div className="cc-classic-slider-track">
+												<div className="volume-slider-container">
+													<VolumeLowIcon size={12} style={{ opacity: 0.5 }} />
+													<div className="slider-track-premium">
 														<input
+															aria-label="Media volume"
 															type="range"
 															min="0"
 															max="1"
@@ -2653,162 +2261,453 @@ function App() {
 															onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
 															onPointerDown={(e) => e.stopPropagation()}
 															onClick={(e) => e.stopPropagation()}
-															className="cc-classic-input"
+															className="premium-slider"
 														/>
 														<div
-															className="cc-classic-fill"
+															className="slider-progress-fill"
 															style={{ width: `${displayVolume * 100}%` }}
 														/>
 													</div>
-													<span className="cc-classic-percentage">
-														{Math.round(displayVolume * 100)}%
-													</span>
+													<VolumeHighIcon size={14} style={{ opacity: 0.5 }} />
 												</div>
 											</div>
-										</motion.div>
+										</div>
 									)}
-								</AnimatePresence>
+								</motion.div>
+							) : (
+								<motion.div
+									key="standard-view-group"
+									initial={{ opacity: 0, y: -5 }}
+									animate={{ opacity: 1, y: 0 }}
 
-								{/* Calendar */}
-								<AnimatePresence>
-									{settingsCalendarEnabled && isCalendarMode && (
-										<motion.div
-											className="calendar-content"
-											onClick={(e) =>
-												e.stopPropagation()
-											} /* Block mode switches when clicking inside */
-											initial={{ opacity: 0 }}
-											animate={{ opacity: 1 }}
-											exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-											transition={{ type: "spring", stiffness: 400, damping: 30 }}
-										>
-											<div className="calendar-column">
-												<Calendar />
-											</div>
-										</motion.div>
-									)}
-								</AnimatePresence>
-
-								{/* Shelf Panel */}
-								<AnimatePresence>
-									{bloomMode === "shelf" && (
-										<motion.div
-											className="shelf-content"
-											onClick={(e) => e.stopPropagation()}
-											onWheel={handleShelfWheel}
-											initial={{ opacity: 0 }}
-											animate={{ opacity: 1 }}
-											exit={{ opacity: 0, filter: "blur(4px)", transition: { duration: 0.1 } }}
-											transition={{ type: "spring", stiffness: 400, damping: 30 }}
-										>
-											{shelfNotice && <div className="shelf-notice">{shelfNotice}</div>}
-											{shelfItems.length === 0 ? (
-												<div className="shelf-empty">
-													<span>Drop files or selected text here</span>
-												</div>
-											) : (
-												<div
-													className={`shelf-items-grid ${shelfOverflowing ? "overflowing" : ""}`}
-													ref={shelfGridRef}
+									transition={{ duration: 0.2 }}
+									style={{ width: "100%" }}
+								>
+									<div className="main-row">
+										<AnimatePresence mode="wait">
+											{showUpdatePulse && !isHovered ? (
+												<motion.div
+													key="update-pulse-view"
+													initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+													animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+													exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
+													className="power-pulse-content"
 												>
-													<AnimatePresence mode="popLayout" onExitComplete={measureShelfOverflow}>
-														{shelfItems.map((item) => {
-															const preview = item.path ? shelfThumbs[item.path] : undefined;
-															const thumb = preview?.thumb;
-															return (
-																<motion.div
-																	key={item.id}
-																	layout
-																	initial={
-																		shelfNewIdsRef.current.has(item.id)
-																			? { opacity: 0, scale: 0.82 }
-																			: false
-																	}
-																	animate={{ opacity: 1, scale: 1 }}
-																	exit={{
-																		opacity: 0,
-																		scale: 0.82,
-																		transition: { duration: 0.16, ease: "easeOut" }
+													<GreenDownArrowIcon />
+													<span className="label" style={{ color: "#32D74B" }}>
+														Update Available
+													</span>
+												</motion.div>
+											) : (
+												<motion.div
+													key="standard-view"
+													className="main-row-inner"
+													initial={{ opacity: 0 }}
+													animate={{ opacity: 1 }}
+													exit={{ opacity: 0 }}
+												>
+													{/* Left: music on hover while a paused session remains, otherwise status widgets */}
+													<div className="side-content left">
+														{showCompactMusicIcons && settingsVisualizerEnabled ? (
+															<AnimatePresence>
+																{settingsVisualizerEnabled && (
+																	<motion.div
+																		key="visualizer"
+																		initial={{ scale: 0.8, opacity: 0 }}
+																		animate={{ scale: 1, opacity: 1 }}
+																		exit={{ scale: 0.8, opacity: 0 }}
+																	>
+																		<Visualizer isPlaying={isPlaying} />
+																	</motion.div>
+																)}
+															</AnimatePresence>
+														) : !showCompactMusicIcons &&
+														  isHovered &&
+														  statusWidgets.left.length > 0 ? (
+															<motion.div
+																key="left-widgets"
+																ref={leftWidgetsRef}
+																className="passive-features-group"
+																initial={{ opacity: 0 }}
+																animate={{ opacity: 1 }}
+																exit={{ opacity: 0 }}
+																transition={{ duration: 0.2 }}
+															>
+																{statusWidgets.left.map(renderStatusWidget)}
+															</motion.div>
+														) : null}
+													</div>
+
+													{/* Center - Time (always visible) */}
+													<div className="time-center" ref={timeCenterRef}>
+														<AnimatePresence>
+															{showPanelArrows && (
+																<motion.button
+																	key="panel-prev"
+																	type="button"
+																	className="panel-arrow prev"
+																	aria-label="Previous panel"
+																	initial={{ opacity: 0, x: 4 }}
+																	animate={{ opacity: 1, x: 0 }}
+																	exit={{ opacity: 0, x: 4 }}
+																	transition={{ duration: 0.15 }}
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		cyclePanel(-1);
 																	}}
-																	transition={{
-																		type: "spring",
-																		stiffness: 520,
-																		damping: 38,
-																		mass: 0.7
-																	}}
-																	className={`shelf-tile ${item.type === "text" || (!thumb && preview?.text) ? "is-text" : ""}`}
-																	title={
-																		item.type === "text" ? item.text?.slice(0, 1000) : item.path
-																	}
-																	onPointerDown={(e) => handleShelfPointerDown(e, item)}
-																	onPointerMove={(e) => handleShelfPointerMove(e, item)}
-																	onClick={(e) => handleShelfTileClick(e, item)}
 																>
-																	<div className="shelf-tile-preview">
-																		{item.type === "text" ? (
-																			<div className="shelf-tile-text">
-																				<Type
-																					size={11}
-																					strokeWidth={2}
-																					className="shelf-tile-text-icon"
-																				/>
-																				<span className="shelf-tile-text-body">{item.text}</span>
-																			</div>
-																		) : !thumb && preview?.text ? (
-																			// A document or text file: its opening text,
-																			// marked with its type's icon.
-																			<div className="shelf-tile-text">
-																				<ShelfTypeIcon
-																					name={item.name}
-																					folder={false}
-																					size={11}
-																					className="shelf-tile-text-icon"
-																				/>
-																				<span className="shelf-tile-text-body">{preview.text}</span>
-																			</div>
-																		) : (
-																			<>
-																				<div className="shelf-tile-placeholder">
-																					{preview && !thumb ? (
-																						<ShelfTypeIcon
-																							name={item.name}
-																							folder={preview.folder}
-																						/>
-																					) : null}
-																				</div>
-																				{thumb ? (
-																					<img src={thumb} alt="" draggable={false} />
-																				) : null}
-																			</>
-																		)}
-																	</div>
-																	<span className="shelf-tile-name">
-																		{item.type === "text"
-																			? `Text · ${item.text?.length ?? 0} chars`
-																			: item.name}
-																	</span>
+																	<ChevronLeft size={12} strokeWidth={2.5} />
+																</motion.button>
+															)}
+														</AnimatePresence>
+														<div className="time-flip-container" onClick={toggleCalendarMode}>
+															<AnimatePresence initial={false}>
+																{
+																	<motion.span
+																		key="clock"
+																		className="time"
+																		initial={{ rotateX: -90, opacity: 0 }}
+																		animate={{ rotateX: 0, opacity: 1 }}
+																		exit={{ rotateX: 90, opacity: 0 }}
+																		transition={{ type: "spring", stiffness: 600, damping: 30 }}
+																	>
+																		{time}
+																	</motion.span>
+																}
+															</AnimatePresence>
+														</div>
+														<AnimatePresence>
+															{showPanelArrows && (
+																<motion.button
+																	key="panel-next"
+																	type="button"
+																	className="panel-arrow next"
+																	aria-label="Next panel"
+																	initial={{ opacity: 0, x: -4 }}
+																	animate={{ opacity: 1, x: 0 }}
+																	exit={{ opacity: 0, x: -4 }}
+																	transition={{ duration: 0.15 }}
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		cyclePanel(1);
+																	}}
+																>
+																	<ChevronRight size={12} strokeWidth={2.5} />
+																</motion.button>
+															)}
+														</AnimatePresence>
+														{updateAvailable && showUpdateIndicator && (
+															<div className="update-dot" />
+														)}
+													</div>
+
+													{/* Right: album art on a retained music session, otherwise status widgets */}
+													<div className="side-content right">
+														{showCompactMusicIcons &&
+														(settingsAlbumArtEnabled || showMusicOnStatusHover) ? (
+															<AnimatePresence mode="wait">
+																<motion.div
+																	key="album-art"
+																	className="album-art-transition-wrapper"
+																	initial={{ opacity: 0, scale: 0.8 }}
+																	animate={{ opacity: 1, scale: 1 }}
+																	exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
+																	transition={{ duration: 0.12 }}
+																>
 																	<button
-																		className="shelf-tile-remove"
-																		title="Remove from shelf"
+																		className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
+																		aria-label="Open music"
 																		onClick={(e) => {
 																			e.stopPropagation();
-																			removeShelfItem(item.id);
+																			openNotch("music");
+																		}}
+																		onContextMenu={(e) => {
+																			e.preventDefault();
+																			e.stopPropagation();
+																			skipPrevious();
 																		}}
 																	>
-																		<X size={11} strokeWidth={2.5} />
+																		<div className="album-art-inner">
+																			<AnimatePresence mode="wait" initial={false}>
+																				{settingsAlbumArtEnabled && albumArtUrl ? (
+																					<motion.img
+																						key={albumArtUrl}
+																						src={albumArtUrl}
+																						alt="Art"
+																						draggable={false}
+																						initial={{ rotateY: 90, opacity: 0 }}
+																						animate={{ rotateY: 0, opacity: 1 }}
+																						exit={{ rotateY: -90, opacity: 0 }}
+																						transition={{ duration: 0.25, ease: "easeInOut" }}
+																						style={{
+																							width: "100%",
+																							height: "100%",
+																							objectFit: "cover"
+																						}}
+																					/>
+																				) : (
+																					<motion.div
+																						key="compact-placeholder"
+																						className="album-art-placeholder"
+																						initial={{ rotateY: 90, opacity: 0 }}
+																						animate={{ rotateY: 0, opacity: 1 }}
+																						exit={{ rotateY: -90, opacity: 0 }}
+																						transition={{ duration: 0.25, ease: "easeInOut" }}
+																					>
+																						<MusicNoteIcon className="music-placeholder-svg-small" />
+																					</motion.div>
+																				)}
+																			</AnimatePresence>
+																		</div>
 																	</button>
 																</motion.div>
-															);
-														})}
-													</AnimatePresence>
-												</div>
+															</AnimatePresence>
+														) : !showCompactMusicIcons &&
+														  isHovered &&
+														  statusWidgets.right.length > 0 ? (
+															<motion.div
+																key="right-widgets"
+																ref={rightWidgetsRef}
+																className="passive-features-group"
+																initial={{ opacity: 0 }}
+																animate={{ opacity: 1 }}
+																exit={{ opacity: 0 }}
+																transition={{ duration: 0.2 }}
+															>
+																{statusWidgets.right.map(renderStatusWidget)}
+															</motion.div>
+														) : null}
+													</div>
+												</motion.div>
 											)}
-										</motion.div>
+										</AnimatePresence>
+									</div>
+								</motion.div>
+							)}
+
+							{/* Command Center Panel */}
+
+							{activeView === "command-center" && (
+								<motion.div
+									className="command-center-content-minimal"
+									onClick={(e) => e.stopPropagation()}
+									initial={{ opacity: 0 }}
+									animate={{ opacity: 1 }}
+
+									transition={{ type: "spring", stiffness: 400, damping: 30 }}
+								>
+									{/* Pills Grid */}
+									<div className="cc-pills-grid cc-pills-island">
+										{/* Notch Mode Pill */}
+										<button
+											type="button"
+											className={`cc-pill-tile ${notchMode === "fixed" ? "active" : ""}`}
+											onClick={toggleNotchModeSetting}
+											title="Cycle notch mode: Fixed / Smart / Peek"
+										>
+											<div className="cc-pill-icon-wrapper">
+												<NotchIcon />
+											</div>
+											<div className="cc-pill-info">
+												<span className="cc-pill-title">Notch Mode</span>
+												<span className="cc-pill-status">
+													{notchMode === "fixed"
+														? "Fixed"
+														: notchMode === "smart"
+															? "Smart"
+															: "Peek"}
+												</span>
+											</div>
+										</button>
+									</div>
+
+									{/* Circular Actions Row */}
+									<div className="cc-circular-actions-row">
+										<button
+											className="cc-circular-btn"
+											onClick={(e) => {
+												e.stopPropagation();
+												openSettingsWindow();
+											}}
+											title="Bloom Settings"
+										>
+											<SettingsIcon />
+										</button>
+										<button
+											className="cc-circular-btn"
+											onClick={(e) => {
+												e.stopPropagation();
+												invoke("restart_bloom");
+											}}
+											title="Restart Bloom"
+										>
+											<ReloadIcon />
+										</button>
+									</div>
+
+									{/* Classic Sliders Area */}
+									<div className="cc-classic-sliders-area">
+										{/* Volume Slider */}
+										<div className="cc-classic-slider-row">
+											<div className="cc-classic-slider-label">
+												<VolumeLowIcon style={{ opacity: 0.5 }} />
+												<span>Volume</span>
+											</div>
+											<div className="cc-classic-slider-track">
+												<input
+													type="range"
+													min="0"
+													max="1"
+													step="0.01"
+													value={displayVolume}
+													onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+													onPointerDown={(e) => e.stopPropagation()}
+													onClick={(e) => e.stopPropagation()}
+													className="cc-classic-input"
+												/>
+												<div
+													className="cc-classic-fill"
+													style={{ width: `${displayVolume * 100}%` }}
+												/>
+											</div>
+											<span className="cc-classic-percentage">
+												{Math.round(displayVolume * 100)}%
+											</span>
+										</div>
+									</div>
+								</motion.div>
+							)}
+
+							{/* Calendar */}
+
+							{activeView === "calendar" && (
+								<motion.div
+									className="calendar-content"
+									onClick={(e) =>
+										e.stopPropagation()
+									} /* Block mode switches when clicking inside */
+									initial={{ opacity: 0 }}
+									animate={{ opacity: 1 }}
+
+									transition={{ type: "spring", stiffness: 400, damping: 30 }}
+								>
+									<div className="calendar-column">
+										<Calendar />
+									</div>
+								</motion.div>
+							)}
+
+							{/* Shelf Panel */}
+
+							{activeView === "shelf" && (
+								<motion.div
+									className="shelf-content"
+									onClick={(e) => e.stopPropagation()}
+									onWheel={handleShelfWheel}
+									initial={{ opacity: 0 }}
+									animate={{ opacity: 1 }}
+
+									transition={{ type: "spring", stiffness: 400, damping: 30 }}
+								>
+									{shelfNotice && <div className="shelf-notice">{shelfNotice}</div>}
+									{shelfItems.length === 0 ? (
+										<div className="shelf-empty">
+											<span>Drop files or selected text here</span>
+										</div>
+									) : (
+										<div
+											className={`shelf-items-grid ${shelfOverflowing ? "overflowing" : ""}`}
+											ref={shelfGridRef}
+										>
+											<AnimatePresence mode="popLayout" onExitComplete={measureShelfOverflow}>
+												{shelfItems.map((item) => {
+													const preview = item.path ? shelfThumbs[item.path] : undefined;
+													const thumb = preview?.thumb;
+													return (
+														<motion.div
+															key={item.id}
+															layout
+															initial={
+																shelfNewIdsRef.current.has(item.id)
+																	? { opacity: 0, scale: 0.82 }
+																	: false
+															}
+															animate={{ opacity: 1, scale: 1 }}
+															exit={{
+																opacity: 0,
+																scale: 0.82,
+																transition: { duration: 0.16, ease: "easeOut" }
+															}}
+															transition={{
+																type: "spring",
+																stiffness: 520,
+																damping: 38,
+																mass: 0.7
+															}}
+															className={`shelf-tile ${item.type === "text" || (!thumb && preview?.text) ? "is-text" : ""}`}
+															title={item.type === "text" ? item.text?.slice(0, 1000) : item.path}
+															onPointerDown={(e) => handleShelfPointerDown(e, item)}
+															onPointerMove={(e) => handleShelfPointerMove(e, item)}
+															onClick={(e) => handleShelfTileClick(e, item)}
+														>
+															<div className="shelf-tile-preview">
+																{item.type === "text" ? (
+																	<div className="shelf-tile-text">
+																		<Type
+																			size={11}
+																			strokeWidth={2}
+																			className="shelf-tile-text-icon"
+																		/>
+																		<span className="shelf-tile-text-body">{item.text}</span>
+																	</div>
+																) : !thumb && preview?.text ? (
+																	// A document or text file: its opening text,
+																	// marked with its type's icon.
+																	<div className="shelf-tile-text">
+																		<ShelfTypeIcon
+																			name={item.name}
+																			folder={false}
+																			size={11}
+																			className="shelf-tile-text-icon"
+																		/>
+																		<span className="shelf-tile-text-body">{preview.text}</span>
+																	</div>
+																) : (
+																	<>
+																		<div className="shelf-tile-placeholder">
+																			{preview && !thumb ? (
+																				<ShelfTypeIcon name={item.name} folder={preview.folder} />
+																			) : null}
+																		</div>
+																		{thumb ? <img src={thumb} alt="" draggable={false} /> : null}
+																	</>
+																)}
+															</div>
+															<span className="shelf-tile-name">
+																{item.type === "text"
+																	? `Text · ${item.text?.length ?? 0} chars`
+																	: item.name}
+															</span>
+															<button
+																className="shelf-tile-remove"
+																title="Remove from shelf"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	removeShelfItem(item.id);
+																}}
+															>
+																<X size={11} strokeWidth={2.5} />
+															</button>
+														</motion.div>
+													);
+												})}
+											</AnimatePresence>
+										</div>
 									)}
-								</AnimatePresence>
-							</motion.div>
-						)}
-					</AnimatePresence>
+								</motion.div>
+							)}
+						</motion.div>
+					)}
 				</motion.div>
 				{/* The shelf's items, as a bubble on the left of the collapsed pill */}
 				<AnimatePresence onExitComplete={() => reportNotchRect.current()}>
@@ -2842,8 +2741,6 @@ function App() {
 						</motion.button>
 					)}
 				</AnimatePresence>
-
-				<AnimatePresence onExitComplete={() => reportNotchRect.current()}></AnimatePresence>
 			</div>
 		</div>
 	);

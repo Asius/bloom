@@ -14,6 +14,9 @@ replace the owner's installation or control their desktop automatically.
 
 ## 1. Before tagging (on `main`)
 
+- [ ] One installer: bundle.targets=["nsis"], Release runs only on Windows with --bundles nsis. After publication, require setup.exe, setup.exe.sig and latest.json; no MSI. Keep historical releases intact. GitHub generates source ZIP/TAR archives separately.
+- [ ] For island view changes, test rapid music → controls → calendar → collapse/reopen and ended media with the isolated browser fixture; one active view at every sample. Record native Windows reproduction separately.
+
 - [ ] CI green on `main` (Build, CodeQL) and `bun run build` passes locally.
 - [ ] `bun audit` passes for the application lockfile, including development
       dependencies. Review dependency updates individually before integrating.
