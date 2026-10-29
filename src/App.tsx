@@ -2,7 +2,7 @@ import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { AnimatePresence, motion, useAnimation } from "framer-motion";
@@ -24,7 +24,7 @@ import { EdgeSurface } from "./components/EdgeSurface";
 import { ShelfTypeIcon } from "./components/ShelfTypeIcon";
 import type { WidgetConfig } from "./components/StatusWidgetConfig";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
-import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
+import { useBloomFontScale, useIslandScales } from "./hooks/useIslandScales";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { useWeather } from "./hooks/useWeather";
@@ -247,17 +247,9 @@ const TitleMarquee = ({ title }: { title: string }) => {
 };
 
 function App() {
-	const scales = useDesktopScales();
-	const scale = effectiveScale(scales, "notch");
-	const [nativeTaskbarHeight, setNativeTaskbarHeight] = useState(48);
-	useEffect(() => {
-		const subscription = listen<number>("native-taskbar-height", event => {
-			const value = Number(event.payload);
-			if (Number.isFinite(value) && value >= 32 && value <= 96) setNativeTaskbarHeight(value);
-		});
-		void subscription.then(() => emit("native-taskbar-height-request"));
-		return () => { void subscription.then(unlisten => unlisten()); };
-	}, []);
+	const scales = useIslandScales();
+	const scale = effectiveScale(scales);
+	const notchHeaderHeight = 48;
 	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
@@ -274,7 +266,7 @@ function App() {
 		() => localStorage.getItem("bloom-time-format-24h") === "true"
 	);
 
-	// Fetched when the pointer reaches the battery widget, for its tooltip.
+
 
 	// The status widget whose tooltip is open, the side of the pill it hangs
 	// from, and the distance from the widget to just past that edge.
@@ -321,7 +313,7 @@ function App() {
 	// Null until the first successful fetch so the pill can't flash a wrong
 	// default on startup.
 
-	// Names of connected Bluetooth devices, for the controls tile.
+
 
 	// System metrics for status widgets
 	const [cpuUsage, setCpuUsage] = useState(0);
@@ -389,16 +381,6 @@ function App() {
 	const [isImpacted, setIsImpacted] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
 	const [startupAnimating, setStartupAnimating] = useState(false);
-
-	const [dockMode, setDockMode] = useState(() => {
-		const raw = localStorage.getItem("bloom-dock-mode") || "smart";
-		if (raw === "auto-hide") return "smart";
-		return raw;
-	});
-
-	const [dockEnabled, setDockEnabled] = useState(
-		() => localStorage.getItem("bloom-dock-enabled") !== "false"
-	);
 	const [isNotchHovered, setIsNotchHovered] = useState(false);
 
 	const [isEdgeHovered, setIsEdgeHovered] = useState(false);
@@ -436,8 +418,6 @@ function App() {
 				[".activity-bubble", 16],
 				[".status-tooltip", 28],
 				[".screen-corner", 0],
-				[".bloom-tray-popup", 24],
-				[".bloom-tray-toggle", 4]
 			])
 		);
 		sendNotchRegion(wanted);
@@ -447,7 +427,6 @@ function App() {
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
 	const systemSyncQueue = useRef<Promise<void>>(Promise.resolve());
-	const appliedDock = useRef<{ enabled: boolean; mode: string } | null>(null);
 	const appliedNotchMode = useRef<string | null>(null);
 
 	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
@@ -719,10 +698,6 @@ function App() {
 						});
 						localStorage.setItem("bloom-first-run", "done");
 					}
-					const rawDockMode = getVal("bloom-dock-mode", "smart") as string;
-					const dockMode = rawDockMode === "auto-hide" ? "smart" : rawDockMode;
-					setDockMode(dockMode);
-					setDockEnabled(getVal("bloom-dock-enabled", "true") === "true");
 					const storedVersion = localStorage.getItem("bloom-app-version");
 					let waitForSplash = firstRun || storedVersion === null;
 					if (!waitForSplash) {
@@ -804,8 +779,6 @@ function App() {
 			"bloom-media-album-art-enabled": setSettingsAlbumArtEnabled,
 			"bloom-media-layout": setMediaLayout,
 			"bloom-corners-enabled": setSettingsCornersEnabled,
-			"bloom-dock-enabled": setDockEnabled,
-			"bloom-dock-mode": setDockMode,
 			"bloom-notch-mode": setNotchMode,
 			"bloom-status-widgets": (value) => {
 				try {
@@ -840,18 +813,6 @@ function App() {
 				.then(async () => {
 					if (cancelled) return;
 					try {
-						if (dockEnabled) {
-							if (!appliedDock.current?.enabled) {
-								await invoke("init_dock", { mode: dockMode });
-								appliedDock.current = { enabled: true, mode: dockMode };
-							} else if (appliedDock.current.mode !== dockMode) {
-								await invoke("change_dock_mode", { mode: dockMode });
-								appliedDock.current = { enabled: true, mode: dockMode };
-							}
-						} else if (appliedDock.current?.enabled !== false) {
-							await invoke("toggle_dock", { enable: false });
-							appliedDock.current = { enabled: false, mode: dockMode };
-						}
 						if (cancelled) return;
 						if (appliedNotchMode.current !== notchMode) {
 							await invoke("change_notch_mode", { mode: notchMode });
@@ -909,7 +870,7 @@ function App() {
 			}
 			unlistenSplash?.();
 		};
-	}, [windowLabel, systemSettingsReady, waitForStartupSplash, dockEnabled, dockMode, notchMode]);
+	}, [windowLabel, systemSettingsReady, waitForStartupSplash, notchMode]);
 
 	// User panels and live activities share the notch's animation state.
 	const [bloomMode, setBloomMode] = useState<BloomMode>("status");
@@ -1772,22 +1733,6 @@ function App() {
 		}
 	}, []);
 
-	const toggleDockModeSetting = useCallback(
-		async (e: React.MouseEvent) => {
-			e.stopPropagation();
-			const nextMode = dockMode === "fixed" ? "smart" : dockMode === "smart" ? "peek" : "fixed";
-			setDockMode(nextMode);
-			localStorage.setItem("bloom-dock-mode", nextMode);
-			invoke("save_setting", { key: "bloom-dock-mode", value: nextMode }).catch(console.error);
-			try {
-				await invoke("change_dock_mode", { mode: nextMode });
-			} catch (err) {
-				console.error("Failed to change dock mode:", err);
-			}
-		},
-		[dockMode]
-	);
-
 	const toggleNotchModeSetting = useCallback(
 		async (e: React.MouseEvent) => {
 			e.stopPropagation();
@@ -1982,8 +1927,8 @@ function App() {
 			return isImpacted ? 28.9 : 44.2;
 		}
 		// The calendar keeps room for every row of the displayed month.
-		const headerExtra = nativeTaskbarHeight - 36;
-		if (bloomMode === "calendar") return nativeTaskbarHeight + 100 + calendarMonthRows() * 42;
+		const headerExtra = notchHeaderHeight - 36;
+		if (bloomMode === "calendar") return notchHeaderHeight + 100 + calendarMonthRows() * 42;
 		// Shelf expands on mode alone (no hover needed: there is no cursor
 		// hover during an OS drag) and is sized to exactly one row of tiles,
 		// plus room for the scrollbar once the tiles overflow it.
@@ -1991,8 +1936,8 @@ function App() {
 			if (shelfItems.length === 0) return 130 + headerExtra;
 			return (shelfOverflowing ? 190 : 176) + headerExtra;
 		}
-		if (bloomMode === "command-center") return isOpen ? 190 + headerExtra : nativeTaskbarHeight;
-		if (bloomMode === "status") return nativeTaskbarHeight;
+		if (bloomMode === "command-center") return isOpen ? 190 + headerExtra : notchHeaderHeight;
+		if (bloomMode === "status") return notchHeaderHeight;
 		if (isMusicMode && isOpen) {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
 			let h = mediaLayout === "compact" ? (hasProgressBar ? 132 : 116) : 120;
@@ -2001,7 +1946,7 @@ function App() {
 			}
 			return h;
 		}
-		return nativeTaskbarHeight;
+		return notchHeaderHeight;
 	};
 
 	const isCalendarMode = bloomMode === "calendar";
@@ -2075,7 +2020,7 @@ function App() {
 					display: "flex",
 					justifyContent: "center",
 					position: "relative",
-					"--notch-header-height": `${nativeTaskbarHeight}px`
+					"--notch-header-height": `${notchHeaderHeight}px`
 				} as CSSProperties}
 			>
 				<motion.div
@@ -2626,9 +2571,9 @@ function App() {
 									)}
 								</AnimatePresence>
 
-								{/* Wi-Fi networks, opened from the controls panel's Wi-Fi tile */}
 
-								{/* Bluetooth devices, opened from the controls panel's Bluetooth tile */}
+
+
 
 								{/* Command Center Panel */}
 								<AnimatePresence>
@@ -2642,30 +2587,10 @@ function App() {
 											transition={{ type: "spring", stiffness: 400, damping: 30 }}
 										>
 											{/* Pills Grid */}
-											<div className="cc-pills-grid">
-												{/* Dock Mode Pill */}
-												<div
-													className={`cc-pill-tile ${dockMode === "fixed" ? "active" : ""}`}
-													onClick={toggleDockModeSetting}
-													title="Cycle dock mode: Fixed / Smart / Peek"
-												>
-													<div className="cc-pill-icon-wrapper">
-														<DockIcon />
-													</div>
-													<div className="cc-pill-info">
-														<span className="cc-pill-title">Dock Mode</span>
-														<span className="cc-pill-status">
-															{dockMode === "fixed"
-																? "Fixed"
-																: dockMode === "smart"
-																	? "Smart"
-																	: "Peek"}
-														</span>
-													</div>
-												</div>
+											<div className="cc-pills-grid cc-pills-island">
 
 												{/* Notch Mode Pill */}
-												<div
+												<button type="button"
 													className={`cc-pill-tile ${notchMode === "fixed" ? "active" : ""}`}
 													onClick={toggleNotchModeSetting}
 													title="Cycle notch mode: Fixed / Smart / Peek"
@@ -2683,7 +2608,7 @@ function App() {
 																	: "Peek"}
 														</span>
 													</div>
-												</div>
+												</button>
 											</div>
 
 											{/* Circular Actions Row */}
@@ -2990,27 +2915,6 @@ function SettingsIcon() {
 		>
 			<circle cx="12" cy="12" r="3" />
 			<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-		</svg>
-	);
-}
-
-function DockIcon() {
-	return (
-		<svg
-			width="18"
-			height="18"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2.5"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-		>
-			<rect x="2" y="14" width="20" height="8" rx="2" />
-			<line x1="6" y1="18" x2="6.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-			<line x1="10" y1="18" x2="10.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-			<line x1="14" y1="18" x2="14.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
-			<line x1="18" y1="18" x2="18.01" y2="18" strokeWidth="3.5" strokeLinecap="round" />
 		</svg>
 	);
 }

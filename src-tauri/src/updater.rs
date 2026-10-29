@@ -261,10 +261,9 @@ async fn install_inner(app: &AppHandle) -> Result<(), String> {
         .updater_builder()
         .on_before_exit(move || {
             // The installer exits the process without going through
-            // restore_taskbar_and_exit, so do the same teardown here.
+            // quit_island, so do the same teardown here.
             crate::state::SHUTTING_DOWN.store(true, Ordering::Relaxed);
             crate::commands::release_appbars(&hook_handle);
-            crate::utils::set_taskbar_visibility(true, true);
             crate::services::set_native_osd_suppressed(false);
             let _ = hook_handle.emit(
                 "auto-update-status",
@@ -295,8 +294,8 @@ async fn install_inner(app: &AppHandle) -> Result<(), String> {
                 let current =
                     downloaded_cb.fetch_add(chunk_len as u64, Ordering::Relaxed) + chunk_len as u64;
                 if let Some(total) = total {
-                    if total > 0 {
-                        let progress = (current.saturating_mul(100) / total) as u32;
+                    if let Some(progress) = current.saturating_mul(100).checked_div(total) {
+                        let progress = progress.min(100) as u32;
                         let _ = progress_handle.emit(
                             "auto-update-status",
                             serde_json::json!({ "status": "downloading", "progress": progress }),

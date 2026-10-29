@@ -1,5 +1,4 @@
 /* Shared system accessibility preferences across every Bloom surface. */
-.bloom-opaque .bloom-tray-icons { backdrop-filter: none; -webkit-backdrop-filter: none; }
 @media (prefers-reduced-motion: reduce) {
  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }

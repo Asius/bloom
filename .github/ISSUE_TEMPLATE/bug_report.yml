@@ -27,7 +27,6 @@ body:
     attributes:
       label: Which part of Bloom?
       options:
-        - Dock
         - Notch
         - Media controls / now playing
         - Overlays
@@ -51,7 +50,7 @@ body:
       label: Steps to reproduce
       placeholder: |
         1. Open Bloom
-        2. Hover over the dock...
+        2. Hover over the island...
         3. See error
     validations:
       required: true

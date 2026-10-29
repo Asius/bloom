@@ -1,52 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
 mod commands;
 mod diagnostics;
-mod dock_extras;
+mod island_settings;
+mod legacy_taskbar;
 mod services;
 mod shelf;
 mod shelf_preview;
 mod state;
-mod tray;
 mod types;
 mod updater;
 mod utils;
 mod window_region;
-
-use std::sync::atomic::Ordering;
+use crate::{commands::*, services::*, state::*};
 use tauri::Manager;
-use windows::core::BOOL;
-use windows::Win32::System::Console::SetConsoleCtrlHandler;
-use windows::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT};
-
-use crate::commands::*;
-use crate::services::*;
-use crate::state::*;
-use crate::utils::*;
-
-unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> BOOL {
-    if ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_BREAK_EVENT || ctrl_type == CTRL_CLOSE_EVENT {
-        set_taskbar_visibility(true, true);
-        NATIVE_TASKBAR_HIDDEN.store(false, Ordering::Relaxed);
-        set_native_osd_suppressed(false);
-    }
-    BOOL(0)
-}
-
 fn main() {
-    let mut args = std::env::args_os();
-    if args.nth(1).as_deref() == Some(std::ffi::OsStr::new("--taskbar-watchdog")) {
-        if let (Some(pid), Some(marker)) = (args.next(), args.next()) {
-            if let Ok(pid) = pid.to_string_lossy().parse::<u32>() {
-                utils::run_taskbar_watchdog(pid, marker.into());
-            }
-        }
+    // An old watchdog can launch the upgraded binary. Never start a second UI.
+    if std::env::args().nth(1).as_deref() == Some("--taskbar-watchdog") {
         return;
     }
-    unsafe {
-        let _ = SetConsoleCtrlHandler(Some(ctrl_handler), true);
-    }
-
     // Single-instance enforcement
     unsafe {
         use windows::Win32::Foundation::{CloseHandle, GetLastError};
@@ -107,369 +78,189 @@ fn main() {
             Some(vec![]),
         ))
         .invoke_handler(tauri::generate_handler![
-            hide_native_osd,
-            open_settings_window,
-            open_sound_settings,
-            open_system_tray,
-            tray::network::tray_network_status,
-            tray::network::open_tray_network,
-            set_ignore_cursor_events,
+            setup_shelf_drop,
+            shelf_thumbnail,
+            shelf_open,
+            shelf_prune,
+            shelf_drag_icon,
+            update_notch_rect,
+            set_notch_hovered,
+            set_notch_visible,
+            window_region::set_window_region,
             set_window_height,
             resize_settings_window,
+            set_ignore_cursor_events,
+            change_notch_mode,
+            sync_appbar,
+            hide_native_osd,
+            open_settings_window,
             hide_overlay,
             set_splash_fullscreen,
             sync_overlay_position,
+            open_sound_settings,
             media_play_pause,
             media_next,
             media_previous,
             media_seek,
             open_media_source_app,
-            init_dock,
-            toggle_dock,
-            change_dock_mode,
-            change_notch_mode,
-            sync_appbar,
-            open_app,
-            launch_new_instance,
-            update_dock_rect,
-            update_notch_rect,
-            window_region::set_window_region,
-            set_dock_hovered,
-            set_notch_hovered,
-            set_notch_visible,
-            setup_shelf_drop,
-            shelf_thumbnail,
-            shelf_drag_icon,
-            shelf_prune,
-            shelf_open,
-            get_active_windows,
-            get_tray_apps,
-            get_tray_icons,
-            tray::surface::update_tray_surface,
-            tray::surface::set_dock_tray_visibility,
-            tray::surface::tray_surface_available,
-            tray::surface::report_tray_input,
-            show_tray_context_menu,
-            activate_tray_icon,
-            open_system_action,
-            get_app_icon,
-            get_installed_apps,
-            save_pinned_apps,
-            load_pinned_apps,
-            clear_icon_cache,
-            set_custom_icon,
-            remove_custom_icon,
-            get_custom_icons,
-            set_menu_open,
-            focus_window,
-            activate_window,
-            focus_app_windows,
-            close_window,
-            quit_bloom,
-            restart_bloom,
-            get_volume,
-            get_volume_state,
             set_volume,
             get_audio_sessions,
             set_app_volume,
             set_app_mute,
             set_volume_mixer_rect,
             clear_volume_mixer_rect,
+            quit_bloom,
+            restart_bloom,
             save_setting,
             load_settings,
             settings_file_readable,
-            capture_window_thumbnail,
-            get_system_accent_color,
-            get_system_transparency,
-            configure_native_material,
+            get_volume,
+            get_volume_state,
             get_cpu_usage,
             get_ram_usage,
             get_disk_space,
             get_network_speed,
+            get_windows_accent_color,
+            get_system_accent_color,
             export_settings_to_file,
             import_settings_from_file,
             reset_settings,
+            get_system_transparency,
+            configure_native_material,
+            get_app_icon,
             updater::check_for_updates,
             updater::install_update,
-            updater::get_update_state,
-            dock_extras::get_dock_extras,
-            dock_extras::open_dock_extra,
-            dock_extras::eject_dock_extra,
-            dock_extras::get_dock_drives,
+            updater::get_update_state
         ])
         .setup(|app| {
-            init_taskbar_marker(app.handle());
-            // Populate the settings cache before anything else: a webview can
-            // invoke save_setting as soon as it loads, which happens before the
-            // rest of this hook runs.
-            crate::utils::init_settings_cache(app.handle());
-            tray::start_live_provider(app.handle());
-            // Crash-recovery: if a previous session was force-killed while the native
-            // taskbar was hidden, restore it now. Runs before the frontend re-hides it
-            // (init_dock fires after a delay), so the flag must be removed first.
-            if taskbar_marker_exists() {
-                restore_taskbar_after_crash();
-                NATIVE_TASKBAR_HIDDEN.store(false, Ordering::Relaxed);
-            }
-
-            // Update check on startup (non-blocking). Always runs so the UI can
-            // show an update badge; auto-install only happens when the user
-            // enabled it and the release has aged past the rollout gate.
-            {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    updater::run_startup_check(app_handle).await;
-                });
-            }
-
-            let window = app.get_webview_window("main").unwrap();
-            // tao rebuilds the extended style from its own flags whenever one
-            // changes (show, hide, ...). With its ignore-cursor flag on, every
-            // rebuild keeps the notch window layered, which its window region
-            // needs to stay transparent; set_click_through then drives the
-            // click-through bit directly. The worst a rebuild does is make the
-            // window click-through until the next cursor update.
+            // Recovery is conditional on an old marker. Normal island sessions
+            // never write taskbar state or start a taskbar watchdog.
+            legacy_taskbar::recover(app.handle());
+            utils::init_settings_cache(app.handle());
+            let update_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                updater::run_startup_check(update_handle).await;
+            });
+            let window = app
+                .get_webview_window("main")
+                .ok_or("Missing island window")?;
             let _ = window.set_ignore_cursor_events(true);
-            let dock_win = app.get_webview_window("dock").unwrap();
-            // Same for the dock window, which has a region too.
-            let _ = dock_win.set_ignore_cursor_events(true);
-            if let Ok(hwnd) = dock_win.hwnd() {
-                DOCK_HWND.store(hwnd.0 as isize, Ordering::Relaxed);
+            let rect_window = window.clone();
+            let update_rect = move || {
+                if let (Ok(position), Ok(size)) =
+                    (rect_window.outer_position(), rect_window.outer_size())
+                {
+                    if let Ok(mut rect) = MAIN_WINDOW_RECT.lock() {
+                        *rect = Some((position, size));
+                    }
+                }
+            };
+            update_rect();
+            let handle = app.handle().clone();
+            window.on_window_event(move |event| match event {
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                    update_rect();
+                    sync_overlays(&handle);
+                }
+                tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    reposition_island(&handle);
+                }
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    quit_island(&handle);
+                }
+                _ => {}
+            });
+            if let Some(overlay) = app.get_webview_window("overlay") {
+                let _ = overlay.set_ignore_cursor_events(true);
+                let _ = overlay.show();
+                let _ = overlay.hide();
             }
-
-            // Sync window rects initially and on event
-            let win_clone = window.clone();
-            let update_main_rect = move || {
-                if let (Ok(p), Ok(s)) = (win_clone.outer_position(), win_clone.outer_size()) {
-                    if let Ok(mut lock) = MAIN_WINDOW_RECT.lock() {
-                        *lock = Some((p, s));
-                    }
-                }
-            };
-
-            let dock_clone = dock_win.clone();
-            let update_dock_window_rect = move || {
-                if let (Ok(p), Ok(s)) = (dock_clone.outer_position(), dock_clone.outer_size()) {
-                    if let Ok(mut lock) = DOCK_WINDOW_RECT.lock() {
-                        *lock = Some((p, s));
-                    }
-                }
-            };
-
-            update_main_rect();
-            update_dock_window_rect();
-
-            let u_main = update_main_rect.clone();
-            let handle_for_events = app.handle().clone();
-            window.on_window_event(move |e| match e {
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-                    u_main();
-                    sync_overlays(&handle_for_events);
-                }
-                tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                    // Re-evaluate against the configured notch mode instead of
-                    // registering unconditionally: on wake / display re-init a
-                    // scale change in smart/peek mode must not reserve the top
-                    // strip (issue #109).
-                    let h = handle_for_events.clone();
-                    tauri::async_runtime::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                        reconcile_main_appbar(&h);
-                        sync_overlays(&h);
-                    });
-                }
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    restore_taskbar_and_exit(&handle_for_events);
-                }
-                _ => {}
-            });
-
-            let u_dock = update_dock_window_rect.clone();
-            let dock_for_events = dock_win.clone();
-            let handle_for_dock_events = app.handle().clone();
-            dock_win.on_window_event(move |e| match e {
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
-                    u_dock();
-                    sync_overlays(&handle_for_dock_events);
-                }
-                tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                    let h = handle_for_dock_events.clone();
-                    if DOCK_APPBAR_REGISTERED.load(Ordering::Relaxed) {
-                        let w = dock_for_events.clone();
-                        tauri::async_runtime::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            register_dock_appbar(w);
-                            sync_overlays(&h);
-                        });
-                    } else {
-                        sync_overlays(&h);
-                    }
-                }
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    restore_taskbar_and_exit(&handle_for_dock_events);
-                }
-                _ => {}
-            });
-
             sync_overlays(app.handle());
-
-            if let Some(tray) = app.get_webview_window("tray") {
-                // No ignore-cursor flag here: the native region alone bounds input.
-                let handle = app.handle().clone();
-                tray.on_window_event(move |e| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                        api.prevent_close();
-                        restore_taskbar_and_exit(&handle);
-                    }
-                });
-            }
-
-            // Initialize the overlay window — on Windows, set_position doesn't
-            // take effect on a window that has never been shown. Show it once
-            // to register it with the compositor, then hide immediately.
-            if let Some(ov_win) = app.get_webview_window("overlay") {
-                // Layered from the start, like the notch and dock (see
-                // set_click_through): the overlay has a window region too.
-                let _ = ov_win.set_ignore_cursor_events(true);
-                let _ = ov_win.show();
-                let _ = ov_win.hide();
-                let overlay_handle = app.handle().clone();
-                ov_win.on_window_event(move |e| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                        api.prevent_close();
-                        restore_taskbar_and_exit(&overlay_handle);
-                    }
-                });
-            }
-
             watch_webview_processes(app.handle());
             setup_mouse_hook(app.handle().clone());
             setup_display_change_monitor(app.handle().clone());
-            setup_window_change_hook(app.handle().clone());
-            {
-                let _ = crate::state::THUMBNAIL_CACHE
-                    .set(std::sync::Mutex::new(std::collections::HashMap::new()));
-                let _ = crate::state::FOCUS_TIMESTAMPS
-                    .set(std::sync::Mutex::new(std::collections::HashMap::new()));
-                // Initialize before the scan so its results are actually stored.
-                let _ = crate::state::INSTALLED_APPS_CACHE.set(std::sync::Mutex::new(Vec::new()));
-            }
-            setup_thumbnail_capture(app.handle().clone());
-            trigger_app_scan();
-            let tx = setup_system_worker(app.handle().clone());
-            let _ = COMMAND_SENDER.set(tx.clone());
-            services::setup_keyboard_hook(app.handle().clone());
-            setup_taskbar_hook();
+            let _ = COMMAND_SENDER.set(setup_system_worker(app.handle().clone()));
             setup_audio_visualization(app.handle().clone());
             setup_settings_watcher(app.handle().clone());
-            diagnostics::record("services_ready", "hooks and settings watcher initialized");
-
-            // Listen for second-instance signal to open settings
-            if let Some(&h_event) = SINGLE_INSTANCE_EVENT_HANDLE.get() {
-                if h_event != 0 {
-                    let app_handle = app.handle().clone();
-                    std::thread::spawn(move || {
-                        use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
-                        use windows::Win32::System::Threading::{WaitForSingleObject, INFINITE};
-                        let h_event = HANDLE(h_event as *mut _);
-                        loop {
-                            let result = unsafe { WaitForSingleObject(h_event, INFINITE) };
-                            if result == WAIT_OBJECT_0 {
-                                crate::commands::open_settings_window(app_handle.clone());
-                            }
-                        }
-                    });
-                }
-            }
-
-            if let Some(settings_win) = app.get_webview_window("settings") {
-                let win_clone = settings_win.clone();
-                settings_win.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = win_clone.hide();
+            diagnostics::record("services_ready", "island, audio and settings initialized");
+            if let Some(&event) = SINGLE_INSTANCE_EVENT_HANDLE.get() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || unsafe {
+                    use windows::Win32::{
+                        Foundation::{HANDLE, WAIT_OBJECT_0},
+                        System::Threading::{WaitForSingleObject, INFINITE},
+                    };
+                    while WaitForSingleObject(HANDLE(event as *mut _), INFINITE) == WAIT_OBJECT_0 {
+                        open_settings_window(handle.clone());
                     }
                 });
             }
-            {
-                use tauri::menu::{Menu, MenuItem};
-                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-                let quit_item = MenuItem::with_id(app, "quit", "Quit Bloom", true, None::<&str>)?;
-                let restart_item =
-                    MenuItem::with_id(app, "restart", "Restart Bloom", true, None::<&str>)?;
-                let settings_item =
-                    MenuItem::with_id(app, "settings", "Open Settings", true, None::<&str>)?;
-                let refresh_item = MenuItem::with_id(app, "refresh-tray", "Restart system tray", true, None::<&str>)?;
-                let diagnostics_item = MenuItem::with_id(app, "diagnostics", "Copy Bloom diagnostics", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&settings_item, &refresh_item, &diagnostics_item, &restart_item, &quit_item])?;
-                let ah = app.handle().clone();
-                TrayIconBuilder::new()
-                    .icon(app.default_window_icon().unwrap().clone())
-                    .tooltip("Bloom")
-                    .menu(&menu)
-                    .on_menu_event(move |_, event| match event.id().as_ref() {
-                        "quit" => {
-                            diagnostics::record("shutdown", "source=tray");
-                            SHUTTING_DOWN.store(true, Ordering::Relaxed);
-                            tray::stop_live_provider();
-                            crate::commands::release_appbars(&ah);
-                            set_taskbar_visibility(true, true);
-                            NATIVE_TASKBAR_HIDDEN.store(false, Ordering::Relaxed);
-                            set_native_osd_suppressed(false);
-
-                            ah.exit(0);
-                        }
-                        "restart" => {
-                            diagnostics::record("restart", "source=tray");
-                            SHUTTING_DOWN.store(true, Ordering::Relaxed);
-                            tray::stop_live_provider();
-                            crate::commands::release_appbars(&ah);
-                            if let Some(w) = ah.get_webview_window("settings") {
-                                let _ = w.destroy();
-                            }
-                            set_taskbar_visibility(true, true);
-                            NATIVE_TASKBAR_HIDDEN.store(false, Ordering::Relaxed);
-                            set_native_osd_suppressed(false);
-                            close_single_instance_handles();
-
-                            ah.restart();
-                        }
-                        "settings" => {
-                            crate::commands::open_settings_window(ah.clone());
-                        }
-                        "refresh-tray" => tray::request_restart(),
-                        "diagnostics" => {
-                            use tauri_plugin_clipboard_manager::ClipboardExt;
-                            let report = diagnostics::support_report(&ah);
-                            let result = ah.clipboard().write_text(report);
-                            diagnostics::record("support-report", if result.is_ok() { "copied" } else { "clipboard unavailable" });
-                        }
-                        _ => {}
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
-                            crate::commands::open_settings_window(tray.app_handle().clone());
-                        }
-                    })
-                    .build(app)?;
+            if let Some(settings) = app.get_webview_window("settings") {
+                let target = settings.clone();
+                settings.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = target.hide();
+                    }
+                });
             }
+            // A normal notification icon inside Windows' own tray, not a replacement UI.
+            use tauri::{
+                menu::{Menu, MenuItem},
+                tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+            };
+            let settings = MenuItem::with_id(app, "settings", "Open Settings", true, None::<&str>)?;
+            let diagnostics = MenuItem::with_id(
+                app,
+                "diagnostics",
+                "Copy Bloom diagnostics",
+                true,
+                None::<&str>,
+            )?;
+            let restart = MenuItem::with_id(app, "restart", "Restart Bloom", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Bloom", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&settings, &diagnostics, &restart, &quit])?;
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().ok_or("Missing icon")?.clone())
+                .tooltip("Bloom Island")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "settings" => open_settings_window(app.clone()),
+                    "quit" => quit_island(app),
+                    "restart" => {
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            restart_bloom(handle).await;
+                        });
+                    }
+                    "diagnostics" => {
+                        use tauri_plugin_clipboard_manager::ClipboardExt;
+                        let _ = app
+                            .clipboard()
+                            .write_text(crate::diagnostics::support_report(app));
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|icon, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        open_settings_window(icon.app_handle().clone());
+                    }
+                })
+                .build(app)?;
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building tauri application");
-    app.run(|_, event| {
+        .expect("Could not initialize Bloom Island");
+    app.run(|app, event| {
         if let tauri::RunEvent::Exit = event {
-            tray::stop_live_provider();
-            diagnostics::record("exit", "restoring native taskbar");
-            set_taskbar_visibility(true, true);
-            NATIVE_TASKBAR_HIDDEN.store(false, Ordering::Relaxed);
+            SHUTTING_DOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+            release_appbars(app);
             set_native_osd_suppressed(false);
         }
     });

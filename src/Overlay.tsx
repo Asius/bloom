@@ -17,7 +17,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { EdgeSurface } from "./components/EdgeSurface";
 import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
-import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
+import { useBloomFontScale, useIslandScales } from "./hooks/useIslandScales";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { effectiveScale } from "./scales";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
@@ -87,9 +87,7 @@ function MixerTile({
 		if (!session.process_path) return;
 		let alive = true;
 		invoke<string | null>("get_app_icon", {
-			path: session.process_path,
-			name: session.name,
-			hwnd: null
+			path: session.process_path
 		})
 			.then((data) => {
 				if (alive) setIcon(data);
@@ -183,7 +181,7 @@ const MIXER_MAX_PANEL_WIDTH =
 	MIXER_PANEL_PADDING * 2 +
 	MIXER_MAX_COLUMNS * MIXER_COLUMN_WIDTH +
 	(MIXER_MAX_COLUMNS - 1) * MIXER_COLUMN_GAP;
-// The vertical slider keeps its length; its width follows the dock's base height.
+// The vertical slider keeps its length; its width follows the island's base size.
 const HUD_CARD_HEIGHT = 196;
 
 // Last fetched session list, so reopening the mixer renders at the right width
@@ -513,17 +511,9 @@ function VolumeNotch({
 // ─── Main Overlay Component ─────────────────────────────────────────────────
 
 function OverlayApp() {
-	const scales = useDesktopScales();
-	const scale = effectiveScale(scales, "dock");
-	const [baseWidth, setBaseWidth] = useState(48);
-	useEffect(() => {
-		const subscription = listen<number>("native-taskbar-height", event => {
-			const value = Number(event.payload);
-			if (Number.isFinite(value) && value >= 32 && value <= 96) setBaseWidth(value);
-		});
-		void subscription.then(() => emit("native-taskbar-height-request"));
-		return () => { void subscription.then(unlisten => unlisten()); };
-	}, []);
+	const scales = useIslandScales();
+	const scale = effectiveScale(scales);
+	const baseWidth = 48;
 	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();

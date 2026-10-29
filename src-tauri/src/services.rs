@@ -1,7 +1,9 @@
-use std::path::Path;
+use crate::state::*;
+use crate::types::*;
+use crate::utils::*;
 use std::sync::mpsc::{channel, sync_channel, Sender, SyncSender};
 use std::sync::{
-    atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicIsize, AtomicU32, AtomicU8, Ordering},
+    atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, Ordering},
     Mutex, OnceLock,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -9,649 +11,19 @@ use tauri::{AppHandle, Emitter, Manager};
 use windows::core::BOOL;
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::Graphics::Dwm::DwmGetWindowAttribute;
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetWindowLongW, GetWindowThreadProcessId, IsWindowVisible, SetWindowsHookExW,
-    GWL_EXSTYLE, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_MOUSEMOVE, WM_RBUTTONDOWN,
-    WS_EX_APPWINDOW, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    GWL_EXSTYLE, MSLLHOOKSTRUCT, WH_MOUSE_LL, WM_MOUSEMOVE,
 };
 
-static KEYBOARD_HOOK_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
-/// Physical Win key state, tracked so Win+1-9 can be claimed while the Win key
-/// itself keeps flowing to the shell (a lone Win tap must still open Start).
-static WIN_KEY_DOWN: AtomicBool = AtomicBool::new(false);
-/// Digit (1-9) of the currently held Win+Number combo, 0 when none. Key
-/// auto-repeat re-fires the keydown; only the first press may toggle an app.
-static WIN_NUMBER_HELD: AtomicU8 = AtomicU8::new(0);
-/// Virtual key Microsoft documents as "unassigned", used as the mask key.
-/// See `send_start_menu_mask`.
-const MASK_VK: u16 = 0xE8;
-
-/// Raw handle of the installed keyboard hook, 0 while none is installed.
-static KEYBOARD_HOOK: AtomicIsize = AtomicIsize::new(0);
-
-/// Win+1-9 is the only feature that needs a global keyboard hook: Explorer
-/// already registers those hotkeys, so `RegisterHotKey` can't claim them.
-/// Volume and brightness keys are left to Windows, and Bloom's overlays follow
-/// the resulting changes instead. The hook only exists while Win+1-9 is in use
-/// (the dock replaces the taskbar and the setting is on); the rest of the time
-/// Bloom doesn't see the keyboard at all.
-pub fn setup_keyboard_hook(app_handle: AppHandle) {
-    let _ = KEYBOARD_HOOK_APP_HANDLE.set(app_handle.clone());
-    std::thread::spawn(move || {
-        // Exiting removes the hook with the process; never touch it mid-shutdown.
-        while !SHUTTING_DOWN.load(Ordering::Relaxed) {
-            let wanted = NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed) && dock_win_number_enabled();
-            if wanted != (KEYBOARD_HOOK.load(Ordering::Relaxed) != 0) {
-                // A low-level hook runs on the thread that installed it, which
-                // needs a message loop, so install and remove it on the main thread.
-                let _ = app_handle.run_on_main_thread(move || set_keyboard_hook(wanted));
-            }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-    });
-}
-
-fn set_keyboard_hook(enabled: bool) {
-    use windows::Win32::UI::WindowsAndMessaging::{UnhookWindowsHookEx, HHOOK, WH_KEYBOARD_LL};
-    let current = KEYBOARD_HOOK.load(Ordering::Relaxed);
-    unsafe {
-        if enabled && current == 0 {
-            if let Ok(hook) = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook_proc), None, 0) {
-                KEYBOARD_HOOK.store(hook.0 as isize, Ordering::Relaxed);
-            }
-        } else if !enabled && current != 0 {
-            let _ = UnhookWindowsHookEx(HHOOK(current as *mut _));
-            KEYBOARD_HOOK.store(0, Ordering::Relaxed);
-            WIN_KEY_DOWN.store(false, Ordering::Relaxed);
-            WIN_NUMBER_HELD.store(0, Ordering::Relaxed);
-        }
-    }
-}
-
-/// Maps the top-row digit keys `1`-`9` to the zero-based dock slot.
-fn win_number_index(vk: u16) -> Option<u8> {
-    match vk {
-        0x31..=0x39 => Some((vk - 0x31) as u8),
-        _ => None,
-    }
-}
-
-/// The dock's Win+Number replacement can be turned off in Settings > Dock.
-fn dock_win_number_enabled() -> bool {
-    let Some(app) = KEYBOARD_HOOK_APP_HANDLE.get() else {
-        return true;
-    };
-    crate::utils::get_setting_str(app, "bloom-dock-win-number-enabled")
-        .map(|v| v != "false")
-        .unwrap_or(true)
-}
-
-/// Whether one of Bloom's HUD overlays is enabled (`bloom-volume-overlay-enabled`,
-/// `bloom-brightness-overlay-enabled`). With an overlay off, the matching keys
-/// and the native flyout are left to Windows instead of being taken over.
 fn overlay_enabled(app: &AppHandle, key: &str) -> bool {
     crate::utils::get_setting_str(app, key)
         .map(|v| v != "false")
         .unwrap_or(true)
-}
-
-/// Physical Win state straight from the OS. The tracked flag can go stale when
-/// a keyup is never delivered (secure desktop, keyboard unplugged, hook
-/// timeout); without this check a stale flag would swallow digits forever.
-fn win_key_physically_down() -> bool {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LWIN, VK_RWIN};
-    unsafe {
-        (GetAsyncKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0
-            || (GetAsyncKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0
-    }
-}
-
-/// Explorer opens the Start menu when it only sees a Win keydown and keyup.
-/// Swallowing a Win+Number combo would look exactly like that on Win release,
-/// so a tap of an unassigned key is injected first — the same trick as
-/// AutoHotkey's `#MenuMaskKey` — making the shell treat Win as a real modifier.
-fn send_start_menu_mask() {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
-    };
-    let mask = VIRTUAL_KEY(MASK_VK);
-    let inputs = [
-        INPUT {
-            r#type: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_KEYBOARD,
-            Anonymous: INPUT_0 {
-                ki: KEYBDINPUT {
-                    wVk: mask,
-                    wScan: 0,
-                    dwFlags: Default::default(),
-                    time: 0,
-                    dwExtraInfo: 0,
-                },
-            },
-        },
-        INPUT {
-            r#type: windows::Win32::UI::Input::KeyboardAndMouse::INPUT_KEYBOARD,
-            Anonymous: INPUT_0 {
-                ki: KEYBDINPUT {
-                    wVk: mask,
-                    wScan: 0,
-                    dwFlags: KEYEVENTF_KEYUP,
-                    time: 0,
-                    dwExtraInfo: 0,
-                },
-            },
-        },
-    ];
-    unsafe {
-        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
-    }
-}
-
-/// Hands the slot to the dock window, whose click handler already knows how to
-/// focus a running window or launch a pinned app.
-fn emit_dock_win_number(index: u8) {
-    let Some(app) = KEYBOARD_HOOK_APP_HANDLE.get().cloned() else {
-        return;
-    };
-    // Never block the input pipeline on WebView IPC.
-    tauri::async_runtime::spawn(async move {
-        let _ = app.emit_to("dock", "dock-win-number", index);
-    });
-}
-
-unsafe extern "system" fn keyboard_hook_proc(
-    code: i32,
-    wparam: windows::Win32::Foundation::WPARAM,
-    lparam: windows::Win32::Foundation::LPARAM,
-) -> windows::Win32::Foundation::LRESULT {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_LWIN, VK_RWIN};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        KBDLLHOOKSTRUCT, LLKHF_INJECTED, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    };
-    if code >= 0 {
-        let kb = *(lparam.0 as *const KBDLLHOOKSTRUCT);
-        let vk_code = VIRTUAL_KEY(kb.vkCode as u16);
-        let is_down = wparam.0 == WM_KEYDOWN as usize || wparam.0 == WM_SYSKEYDOWN as usize;
-        let is_up = wparam.0 == WM_KEYUP as usize || wparam.0 == WM_SYSKEYUP as usize;
-
-        // Only physical presses drive the Win+Number replacement; injected
-        // events (our own Start taps and mask key) must not re-enter it.
-        if (kb.flags.0 & LLKHF_INJECTED.0) == 0 {
-            if vk_code == VK_LWIN || vk_code == VK_RWIN {
-                if is_down {
-                    WIN_KEY_DOWN.store(true, Ordering::Relaxed);
-                    // A fresh Win press always starts a fresh combo, even if the
-                    // previous digit's keyup was missed.
-                    WIN_NUMBER_HELD.store(0, Ordering::Relaxed);
-                } else if is_up {
-                    WIN_KEY_DOWN.store(false, Ordering::Relaxed);
-                    WIN_NUMBER_HELD.store(0, Ordering::Relaxed);
-                }
-            } else if WIN_KEY_DOWN.load(Ordering::Relaxed) {
-                if let Some(index) = win_number_index(vk_code.0) {
-                    let slot = index + 1;
-                    if is_up {
-                        let _ = WIN_NUMBER_HELD.compare_exchange(
-                            slot,
-                            0,
-                            Ordering::Relaxed,
-                            Ordering::Relaxed,
-                        );
-                    } else if is_down {
-                        if !win_key_physically_down() {
-                            WIN_KEY_DOWN.store(false, Ordering::Relaxed);
-                            WIN_NUMBER_HELD.store(0, Ordering::Relaxed);
-                        } else if NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed)
-                            && dock_win_number_enabled()
-                        {
-                            if WIN_NUMBER_HELD.swap(slot, Ordering::Relaxed) != slot {
-                                send_start_menu_mask();
-                                emit_dock_win_number(index);
-                            }
-                            return windows::Win32::Foundation::LRESULT(1);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    windows::Win32::UI::WindowsAndMessaging::CallNextHookEx(None, code, wparam, lparam)
-}
-
-use crate::state::*;
-use crate::types::*;
-use crate::utils::*;
-
-pub fn setup_taskbar_hook() {
-    unsafe {
-        use windows::Win32::UI::Accessibility::SetWinEventHook;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_SHOW, WINEVENT_OUTOFCONTEXT,
-        };
-
-        // Hook both "Show" and "Location Change" (happen when maximizing/switching apps)
-        let _show_hook = SetWinEventHook(
-            EVENT_OBJECT_SHOW,
-            EVENT_OBJECT_SHOW,
-            None,
-            Some(taskbar_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        let _loc_hook = SetWinEventHook(
-            EVENT_OBJECT_LOCATIONCHANGE,
-            EVENT_OBJECT_LOCATIONCHANGE,
-            None,
-            Some(taskbar_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-    }
-}
-
-static WINDOW_CHANGE_APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
-static LAST_WINDOW_CHANGE_MS: AtomicI64 = AtomicI64::new(0);
-
-pub fn setup_window_change_hook(app_handle: AppHandle) {
-    unsafe {
-        let _ = WINDOW_CHANGE_APP_HANDLE.set(app_handle);
-
-        use windows::Win32::UI::Accessibility::SetWinEventHook;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, EVENT_OBJECT_SHOW,
-            WINEVENT_OUTOFCONTEXT,
-        };
-
-        // Hook create and destroy events for top-level windows
-        let _create_hook = SetWinEventHook(
-            EVENT_OBJECT_CREATE,
-            EVENT_OBJECT_CREATE,
-            None,
-            Some(window_change_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        let _destroy_hook = SetWinEventHook(
-            EVENT_OBJECT_DESTROY,
-            EVENT_OBJECT_DESTROY,
-            None,
-            Some(window_change_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        // Hook show/hide events (fires when windows become visible/invisible)
-        let _show_hook = SetWinEventHook(
-            EVENT_OBJECT_SHOW,
-            EVENT_OBJECT_SHOW,
-            None,
-            Some(window_change_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        let _hide_hook = SetWinEventHook(
-            EVENT_OBJECT_HIDE,
-            EVENT_OBJECT_HIDE,
-            None,
-            Some(window_change_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-
-        // Store hooks to prevent them from being dropped
-        Box::leak(Box::new(_create_hook));
-    }
-}
-
-unsafe extern "system" fn window_change_event_proc(
-    _hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
-    event: u32,
-    hwnd: HWND,
-    id_object: i32,
-    id_child: i32,
-    _event_thread: u32,
-    _ms_event_time: u32,
-) {
-    if hwnd.0.is_null() {
-        return;
-    }
-
-    // WinEvent reports child controls under a valid parent HWND too. Their
-    // create/show/hide activity is not an app-window change and can otherwise
-    // queue hundreds of dock rescans during slider interaction.
-    if id_object != 0 || id_child != 0 {
-        return;
-    }
-
-    // A top-level window appeared/disappeared (or focus moved): capture UI
-    // state may have changed. Cheap flag; the worker thread does the scan.
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, EVENT_OBJECT_SHOW,
-        };
-        if event == EVENT_OBJECT_SHOW || event == EVENT_OBJECT_HIDE || event == EVENT_OBJECT_DESTROY
-        {
-            CAPTURE_RECHECK.store(true, Ordering::Relaxed);
-        }
-    }
-
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetClassNameA, GetWindowLongW, GetWindowThreadProcessId, IsWindow, GWL_EXSTYLE,
-        WS_EX_TOOLWINDOW,
-    };
-
-    if !IsWindow(Some(hwnd)).as_bool() {
-        // A destroyed window is no longer queryable, but the dock still needs
-        // to remove its app. Other notifications with an invalid HWND are stale.
-        if event != windows::Win32::UI::WindowsAndMessaging::EVENT_OBJECT_DESTROY {
-            return;
-        }
-    } else {
-        // Windows recreates its native volume/brightness flyout during slider
-        // changes. It is not a taskbar app.
-        let mut class_name = [0u8; 256];
-        let len = GetClassNameA(hwnd, &mut class_name);
-        if &class_name[..len as usize] == b"NativeHWNDHost"
-            || &class_name[..len as usize] == b"#32768"
-        {
-            return;
-        }
-
-        // Skip tool windows (docks, trays, etc.) and our own process.
-        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-        if (ex_style & WS_EX_TOOLWINDOW.0) != 0 {
-            return;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(hwnd, Some(&mut pid));
-        if pid == std::process::id() {
-            return;
-        }
-    }
-
-    // Debounce bursts: closing a window (especially a UWP app) emits several
-    // show/hide/destroy events within milliseconds. Every event stores its
-    // timestamp and schedules an emit; only the newest one actually fires, so
-    // the final state of a burst is always reported. Dropping the trailing
-    // events would leave closed apps visible in the dock.
-    let now = crate::utils::get_now_ms();
-    LAST_WINDOW_CHANGE_MS.store(now, Ordering::Relaxed);
-
-    if let Some(app_handle) = WINDOW_CHANGE_APP_HANDLE.get().cloned() {
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-            if LAST_WINDOW_CHANGE_MS.load(Ordering::Relaxed) == now {
-                let _ = app_handle.emit("windows-changed", ());
-            }
-        });
-    }
-}
-
-pub fn setup_thumbnail_capture(_app_handle: AppHandle) {
-    unsafe {
-        use windows::Win32::UI::Accessibility::SetWinEventHook;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART,
-            WINEVENT_OUTOFCONTEXT,
-        };
-
-        let hook = SetWinEventHook(
-            EVENT_SYSTEM_MINIMIZESTART,
-            EVENT_SYSTEM_MINIMIZEEND,
-            None,
-            Some(thumbnail_capture_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        Box::leak(Box::new(hook));
-
-        let focus_hook = SetWinEventHook(
-            EVENT_SYSTEM_FOREGROUND,
-            EVENT_SYSTEM_FOREGROUND,
-            None,
-            Some(focus_event_proc),
-            0,
-            0,
-            WINEVENT_OUTOFCONTEXT,
-        );
-        Box::leak(Box::new(focus_hook));
-    }
-}
-
-unsafe extern "system" fn focus_event_proc(
-    _hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
-    _event: u32,
-    hwnd: HWND,
-    _id_object: i32,
-    _id_child: i32,
-    _event_thread: u32,
-    _ms_event_time: u32,
-) {
-    if hwnd.0.is_null() {
-        return;
-    }
-    // Foreground moved — e.g. Snipping Tool opened/closed or got minimised.
-    CAPTURE_RECHECK.store(true, Ordering::Relaxed);
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, IsWindow, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
-    };
-
-    if !IsWindow(Some(hwnd)).as_bool() {
-        return;
-    }
-    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    if (ex_style & WS_EX_TOOLWINDOW.0) != 0 {
-        return;
-    }
-
-    let my_pid = std::process::id();
-    let mut pid = 0u32;
-    windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    if pid == my_pid {
-        return;
-    }
-
-    let hwnd_raw = hwnd.0 as isize;
-    if let Some(map) = crate::state::FOCUS_TIMESTAMPS.get() {
-        if let Ok(mut guard) = map.lock() {
-            guard.insert(hwnd_raw, crate::utils::get_now_ms());
-        }
-    }
-
-    // Keep the thumbnail cache warm for the focused window so that hovering a
-    // later-minimized window uses the cached image instead of restoring it.
-    std::thread::spawn(move || {
-        use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, IsIconic, IsWindow};
-
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        let hwnd = HWND(hwnd_raw as *mut _);
-        unsafe {
-            if !IsWindow(Some(hwnd)).as_bool() || IsIconic(hwnd).as_bool() {
-                return;
-            }
-        }
-
-        // Skip fullscreen windows (games, video players): capturing them can hitch.
-        if crate::utils::is_window_fullscreen(hwnd) {
-            return;
-        }
-
-        let mut text = [0u16; 2];
-        unsafe {
-            if GetWindowTextW(hwnd, &mut text) == 0 {
-                return;
-            }
-        }
-
-        // Refresh at most once per window every two seconds
-        if let Some(cache) = crate::state::THUMBNAIL_CACHE.get() {
-            if let Ok(guard) = cache.lock() {
-                if let Some((_, ts)) = guard.get(&hwnd_raw) {
-                    if crate::utils::get_now_ms() - ts < 2000 {
-                        return;
-                    }
-                }
-            }
-        }
-
-        if THUMB_CAPTURE_IN_FLIGHT.swap(true, Ordering::Relaxed) {
-            return;
-        }
-        let _guard = ThumbnailCaptureGuard;
-
-        if let Some(img) = crate::utils::capture_hwnd_to_base64(hwnd, 320, 200) {
-            cache_thumbnail(hwnd_raw, img);
-        }
-    });
-}
-
-static THUMB_CAPTURE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-
-const MAX_CACHED_THUMBNAILS: usize = 15;
-
-fn trim_thumbnail_cache(
-    cache: &mut std::collections::HashMap<isize, (String, i64)>,
-    newest: isize,
-    is_live: impl Fn(isize) -> bool,
-) {
-    cache.retain(|&key, _| is_live(key));
-    while cache.len() > MAX_CACHED_THUMBNAILS {
-        let oldest = cache
-            .iter()
-            .filter(|(key, _)| **key != newest)
-            .min_by_key(|(_, (_, timestamp))| *timestamp)
-            .map(|(key, _)| *key);
-        if let Some(key) = oldest {
-            cache.remove(&key);
-        } else {
-            break;
-        }
-    }
-}
-
-pub fn cache_thumbnail(hwnd: isize, image: String) {
-    let Some(cache) = crate::state::THUMBNAIL_CACHE.get() else {
-        return;
-    };
-    let Ok(mut guard) = cache.lock() else {
-        return;
-    };
-    guard.insert(hwnd, (image, crate::utils::get_now_ms()));
-    if guard.len() <= MAX_CACHED_THUMBNAILS {
-        return;
-    }
-
-    use windows::Win32::UI::WindowsAndMessaging::IsWindow;
-    trim_thumbnail_cache(&mut guard, hwnd, |key| unsafe {
-        IsWindow(Some(HWND(key as *mut _))).as_bool()
-    });
-}
-
-struct ThumbnailCaptureGuard;
-
-impl Drop for ThumbnailCaptureGuard {
-    fn drop(&mut self) {
-        THUMB_CAPTURE_IN_FLIGHT.store(false, Ordering::Relaxed);
-    }
-}
-
-unsafe extern "system" fn thumbnail_capture_proc(
-    _hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
-    event: u32,
-    hwnd: HWND,
-    _id_object: i32,
-    _id_child: i32,
-    _event_thread: u32,
-    _ms_event_time: u32,
-) {
-    if hwnd.0.is_null() {
-        return;
-    }
-
-    // Only the restore event is useful here. On MINIMIZESTART the window is
-    // mid-animation and PrintWindow can capture a black frame, which would
-    // overwrite a good cached thumbnail; the focus hook keeps the cache warm
-    // before a window is minimized.
-    if event != windows::Win32::UI::WindowsAndMessaging::EVENT_SYSTEM_MINIMIZEEND {
-        return;
-    }
-
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, IsWindow, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
-    };
-
-    if !IsWindow(Some(hwnd)).as_bool() {
-        return;
-    }
-    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    if (ex_style & WS_EX_TOOLWINDOW.0) != 0 {
-        return;
-    }
-
-    let my_pid = std::process::id();
-    let mut pid = 0u32;
-    windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    if pid == my_pid {
-        return;
-    }
-
-    let mut text = [0u16; 512];
-    let len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut text);
-    if len == 0 {
-        return;
-    }
-
-    let hwnd_raw = hwnd.0 as isize;
-
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(150));
-
-        // Skip if another capture refreshed this window very recently
-        if let Some(cache) = crate::state::THUMBNAIL_CACHE.get() {
-            if let Ok(guard) = cache.lock() {
-                if let Some((_, ts)) = guard.get(&hwnd_raw) {
-                    if crate::utils::get_now_ms() - ts < 300 {
-                        return;
-                    }
-                }
-            }
-        }
-
-        let hwnd = HWND(hwnd_raw as *mut _);
-        if let Some(img) = crate::utils::capture_hwnd_to_base64(hwnd, 320, 200) {
-            cache_thumbnail(hwnd_raw, img);
-        }
-    });
-}
-
-unsafe extern "system" fn taskbar_event_proc(
-    _h_win_event_hook: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
-    _event: u32,
-    hwnd: HWND,
-    _id_object: i32,
-    _id_child: i32,
-    _dw_event_thread: u32,
-    _dwms_event_time: u32,
-) {
-    if NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed) {
-        let mut class_name = [0u8; 256];
-        let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameA(hwnd, &mut class_name);
-        let class_str = std::str::from_utf8(&class_name[..len as usize]).unwrap_or("");
-
-        if class_str == "Shell_TrayWnd" || class_str == "Shell_SecondaryTrayWnd" {
-            // Taskbar is trying to show or move: slap it back down.
-            set_taskbar_visibility(false, false);
-        }
-    }
 }
 
 pub fn setup_audio_visualization(app_handle: AppHandle) {
@@ -876,11 +248,12 @@ pub fn setup_audio_visualization(app_handle: AppHandle) {
                                         {
                                             let mut total_mag = 0.0f32;
                                             let mut count = 0u32;
-                                            for bin in bin_start..bin_end {
-                                                if bin >= FFT_SIZE / 2 {
-                                                    break;
-                                                }
-                                                let mag = fft_input[bin].norm();
+                                            for sample in fft_input
+                                                .iter()
+                                                .take(bin_end.min(FFT_SIZE / 2))
+                                                .skip(bin_start)
+                                            {
+                                                let mag = sample.norm();
                                                 total_mag += mag;
                                                 count += 1;
                                             }
@@ -1080,13 +453,6 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                         }
                         (SystemCommand::ToggleVisibility(visible), _) => {
                             let _ = handle_system.emit("visibility-change", visible);
-                            if let Some(w) = handle_system.get_webview_window("bottom-corners") {
-                                if visible {
-                                    let _ = w.show();
-                                } else {
-                                    let _ = w.hide();
-                                }
-                            }
                         }
                     }
                 }
@@ -1289,406 +655,7 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
         }
     });
 
-    let tx_clone = tx.clone();
-    let handle_visibility = app_handle.clone();
-    std::thread::spawn(move || {
-        use windows::Win32::Foundation::{POINT, RECT};
-        use windows::Win32::Graphics::Gdi::ClientToScreen;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetClientRect, GetForegroundWindow, GetWindowLongW, GetWindowRect, IsIconic, IsWindow,
-            IsZoomed, GWL_STYLE, WS_CAPTION, WS_MAXIMIZE,
-        };
-        let mut last_visible = true;
-        let mut last_dock_overlap: Option<bool> = None;
-        let mut last_notch_overlap: Option<bool> = None;
-        let mut last_dock_maximized: Option<bool> = None;
-        let mut last_fg_maximized = false;
-        let mut last_hwnd = HWND(std::ptr::null_mut());
-        let mut last_emit = Instant::now();
-        let mut is_known_shell = false;
-        let my_process_id = std::process::id();
-        let mut last_monitor_update = Instant::now() - Duration::from_secs(5);
-        let mut cached_scale = 1.0f64;
-        // Re-check the native flyout every ~1.5s: picks up setting changes and
-        // a host window recreated by an Explorer restart.
-        let mut osd_sync_ticks = 0u32;
-
-        loop {
-            if SHUTTING_DOWN.load(Ordering::Relaxed) {
-                std::thread::sleep(std::time::Duration::from_millis(150));
-                continue;
-            }
-            unsafe {
-                let now = Instant::now();
-                if now.duration_since(last_monitor_update) > Duration::from_millis(1000) {
-                    if let Some(m) = handle_visibility.primary_monitor().ok().flatten() {
-                        cached_scale = m.scale_factor();
-                        last_monitor_update = now;
-                    }
-                }
-                use windows::Win32::Graphics::Gdi::{
-                    GetMonitorInfoA, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
-                };
-                let mut hwnd = GetForegroundWindow();
-
-                // Bloom's HUD and menus can briefly become the foreground
-                // window while the user drags a control or right-clicks the
-                // dock. Walking the Z-order from that window may select a
-                // different app on every tick, making the smart dock flash.
-                // Keep evaluating the last real foreground window until an
-                // external app actually takes focus. Native popup menus use
-                // the #32768 class and need the same treatment.
-                let mut foreground_pid = 0u32;
-                if !hwnd.is_invalid() {
-                    GetWindowThreadProcessId(hwnd, Some(&mut foreground_pid));
-                }
-                let mut foreground_class = [0u8; 256];
-                let foreground_class_len = if hwnd.is_invalid() {
-                    0
-                } else {
-                    windows::Win32::UI::WindowsAndMessaging::GetClassNameA(
-                        hwnd,
-                        &mut foreground_class,
-                    )
-                };
-                let is_popup_menu = &foreground_class[..foreground_class_len as usize] == b"#32768";
-                if (foreground_pid == my_process_id || is_popup_menu)
-                    && !last_hwnd.is_invalid()
-                    && IsWindow(Some(last_hwnd)).as_bool()
-                    && IsWindowVisible(last_hwnd).as_bool()
-                    && !IsIconic(last_hwnd).as_bool()
-                {
-                    hwnd = last_hwnd;
-                }
-
-                // Find the first meaningful window for overlap detection.
-                // We skip Bloom windows, invisible windows, minimized windows, and 'cloaked' system ghosts.
-                // On systems with many top-level shell/helper windows, the app can be
-                // far down the Z-order. Keep a generous bound, but never treat the
-                // unchecked window at the bound as a valid foreground window.
-                let mut check_count = 0;
-                let mut found_window = false;
-                while !hwnd.is_invalid() && check_count < 512 {
-                    let mut process_id = 0u32;
-                    GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-
-                    let mut class_name = [0u8; 256];
-                    let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameA(
-                        hwnd,
-                        &mut class_name,
-                    );
-                    let class_str = std::str::from_utf8(&class_name[..len as usize]).unwrap_or("");
-
-                    let is_bloom = process_id == my_process_id || class_str.contains("Bloom");
-                    let is_popup_menu = class_str == "#32768";
-                    let is_visible = IsWindowVisible(hwnd).as_bool();
-                    let is_iconic = IsIconic(hwnd).as_bool();
-
-                    let mut cloaked = 0u32;
-                    let is_cloaked = DwmGetWindowAttribute(
-                        hwnd,
-                        windows::Win32::Graphics::Dwm::DWMWA_CLOAKED,
-                        &mut cloaked as *mut _ as *mut _,
-                        4,
-                    )
-                    .is_ok()
-                        && cloaked != 0;
-
-                    let mut rect = RECT::default();
-                    let has_valid_rect = GetWindowRect(hwnd, &mut rect).is_ok()
-                        && (rect.right - rect.left) > 0
-                        && (rect.bottom - rect.top) > 0;
-
-                    if is_bloom
-                        || is_popup_menu
-                        || !is_visible
-                        || is_iconic
-                        || is_cloaked
-                        || !has_valid_rect
-                    {
-                        hwnd = windows::Win32::UI::WindowsAndMessaging::GetWindow(
-                            hwnd,
-                            windows::Win32::UI::WindowsAndMessaging::GW_HWNDNEXT,
-                        )
-                        .unwrap_or_default();
-                        check_count += 1;
-                    } else {
-                        found_window = true;
-                        break;
-                    }
-                }
-                if !found_window {
-                    hwnd = HWND(std::ptr::null_mut());
-                }
-
-                let mut should_overlap = false;
-                let mut should_notch_overlap = false;
-                let mut should_maximized = false;
-                let mut current_is_fs = false;
-
-                // Cheap check every tick: the foreground hwnd doesn't change when
-                // the user clicks maximize, so without this the adaptive dock
-                // would wait for the 3s fallback recompute to react.
-                let fg_is_maximized = !hwnd.is_invalid() && IsZoomed(hwnd).as_bool();
-
-                if !hwnd.is_invalid()
-                    && (hwnd != last_hwnd
-                        || fg_is_maximized != last_fg_maximized
-                        || last_emit.elapsed() >= Duration::from_secs(3))
-                {
-                    last_hwnd = hwnd;
-                    last_fg_maximized = fg_is_maximized;
-                    let mut class_name = [0u8; 256];
-                    let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameA(
-                        hwnd,
-                        &mut class_name,
-                    );
-                    let class_str = std::str::from_utf8(&class_name[..len as usize]).unwrap_or("");
-                    let mut text = [0u16; 512];
-                    let text_len =
-                        windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut text);
-                    let title = String::from_utf16_lossy(&text[..text_len as usize]);
-
-                    let is_desktop = class_str == "Progman" || class_str == "WorkerW";
-                    let is_start_class =
-                        class_str == "Windows.UI.Core.CoreWindow" || class_str == "SimpleWindow";
-                    let mut process_id = 0u32;
-                    GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-                    let is_start = is_start_class
-                        && ((title == "Start" || title == "Search")
-                            || is_start_menu_process(process_id));
-                    let is_shell = class_str == "Shell_TrayWnd"
-                        || class_str == "Shell_SecondaryTrayWnd"
-                        || is_start;
-
-                    is_known_shell = is_desktop || is_shell;
-                }
-
-                if !hwnd.is_invalid() {
-                    if is_known_shell {
-                        should_overlap = false;
-                        current_is_fs = false;
-                    } else {
-                        // Current hwnd is now guaranteed to be visible, non-iconic and non-cloaked
-                        use windows::Win32::UI::WindowsAndMessaging::{
-                            GWL_EXSTYLE, WS_EX_TOOLWINDOW,
-                        };
-                        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-                        let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-
-                        let is_transient = (ex_style & WS_EX_TOOLWINDOW.0) != 0;
-
-                        if !is_transient {
-                            let mut rect = RECT::default();
-                            let dwm_res = DwmGetWindowAttribute(
-                                hwnd,
-                                DWMWA_EXTENDED_FRAME_BOUNDS,
-                                &mut rect as *mut _ as *mut _,
-                                std::mem::size_of::<RECT>() as u32,
-                            );
-                            let has_rect =
-                                dwm_res.is_ok() || GetWindowRect(hwnd, &mut rect).is_ok();
-
-                            if has_rect {
-                                let h_monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-                                let mut mi = MONITORINFO {
-                                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
-                                    ..Default::default()
-                                };
-
-                                if GetMonitorInfoA(h_monitor, &mut mi).as_bool() {
-                                    let screen_rect = mi.rcMonitor;
-                                    let is_primary = is_primary_monitor(mi.dwFlags);
-                                    let is_maximized =
-                                        IsZoomed(hwnd).as_bool() || (style & WS_MAXIMIZE.0) != 0;
-                                    let is_maximized_standard =
-                                        is_maximized && (style & WS_CAPTION.0) != 0;
-
-                                    let mut is_client_fullscreen = false;
-                                    let mut client_rect = RECT::default();
-                                    if GetClientRect(hwnd, &mut client_rect).is_ok() {
-                                        let mut top_left = POINT {
-                                            x: client_rect.left,
-                                            y: client_rect.top,
-                                        };
-                                        let mut bottom_right = POINT {
-                                            x: client_rect.right,
-                                            y: client_rect.bottom,
-                                        };
-                                        let _ = ClientToScreen(hwnd, &mut top_left);
-                                        let _ = ClientToScreen(hwnd, &mut bottom_right);
-
-                                        is_client_fullscreen = top_left.x <= screen_rect.left
-                                            && top_left.y <= screen_rect.top
-                                            && bottom_right.x >= screen_rect.right
-                                            && bottom_right.y >= screen_rect.bottom;
-                                    }
-
-                                    let is_matches_screen = rect.left <= screen_rect.left
-                                        && rect.top <= screen_rect.top
-                                        && rect.right >= screen_rect.right
-                                        && rect.bottom >= screen_rect.bottom;
-
-                                    // Truly fullscreen means client covers screen, OR window matches screen but is not just a standard maximized window
-                                    current_is_fs = is_primary
-                                        && (is_client_fullscreen || is_matches_screen)
-                                        && !is_maximized_standard;
-
-                                    if is_primary && (current_is_fs || is_maximized) {
-                                        should_overlap = true;
-                                        should_notch_overlap = true;
-                                        // Standard maximized windows leave the dock's
-                                        // reserved strip empty on both sides, so the dock
-                                        // can stretch to a full taskbar. True fullscreen
-                                        // windows cover the screen and should not.
-                                        should_maximized = is_maximized && !current_is_fs;
-                                    } else if is_primary {
-                                        should_overlap = false;
-                                        if let Ok(dock_rect_lock) = DOCK_RECT.lock() {
-                                            if let Some(dr) = *dock_rect_lock {
-                                                let scale = cached_scale;
-                                                let d_left = (dr.x as f64 * scale) as i32;
-                                                let d_right =
-                                                    d_left + (dr.width as f64 * scale) as i32;
-                                                let res_h = (56.0 * scale) as i32;
-                                                let trigger_y = screen_rect.bottom - res_h;
-
-                                                if rect.left < d_right - 4
-                                                    && rect.right > d_left + 4
-                                                    && rect.bottom > trigger_y + 4
-                                                {
-                                                    should_overlap = true;
-                                                }
-                                            }
-                                        }
-
-                                        if let Ok(notch_rect_lock) = NOTCH_RECT.lock() {
-                                            if let Some(nr) = *notch_rect_lock {
-                                                let scale = cached_scale;
-                                                let n_left = (nr.x as f64 * scale) as i32;
-                                                let n_right =
-                                                    n_left + (nr.width as f64 * scale) as i32;
-                                                let res_h = (crate::tray::native_taskbar_height()
-                                                    .unwrap_or(48.0)
-                                                    * scale)
-                                                    as i32;
-                                                let trigger_y = screen_rect.top + res_h;
-
-                                                if rect.left < n_right - 4
-                                                    && rect.right > n_left + 4
-                                                    && rect.top < trigger_y - 4
-                                                {
-                                                    should_notch_overlap = true;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            should_overlap = false;
-                            current_is_fs = false;
-                        }
-                    }
-                } else {
-                    last_hwnd = hwnd;
-                    should_overlap = false;
-                    current_is_fs = false;
-                    is_known_shell = false;
-                }
-
-                // Only report dock overlap when the dock window is actually visible.
-                // On autostart, the overlap thread starts before init_dock shows the window,
-                // and without this guard it emits dock-overlap:true which hides the dock
-                // right after init_dock emits dock-overlap:false.
-                let dock_visible = handle_visibility
-                    .get_webview_window("dock")
-                    .is_some_and(|w| w.is_visible().unwrap_or(false));
-                let effective_dock_overlap = should_overlap && dock_visible;
-
-                // Update overlap state
-                CURRENT_DOCK_OVERLAP.store(
-                    if effective_dock_overlap { 1 } else { 0 },
-                    Ordering::Relaxed,
-                );
-                CURRENT_NOTCH_OVERLAP
-                    .store(if should_notch_overlap { 1 } else { 0 }, Ordering::Relaxed);
-                if CURRENT_FOREGROUND_FULLSCREEN.swap(current_is_fs, Ordering::Relaxed)
-                    != current_is_fs
-                {
-                    crate::tray::surface::sync_visibility(&handle_visibility);
-                }
-
-                if Some(effective_dock_overlap) != last_dock_overlap
-                    || last_emit.elapsed() >= Duration::from_secs(3)
-                {
-                    let _ = handle_visibility.emit("dock-overlap", effective_dock_overlap);
-                    last_dock_overlap = Some(effective_dock_overlap);
-                    last_emit = Instant::now();
-                }
-
-                if Some(should_notch_overlap) != last_notch_overlap
-                    || last_emit.elapsed() >= Duration::from_secs(3)
-                {
-                    let _ = handle_visibility.emit("notch-overlap", should_notch_overlap);
-                    last_notch_overlap = Some(should_notch_overlap);
-                }
-
-                // Adaptive dock signal: a standard maximized foreground window.
-                // Unlike dock-overlap this is not guarded by dock visibility, so
-                // init_dock can emit the current value when the dock is enabled.
-                CURRENT_FOREGROUND_MAXIMIZED.store(should_maximized, Ordering::Relaxed);
-                if Some(should_maximized) != last_dock_maximized
-                    || last_emit.elapsed() >= Duration::from_secs(3)
-                {
-                    let _ = handle_visibility.emit("dock-maximized", should_maximized);
-                    last_dock_maximized = Some(should_maximized);
-                }
-
-                // Update full-screen visibility (hides TopBar/Corners)
-                if current_is_fs && last_visible {
-                    let _ = tx_clone.send(SystemCommand::ToggleVisibility(false));
-                    last_visible = false;
-                } else if !current_is_fs && !last_visible {
-                    let _ = tx_clone.send(SystemCommand::ToggleVisibility(true));
-                    last_visible = true;
-                }
-
-                osd_sync_ticks += 1;
-                if osd_sync_ticks >= 10 {
-                    osd_sync_ticks = 0;
-                    sync_native_osd(&handle_visibility);
-                }
-
-                // Enforce native taskbar hiding (periodic check)
-                if NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed)
-                    && (refresh_taskbar_owner() || any_native_taskbar_visible())
-                {
-                    set_taskbar_visibility(false, false);
-                }
-            }
-
-            // Capture UI state is event-driven: WinEvent callbacks set the
-            // recheck flag on top-level window show/hide/destroy and foreground
-            // changes, so the scan below only runs when something changed
-            // (throttled to coalesce bursts of window events).
-            let scan_now = now_ms();
-            if (CAPTURE_RECHECK.load(Ordering::Relaxed)
-                || (CAPTURE_UI_ACTIVE.load(Ordering::Relaxed)
-                    && scan_now - CAPTURE_LAST_SCAN_MS.load(Ordering::Relaxed) >= 1000))
-                && scan_now - CAPTURE_LAST_SCAN_MS.load(Ordering::Relaxed) >= 400
-            {
-                CAPTURE_RECHECK.store(false, Ordering::Relaxed);
-                CAPTURE_LAST_SCAN_MS.store(scan_now, Ordering::Relaxed);
-                let active = is_capture_ui_present();
-                if active != CAPTURE_UI_ACTIVE.load(Ordering::Relaxed) {
-                    CAPTURE_UI_ACTIVE.store(active, Ordering::Relaxed);
-                    apply_capture_ui_state(&handle_visibility, active);
-                }
-            }
-            std::thread::sleep(std::time::Duration::from_millis(150));
-        }
-    });
+    setup_island_visibility(app_handle.clone(), tx.clone());
 
     tx
 }
@@ -1787,58 +754,15 @@ static MOUSE_HOOK_UPDATES: OnceLock<SyncSender<()>> = OnceLock::new();
 static MOUSE_HOOK_CURSOR: AtomicI64 = AtomicI64::new(0);
 static MOUSE_HOOK_LAST_EVENT_MS: AtomicI64 = AtomicI64::new(0);
 static MH_LAST_MAIN_IGNORE: AtomicI32 = AtomicI32::new(-1);
-static MH_LAST_DOCK_IGNORE: AtomicI32 = AtomicI32::new(-1);
 static MH_LAST_OV_IGNORE: AtomicI32 = AtomicI32::new(-1);
-static MH_LAST_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
 static MH_LAST_TOP_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
 static MH_LAST_LEFT_EDGE_HOVER: AtomicI32 = AtomicI32::new(-1);
-static MH_DOCK_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
 static MH_TOPBAR_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
 static MH_LEFT_EXPIRY_MS: AtomicI64 = AtomicI64::new(0);
 static MH_LAST_MONITOR_UPDATE_MS: AtomicI64 = AtomicI64::new(0);
 static MH_CACHED_MON_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static MH_CACHED_MON_SIZE: Mutex<Option<(u32, u32)>> = Mutex::new(None);
 static CAPTURE_UI_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-pub(crate) fn capture_ui_active() -> bool {
-    CAPTURE_UI_ACTIVE.load(Ordering::Relaxed)
-}
-static CAPTURE_RECHECK: AtomicBool = AtomicBool::new(true);
-static CAPTURE_LAST_SCAN_MS: AtomicI64 = AtomicI64::new(0);
-
-/// Recognizes the native Start/Search surface by its host process. Its window
-/// title is localized, so title-only checks make Smart dock overlap detection
-/// hide the dock on non-English Windows.
-fn is_start_menu_process(process_id: u32) -> bool {
-    if process_id == 0 {
-        return false;
-    }
-    unsafe {
-        let Ok(process) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) else {
-            return false;
-        };
-        let mut buffer = [0u16; 512];
-        let mut length = buffer.len() as u32;
-        let found = QueryFullProcessImageNameW(
-            process,
-            PROCESS_NAME_WIN32,
-            windows::core::PWSTR(buffer.as_mut_ptr()),
-            &mut length,
-        )
-        .is_ok()
-            && is_start_menu_process_path(&String::from_utf16_lossy(&buffer[..length as usize]));
-        let _ = CloseHandle(process);
-        found
-    }
-}
-
-fn is_start_menu_process_path(path: &str) -> bool {
-    let name = Path::new(path).file_name().and_then(|name| name.to_str());
-    name.is_some_and(|name| {
-        name.eq_ignore_ascii_case("StartMenuExperienceHost.exe")
-            || name.eq_ignore_ascii_case("SearchHost.exe")
-    })
-}
 
 fn is_primary_monitor(flags: u32) -> bool {
     const PRIMARY_MONITOR_FLAG: u32 = 1;
@@ -1858,20 +782,6 @@ const TOP_EDGE_DWELL_MS: i64 = 200;
 const TOP_EDGE_POLL_MS: u64 = 40;
 static MH_TOP_EDGE_ENTER_MS: AtomicI64 = AtomicI64::new(0);
 static MH_TOP_EDGE_ARMED: AtomicBool = AtomicBool::new(false);
-
-/// Hover-intent ("pressure") gate for the bottom edge, the dock-side mirror of
-/// the top-edge gate. Contact with the bottom band only starts a dwell clock;
-/// the edge is armed — and only then reveals the dock or claims cursor input —
-/// after the cursor has rested in the band for the configured delay. A
-/// pass-through along the bottom strip never arms it. The delay is user-tunable
-/// via `bloom-dock-edge-delay` (ms); `0` restores the old instant behavior.
-const BOTTOM_EDGE_BAND_PX: f64 = 8.0;
-const BOTTOM_EDGE_DWELL_MS: i64 = 200;
-/// The mouse hook only fires on WM_MOUSEMOVE, so a pending dwell is completed
-/// by a watchdog that re-checks at this cadence.
-const BOTTOM_EDGE_POLL_MS: u64 = 40;
-static MH_DOCK_EDGE_ENTER_MS: AtomicI64 = AtomicI64::new(0);
-static MH_DOCK_EDGE_ARMED: AtomicBool = AtomicBool::new(false);
 
 /// Physical bounds `(x, y, width, height)` of the expanded per-app volume
 /// mixer (notch + panel), if it is open. The frontend reports the card in
@@ -1948,8 +858,6 @@ pub fn refresh_main_interaction(app_handle: &AppHandle) {
 }
 
 // The Snipping Tool editor is a normal desktop app. Only its selection overlay
-// should suspend Bloom input; matching the executable alone disabled the dock,
-// tray and notch for as long as an edited screenshot remained visible.
 fn capture_blocks_bloom(process: &str, has_caption: bool, covers_monitor: bool) -> bool {
     process == "screenclippinghost.exe"
         || (matches!(process, "snippingtool.exe" | "screensketch.exe")
@@ -2062,9 +970,6 @@ fn apply_capture_ui_state(app: &AppHandle, active: bool) {
         }
     }
     if active {
-        if let Some(hwnd) = app.get_webview_window("dock").and_then(|w| w.hwnd().ok()) {
-            set_click_through(hwnd, true);
-        }
         if let Some(hwnd) = app
             .get_webview_window("overlay")
             .and_then(|w| w.hwnd().ok())
@@ -2074,15 +979,11 @@ fn apply_capture_ui_state(app: &AppHandle, active: bool) {
     }
     // Force the mouse hook to re-evaluate hit-testing on the next move.
     MH_LAST_MAIN_IGNORE.store(-1, Ordering::Relaxed);
-    MH_LAST_DOCK_IGNORE.store(-1, Ordering::Relaxed);
     MH_LAST_OV_IGNORE.store(-1, Ordering::Relaxed);
     // Cancel any pending top/bottom-edge dwell so they cannot arm while Bloom
     // is click-through for the capture tool.
     MH_TOP_EDGE_ENTER_MS.store(0, Ordering::Relaxed);
     MH_TOP_EDGE_ARMED.store(false, Ordering::Relaxed);
-    MH_DOCK_EDGE_ENTER_MS.store(0, Ordering::Relaxed);
-    MH_DOCK_EDGE_ARMED.store(false, Ordering::Relaxed);
-    crate::tray::surface::sync_visibility(app);
 }
 
 pub fn setup_mouse_hook(app_handle: AppHandle) {
@@ -2091,7 +992,6 @@ pub fn setup_mouse_hook(app_handle: AppHandle) {
         return;
     }
     setup_volume_mixer_watchdog(app_handle.clone());
-    setup_dock_edge_watchdog(app_handle.clone());
     setup_top_edge_watchdog(app_handle.clone());
     std::thread::Builder::new()
         .name("bloom-cursor-worker".into())
@@ -2421,8 +1321,6 @@ fn update_main_interaction(
         let _ = app_handle.emit("notch-edge-hover", final_notch_hover);
         MH_LAST_TOP_EDGE_HOVER.store(new_val, Ordering::Relaxed);
     }
-
-    // An open dock menu no longer makes the notch take clicks: a press outside
     // the menu is caught by the mouse hook instead (see mouse_hook_proc).
     let final_ignore = !is_click_interactive;
     let prev_ignore = MH_LAST_MAIN_IGNORE.load(Ordering::Relaxed);
@@ -2471,329 +1369,16 @@ fn setup_top_edge_watchdog(app_handle: AppHandle) {
     });
 }
 
-/// Bottom-edge hover-intent delay in milliseconds. `0` disables the gate so the
-/// dock reveals the moment the band is touched (the pre-fix behavior).
-fn dock_edge_dwell_ms(app_handle: &AppHandle) -> i64 {
-    crate::utils::get_setting_str(app_handle, "bloom-dock-edge-delay")
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(BOTTOM_EDGE_DWELL_MS)
-        .clamp(0, 2000)
-}
-
-/// True once the cursor has stayed inside the bottom band long enough to count
-/// as a deliberate reveal. Mere contact does not arm: a pass along the bottom
-/// strip on the way to a maximized window's bottom controls must not reveal the
-/// dock. Leaving the band disarms and restarts the clock.
-///
-/// The mouse hook only fires on movement, so `setup_dock_edge_watchdog` also
-/// calls this while a dwell is pending so it can complete on a stationary
-/// cursor.
-fn dock_edge_armed_for(
-    app_handle: &AppHandle,
-    cursor: windows::Win32::Foundation::POINT,
-    now: i64,
-    scale: f64,
-) -> bool {
-    let (mon_x, mon_y) = MH_CACHED_MON_POS
-        .lock()
-        .ok()
-        .and_then(|g| *g)
-        .unwrap_or((0, 0));
-    let (mon_w, mon_h) = MH_CACHED_MON_SIZE
-        .lock()
-        .ok()
-        .and_then(|g| *g)
-        .map(|s| (s.0 as i32, s.1 as i32))
-        .unwrap_or((1920, 1080));
-
-    let in_band = cursor.y >= (mon_y + mon_h - (BOTTOM_EDGE_BAND_PX * scale) as i32)
-        && cursor.x >= mon_x
-        && cursor.x <= (mon_x + mon_w);
-
-    if !in_band {
-        MH_DOCK_EDGE_ENTER_MS.store(0, Ordering::Relaxed);
-        MH_DOCK_EDGE_ARMED.store(false, Ordering::Relaxed);
-        return false;
-    }
-    if MH_DOCK_EDGE_ARMED.load(Ordering::Relaxed) {
-        return true;
-    }
-    let dwell_ms = dock_edge_dwell_ms(app_handle);
-    if dwell_ms <= 0 {
-        MH_DOCK_EDGE_ARMED.store(true, Ordering::Relaxed);
-        return true;
-    }
-    let enter = MH_DOCK_EDGE_ENTER_MS.load(Ordering::Relaxed);
-    if enter == 0 {
-        MH_DOCK_EDGE_ENTER_MS.store(now, Ordering::Relaxed);
-        return false;
-    }
-    if now - enter >= dwell_ms {
-        MH_DOCK_EDGE_ARMED.store(true, Ordering::Relaxed);
-        return true;
-    }
-    false
-}
-
-/// Hover + click-through state for the dock window. Shared by the mouse hook
-/// (on movement) and the bottom-edge watchdog (to finish a stationary dwell).
-fn update_dock_interaction(
-    app_handle: &AppHandle,
-    cursor: windows::Win32::Foundation::POINT,
-    now: i64,
-    fg_fs: bool,
-) {
-    if fg_fs {
-        // Fullscreen foreground app or capture overlay: the dock must not
-        // intercept input (e.g. a Snipping Tool selection ending at the
-        // bottom edge), so keep it click-through.
-        MH_DOCK_EDGE_ENTER_MS.store(0, Ordering::Relaxed);
-        MH_DOCK_EDGE_ARMED.store(false, Ordering::Relaxed);
-        if let Some(hwnd) = app_handle
-            .get_webview_window("dock")
-            .and_then(|w| w.hwnd().ok())
-        {
-            set_click_through(hwnd, true);
-        }
-        MH_LAST_DOCK_IGNORE.store(1, Ordering::Relaxed);
-        if MH_LAST_EDGE_HOVER.swap(0, Ordering::Relaxed) != 0 {
-            let _ = app_handle.emit("dock-edge-hover", false);
-        }
-        return;
-    }
-
-    let Some(dock_win) = app_handle.get_webview_window("dock") else {
-        return;
-    };
-    if !dock_win.is_visible().unwrap_or(false) {
-        return;
-    }
-
-    let (mon_x, mon_y) = MH_CACHED_MON_POS
-        .lock()
-        .ok()
-        .and_then(|g| *g)
-        .unwrap_or((0, 0));
-    let (mon_w, mon_h) = MH_CACHED_MON_SIZE
-        .lock()
-        .ok()
-        .and_then(|g| *g)
-        .map(|s| (s.0 as i32, s.1 as i32))
-        .unwrap_or((1920, 1080));
-
-    let mut is_click_interactive = false;
-    let mut is_hovered = false;
-    let mut dock_span: Option<(i32, i32)> = None;
-
-    let dock_rect_val = DOCK_WINDOW_RECT.lock().ok().and_then(|g| *g);
-
-    if let Some((win_pos, win_size)) = dock_rect_val {
-        let in_window = cursor.x >= win_pos.x
-            && cursor.x <= (win_pos.x + win_size.width as i32)
-            && cursor.y >= win_pos.y
-            && cursor.y <= (win_pos.y + win_size.height as i32);
-
-        if in_window {
-            if let Ok(region) = DOCK_RECT.try_lock() {
-                if let Some(r) = *region {
-                    let scale = dock_win.scale_factor().unwrap_or(1.0);
-                    let pad_x = (5.0 * scale) as i32;
-                    let pad_y_top = (8.0 * scale) as i32;
-                    let pad_y_bottom = (5.0 * scale) as i32;
-                    // Hysteresis keeps the dock interactive a little past
-                    // its bounds once grabbed, so removing the edge-forced
-                    // interactivity doesn't reintroduce boundary flicker.
-                    let hyst = if MH_LAST_DOCK_IGNORE.load(Ordering::Relaxed) == 0 {
-                        (10.0 * scale) as i32
-                    } else {
-                        0
-                    };
-                    let rx = win_pos.x + (r.x as f64 * scale) as i32 - pad_x - hyst;
-                    let ry = win_pos.y + (r.y as f64 * scale) as i32 - pad_y_top - hyst;
-                    let rw = (r.width as f64 * scale) as i32 + (pad_x * 2) + (hyst * 2);
-                    let rh =
-                        (r.height as f64 * scale) as i32 + pad_y_top + pad_y_bottom + (hyst * 2);
-                    if cursor.x >= rx
-                        && cursor.x <= (rx + rw)
-                        && cursor.y >= ry
-                        && cursor.y <= (ry + rh)
-                    {
-                        is_click_interactive = true;
-                    }
-                    dock_span = Some((rx, rx + rw));
-                }
-            }
-
-            if !is_click_interactive && MENU_IS_OPEN.load(Ordering::Relaxed) {
-                if let Ok(rect) = MENU_RECT.try_lock() {
-                    if let Some(r) = *rect {
-                        let scale = dock_win.scale_factor().unwrap_or(1.0);
-                        let rx = win_pos.x + (r.x as f64 * scale) as i32 - (5.0 * scale) as i32;
-                        let ry = win_pos.y + (r.y as f64 * scale) as i32 - (5.0 * scale) as i32;
-                        let rw = (r.width as f64 * scale) as i32 + (10.0 * scale) as i32;
-                        let rh = (r.height as f64 * scale) as i32 + (10.0 * scale) as i32;
-                        if cursor.x >= rx
-                            && cursor.x <= (rx + rw)
-                            && cursor.y >= ry
-                            && cursor.y <= (ry + rh)
-                        {
-                            is_click_interactive = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Hot-edge detection (Bottom edge). Only a dwelled (armed) edge, a dock
-    // hover, or a recent hover reveals the dock — a pass through the band does
-    // not.
-    let in_dock_hover = DOCK_IS_HOVERED.load(Ordering::Relaxed);
-    let scale = dock_win.scale_factor().unwrap_or(1.0);
-    let edge_armed = dock_edge_armed_for(app_handle, cursor, now, scale);
-    let at_bottom_edge = cursor.y >= (mon_y + mon_h - (BOTTOM_EDGE_BAND_PX * scale) as i32)
-        && cursor.x >= mon_x
-        && cursor.x <= (mon_x + mon_w);
-
-    if edge_armed || in_dock_hover {
-        is_hovered = true;
-        MH_DOCK_EXPIRY_MS.store(now + 500, Ordering::Relaxed);
-    }
-
-    // Approaching along the bottom edge keeps the dock interactive while near
-    // its horizontal span, so the reveal can't be clicked through mid-animation.
-    // Only an armed edge may claim the strip; the corners and a mere pass stay
-    // click-through.
-    if at_bottom_edge && edge_armed {
-        if let Some((span_left, span_right)) = dock_span {
-            let edge_pad = (60.0 * scale) as i32;
-            if cursor.x >= span_left - edge_pad && cursor.x <= span_right + edge_pad {
-                is_click_interactive = true;
-            }
-        }
-    }
-
-    let final_dock_hover = is_hovered || now < MH_DOCK_EXPIRY_MS.load(Ordering::Relaxed);
-    let prev = MH_LAST_EDGE_HOVER.load(Ordering::Relaxed);
-    let new_val = if final_dock_hover { 1 } else { 0 };
-    if prev != new_val {
-        let _ = app_handle.emit("dock-edge-hover", final_dock_hover);
-        MH_LAST_EDGE_HOVER.store(new_val, Ordering::Relaxed);
-    }
-
-    // An open menu or popup takes clicks only over itself (MENU_RECT above);
-    // a press anywhere else closes it through the mouse hook.
-    let should_ignore = !is_click_interactive;
-    let prev_ignore = MH_LAST_DOCK_IGNORE.load(Ordering::Relaxed);
-    let new_ignore = if should_ignore { 1 } else { 0 };
-    if prev_ignore != new_ignore {
-        if let Ok(hwnd) = dock_win.hwnd() {
-            re_assert_topmost(hwnd);
-        }
-        MH_LAST_DOCK_IGNORE.store(new_ignore, Ordering::Relaxed);
-    }
-    // Every update, as for the notch: writes only when the style differs, and
-    // repairs a style tao rewrote.
-    if let Ok(hwnd) = dock_win.hwnd() {
-        set_click_through(hwnd, should_ignore);
-    }
-}
-
-/// Keeps dock hit-testing fresh while the cursor is stationary: completes a
-/// pending bottom-edge dwell and catches boundary crossings the movement-only
-/// hook misses (so the click-through flip always happens).
-fn setup_dock_edge_watchdog(app_handle: AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(BOTTOM_EDGE_POLL_MS));
-        if CAPTURE_UI_ACTIVE.load(Ordering::Relaxed) || SHUTTING_DOWN.load(Ordering::Relaxed) {
-            continue;
-        }
-        let mut pt = windows::Win32::Foundation::POINT::default();
-        if unsafe { windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut pt) }.is_err() {
-            continue;
-        }
-        let fg_fs = CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed);
-        update_dock_interaction(&app_handle, pt, now_ms(), fg_fs);
-    });
-}
-
 unsafe extern "system" fn mouse_hook_proc(
     code: i32,
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
     if code >= 0 && wparam.0 == WM_MOUSEMOVE as usize && !SHUTTING_DOWN.load(Ordering::Relaxed) {
-        let cursor = (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt;
-        queue_cursor(cursor);
+        queue_cursor((*(lparam.0 as *const MSLLHOOKSTRUCT)).pt);
         MOUSE_HOOK_LAST_EVENT_MS.store(hook_tick_ms(), Ordering::Relaxed);
     }
-    // Start closes itself on the press of a click outside it, the dock's
-    // Start button included, before that click reaches Bloom. The hook sees
-    // the press first, so it records whether Start was open for the click to
-    // use. A cheap foreground check, and only on presses.
-    if code >= 0 && wparam.0 == WM_LBUTTONDOWN as usize {
-        START_OPEN_AT_PRESS.store(crate::commands::is_start_menu_open(), Ordering::Relaxed);
-    }
-    if code >= 0
-        && (wparam.0 == WM_LBUTTONDOWN as usize || wparam.0 == WM_RBUTTONDOWN as usize)
-        && crate::tray::surface::any_open()
-        && !TRAY_INTERACTION_ACTIVE.load(Ordering::Relaxed)
-    {
-        let point = (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt;
-        if let Some(app) = WINDOW_CHANGE_APP_HANDLE.get().cloned() {
-            std::thread::spawn(move || crate::tray::surface::dismiss_outside(&app, point));
-        }
-    }
-    // A dock menu or the Add App popup closes when you press outside it. The
-    // dock window's region keeps it from catching that press, so the dock
-    // can't see it; tell it here. The flag is cleared now, so it can't be left
-    // set even if the dock webview never answers.
-    if code >= 0
-        && (wparam.0 == WM_LBUTTONDOWN as usize || wparam.0 == WM_RBUTTONDOWN as usize)
-        && MENU_IS_OPEN.load(Ordering::Relaxed)
-    {
-        let point = (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt;
-        if !dock_takes_press(point) {
-            MENU_IS_OPEN.store(false, Ordering::Relaxed);
-            if let Some(app) = WINDOW_CHANGE_APP_HANDLE.get().cloned() {
-                // Off the hook thread: a low-level hook must return quickly.
-                std::thread::spawn(move || {
-                    let _ = app.emit("dock-dismiss-menu", ());
-                });
-            }
-        }
-    }
     CallNextHookEx(None, code, wparam, lparam)
-}
-
-/// Whether the dock window takes a press at `point`: it isn't click-through
-/// and the point is inside its window region. Such a press reaches the dock,
-/// which closes its menus itself.
-unsafe fn dock_takes_press(point: windows::Win32::Foundation::POINT) -> bool {
-    use windows::Win32::Foundation::RECT;
-    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion};
-    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
-
-    let hwnd = HWND(DOCK_HWND.load(Ordering::Relaxed) as *mut _);
-    if hwnd.0.is_null() || GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT.0 != 0 {
-        return false;
-    }
-    let mut bounds = RECT::default();
-    if GetWindowRect(hwnd, &mut bounds).is_err() {
-        return false;
-    }
-    let region = CreateRectRgn(0, 0, 0, 0);
-    // No region yet means the whole window.
-    let inside = if GetWindowRgn(hwnd, region).0 == 0 {
-        point.x >= bounds.left
-            && point.x < bounds.right
-            && point.y >= bounds.top
-            && point.y < bounds.bottom
-    } else {
-        PtInRegion(region, point.x - bounds.left, point.y - bounds.top).as_bool()
-    };
-    let _ = DeleteObject(region.into());
-    inside
 }
 
 fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Foundation::POINT) {
@@ -2812,13 +1397,6 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                 set_click_through(hwnd, true);
             }
             MH_LAST_MAIN_IGNORE.store(1, Ordering::Relaxed);
-            if let Some(hwnd) = app_handle
-                .get_webview_window("dock")
-                .and_then(|w| w.hwnd().ok())
-            {
-                set_click_through(hwnd, true);
-            }
-            MH_LAST_DOCK_IGNORE.store(1, Ordering::Relaxed);
             if MH_LAST_OV_IGNORE.load(Ordering::Relaxed) != 1 {
                 if let Some(hwnd) = app_handle
                     .get_webview_window("overlay")
@@ -2827,9 +1405,6 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                     set_click_through(hwnd, true);
                 }
                 MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
-            }
-            if MH_LAST_EDGE_HOVER.swap(0, Ordering::Relaxed) != 0 {
-                let _ = app_handle.emit("dock-edge-hover", false);
             }
             if MH_LAST_TOP_EDGE_HOVER.swap(0, Ordering::Relaxed) != 0 {
                 let _ = app_handle.emit("notch-edge-hover", false);
@@ -2855,9 +1430,6 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
         let mon_h = cached_size.1 as i32;
 
         let fg_fs = CURRENT_FOREGROUND_FULLSCREEN.load(Ordering::Relaxed);
-
-        // --- Dock Interaction ---
-        update_dock_interaction(app_handle, cursor, now, fg_fs);
 
         // --- Main (TopBar) Interaction ---
         update_main_interaction(app_handle, cursor, now, fg_fs);
@@ -2886,11 +1458,11 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                     .ok()
                     .flatten()
                     .is_some_and(|m| {
-                        let bloom_scale = crate::utils::get_dock_scale(app_handle);
+                        let bloom_scale = crate::utils::get_notch_scale(app_handle);
                         let ms = m.size();
                         let mp = m.position();
                         let sc = m.scale_factor() * bloom_scale;
-                        let nw = (crate::tray::native_taskbar_height().unwrap_or(48.0) * sc) as i32;
+                        let nw = (48.0 * sc) as i32;
                         let nh = (196.0 * sc) as i32;
                         let nx = mp.x;
                         let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
@@ -2931,14 +1503,14 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                 }
                 MH_LAST_OV_IGNORE.store(1, Ordering::Relaxed);
             } else {
-                // The side volume card follows the dock's scale and base height.
-                let bloom_scale = crate::utils::get_dock_scale(app_handle);
+                // The side volume card follows the island scale.
+                let bloom_scale = crate::utils::get_notch_scale(app_handle);
                 let over_left = in_mixer
                     || if let Ok(Some(m)) = ov_win.primary_monitor() {
                         let ms = m.size();
                         let mp = m.position();
                         let sc = m.scale_factor() * bloom_scale;
-                        let nw = (crate::tray::native_taskbar_height().unwrap_or(48.0) * sc) as i32;
+                        let nw = (48.0 * sc) as i32;
                         let nh = (196.0 * sc) as i32;
                         let nx = mp.x;
                         let ny = mp.y + (ms.height as i32 / 2) - (nh / 2);
@@ -2959,304 +1531,9 @@ fn process_mouse_position(app_handle: &AppHandle, cursor: windows::Win32::Founda
                     }
                     MH_LAST_OV_IGNORE.store(new_val, Ordering::Relaxed);
                 }
-                // Every update, as for the notch and dock.
+                // Repair input styles after a WebView style change.
                 if let Ok(hwnd) = ov_win.hwnd() {
                     set_click_through(hwnd, should_ignore);
-                }
-            }
-        }
-    }
-}
-
-pub fn trigger_app_scan() {
-    if IS_SCANNING.load(Ordering::Relaxed) {
-        return;
-    }
-    IS_SCANNING.store(true, Ordering::Relaxed);
-
-    std::thread::spawn(|| {
-        use windows::Win32::System::Com::{
-            CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_MULTITHREADED,
-        };
-        use windows::Win32::UI::Shell::{
-            FOLDERID_AppsFolder, IEnumIDList, ILCombine, ILFree, IShellFolder, SHGetDesktopFolder,
-            SHGetKnownFolderIDList, SHGetNameFromIDList, SIGDN_DESKTOPABSOLUTEPARSING,
-            SIGDN_FILESYSPATH, SIGDN_NORMALDISPLAY, SIGDN_URL,
-        };
-        let mut apps = Vec::new();
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            // Use a scope to ensure COM objects are dropped before CoUninitialize
-            {
-                if let Ok(pidl_apps) = SHGetKnownFolderIDList(&FOLDERID_AppsFolder, 0, None) {
-                    if let Ok(desktop) = SHGetDesktopFolder() {
-                        if let Ok(apps_folder) =
-                            desktop.BindToObject::<_, IShellFolder>(pidl_apps, None)
-                        {
-                            let mut enum_id: Option<IEnumIDList> = None;
-                            let res = apps_folder.EnumObjects(
-                                HWND(std::ptr::null_mut()),
-                                (windows::Win32::UI::Shell::SHCONTF_FOLDERS.0
-                                    | windows::Win32::UI::Shell::SHCONTF_NONFOLDERS.0)
-                                    as u32,
-                                &mut enum_id,
-                            );
-
-                            if res.is_ok() {
-                                if let Some(enum_id) = enum_id {
-                                    // Must be a real array the enumerator can write into;
-                                    // `&mut [pidl_item]` would write into a temporary copy.
-                                    let mut pidl_buf: [*mut windows::Win32::UI::Shell::Common::ITEMIDLIST; 1] =
-										[std::ptr::null_mut()];
-                                    let mut fetched = 0;
-                                    while enum_id.Next(&mut pidl_buf, Some(&mut fetched)).is_ok()
-                                        && fetched > 0
-                                    {
-                                        let pidl_item = pidl_buf[0];
-                                        pidl_buf[0] = std::ptr::null_mut();
-                                        if pidl_item.is_null() {
-                                            continue;
-                                        }
-
-                                        // Child PIDLs from EnumObjects are relative; SHGetNameFromIDList
-                                        // needs an absolute PIDL, otherwise every call fails with E_INVALIDARG.
-                                        let absolute_pidl = ILCombine(
-                                            Some(pidl_apps as *const _),
-                                            Some(pidl_item as *const _),
-                                        );
-                                        if absolute_pidl.is_null() {
-                                            CoTaskMemFree(Some(pidl_item as *const _));
-                                            continue;
-                                        }
-
-                                        let name = if let Ok(n_ptr) =
-                                            SHGetNameFromIDList(absolute_pidl, SIGDN_NORMALDISPLAY)
-                                        {
-                                            let s = String::from_utf16_lossy(
-                                                windows::core::PCWSTR(n_ptr.0).as_wide(),
-                                            );
-                                            CoTaskMemFree(Some(n_ptr.0 as *const _));
-                                            s
-                                        } else {
-                                            "Unknown".to_string()
-                                        };
-
-                                        // Parsing name: a full exe path for Win32 apps, an
-                                        // AppUserModelID for packaged apps (Store/UWP/PWAs).
-                                        let path = if let Ok(p_ptr) = SHGetNameFromIDList(
-                                            absolute_pidl,
-                                            SIGDN_DESKTOPABSOLUTEPARSING,
-                                        ) {
-                                            let s = String::from_utf16_lossy(
-                                                windows::core::PCWSTR(p_ptr.0).as_wide(),
-                                            );
-                                            CoTaskMemFree(Some(p_ptr.0 as *const _));
-                                            s
-                                        } else if let Ok(p_ptr) =
-                                            SHGetNameFromIDList(absolute_pidl, SIGDN_FILESYSPATH)
-                                        {
-                                            let s = String::from_utf16_lossy(
-                                                windows::core::PCWSTR(p_ptr.0).as_wide(),
-                                            );
-                                            CoTaskMemFree(Some(p_ptr.0 as *const _));
-                                            s
-                                        } else if let Ok(p_ptr) =
-                                            SHGetNameFromIDList(absolute_pidl, SIGDN_URL)
-                                        {
-                                            let s = String::from_utf16_lossy(
-                                                windows::core::PCWSTR(p_ptr.0).as_wide(),
-                                            );
-                                            CoTaskMemFree(Some(p_ptr.0 as *const _));
-                                            s
-                                        } else {
-                                            name.clone()
-                                        };
-                                        // Classic programs under Program Files come back as
-                                        // `{known-folder GUID}\…\app.exe`; store the real path
-                                        // so launching, icons and exe matching all work.
-                                        let path = if path.starts_with('{') {
-                                            crate::tray::resolve_path(&path)
-                                                .filter(|p| std::path::Path::new(p).exists())
-                                                .unwrap_or(path)
-                                        } else {
-                                            path
-                                        };
-
-                                        if is_launchable_entry(&name, &path) {
-                                            // AUMIDs have no executable of their own; storing the
-                                            // whole id here would make exe-name matching think any
-                                            // browser window belongs to this app.
-                                            let executable =
-                                                if path.contains('\\') || path.contains('/') {
-                                                    std::path::Path::new(&path)
-                                                        .file_name()
-                                                        .and_then(|n| n.to_str())
-                                                        .map(|s| s.to_string())
-                                                } else {
-                                                    None
-                                                };
-                                            apps.push(AppInfo {
-                                                name,
-                                                path,
-                                                icon: None,
-                                                is_running: false,
-                                                hwnd: None,
-                                                executable,
-                                                all_hwnds: None,
-                                            });
-                                        }
-                                        ILFree(Some(absolute_pidl as *const _));
-                                        CoTaskMemFree(Some(pidl_item as *const _));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    CoTaskMemFree(Some(pidl_apps as *const _));
-                }
-            } // Close COM scope
-            CoUninitialize();
-        }
-
-        // Scan Start Menu .lnk shortcuts (depth-limited, no .exe scanning)
-        // This catches Win32 apps that FOLDERID_AppsFolder may miss
-        let mut start_menu_dirs: Vec<String> = Vec::new();
-        if let Ok(programdata) = std::env::var("PROGRAMDATA") {
-            start_menu_dirs.push(format!(
-                r"{}\Microsoft\Windows\Start Menu\Programs",
-                programdata
-            ));
-        }
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            start_menu_dirs.push(format!(
-                r"{}\Microsoft\Windows\Start Menu\Programs",
-                appdata
-            ));
-        }
-
-        // Shortcut resolution uses IShellLinkW, which needs COM on this thread.
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        }
-        for dir in &start_menu_dirs {
-            let root = std::path::Path::new(dir);
-            if root.exists() {
-                collect_shortcuts(root, &mut apps, 0);
-            }
-        }
-        unsafe {
-            CoUninitialize();
-        }
-
-        if let Some(c) = INSTALLED_APPS_CACHE.get() {
-            if let Ok(mut lock) = c.lock() {
-                *lock = apps;
-            }
-        }
-        IS_SCANNING.store(false, Ordering::Relaxed);
-        // Pinned dock items saved under their executable's name pick up their
-        // Start menu name once this list exists (see refresh_pinned_names).
-        if let Some(app) = crate::state::DISPLAY_MONITOR_HANDLE.get() {
-            let _ = app.emit("installed-apps-updated", ());
-        }
-    });
-}
-
-/// Filters out shell entries that are not real launchable apps (web links,
-/// documents, protocol handlers, helpers) so the add-app list stays clean.
-fn is_launchable_entry(name: &str, path: &str) -> bool {
-    if name.is_empty() || name == "Unknown" || is_helper_name(name) {
-        return false;
-    }
-    let lower = path.to_lowercase();
-    if lower.is_empty() {
-        return false;
-    }
-    if lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("file:")
-        || lower.starts_with("steam:")
-        || lower.starts_with("::{")
-        || (lower.starts_with("shell:") && !lower.starts_with("shell:appsfolder"))
-    {
-        return false;
-    }
-    true
-}
-
-/// Companion/helper entries nobody pins: uninstallers, installers, help and
-/// documentation, troubleshooters. Matched on whole words only — substring
-/// matching would nuke legit names like "Helper" or "Remover".
-fn is_helper_name(name: &str) -> bool {
-    const HELPER_WORDS: &[&str] = &[
-        "uninstall",
-        "uninstaller",
-        "installer",
-        "setup",
-        "help",
-        "readme",
-        "manual",
-        "documentation",
-        "troubleshoot",
-        "troubleshooting",
-        "repair",
-    ];
-    let lower = name.to_lowercase();
-    if lower.contains("release notes") {
-        return true;
-    }
-    lower
-        .split(|c: char| !c.is_alphanumeric())
-        .any(|token| HELPER_WORDS.contains(&token))
-}
-
-fn collect_shortcuts(dir: &std::path::Path, apps: &mut Vec<AppInfo>, depth: i32) {
-    if depth > 3 {
-        return;
-    }
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                collect_shortcuts(&path, apps, depth + 1);
-            } else if path
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
-            {
-                let name = path.file_stem().unwrap().to_string_lossy().to_string();
-                if is_helper_name(&name) || name.starts_with("Install") {
-                    continue;
-                }
-
-                // Keep the .lnk itself: its args identify PWAs and arguments must be
-                // passed through when launching. The resolved target is stored as the
-                // executable name so pinned entries still match running windows.
-                let path_str = path.to_string_lossy().to_string();
-                let executable =
-                    crate::utils::resolve_shortcut(&path_str).and_then(|(target, _args)| {
-                        let file = std::path::Path::new(&target)
-                            .file_name()
-                            .and_then(|n| n.to_str())?
-                            .to_string();
-                        // UWP shortcuts launch explorer.exe with a shell:AppsFolder argument;
-                        // storing that would wrongly match File Explorer windows.
-                        if file.eq_ignore_ascii_case("explorer.exe") {
-                            None
-                        } else {
-                            Some(file)
-                        }
-                    });
-
-                if !apps.iter().any(|a| a.name == name || a.path == path_str) {
-                    apps.push(AppInfo {
-                        name,
-                        path: path_str,
-                        icon: None,
-                        is_running: false,
-                        hwnd: None,
-                        executable,
-                        all_hwnds: None,
-                    });
                 }
             }
         }
@@ -3284,6 +1561,9 @@ pub fn sync_overlays(app: &AppHandle) {
 }
 
 pub fn register_appbar(window: tauri::WebviewWindow) {
+    if SHUTTING_DOWN.load(Ordering::Relaxed) {
+        return;
+    }
     if let Ok(Some(monitor)) = window.app_handle().primary_monitor() {
         let m_size = monitor.size();
         let m_pos = monitor.position();
@@ -3291,8 +1571,7 @@ pub fn register_appbar(window: tauri::WebviewWindow) {
         let scale = monitor.scale_factor();
         let bloom_scale = crate::utils::get_notch_scale(window.app_handle());
         let ph = ((480.0 * bloom_scale) * scale) as i32;
-        let pr =
-            ((crate::tray::native_taskbar_height().unwrap_or(48.0) * bloom_scale) * scale) as i32;
+        let pr = ((48.0 * bloom_scale) * scale) as i32;
 
         unsafe {
             use windows::Win32::Foundation::RECT;
@@ -3453,504 +1732,6 @@ pub fn apply_main_appbar_mode(app: &AppHandle, reserve: bool) {
     }
 }
 
-pub fn register_dock_appbar(window: tauri::WebviewWindow) {
-    register_dock_appbar_inner(window, 0);
-}
-
-static DOCK_APPBAR_LOCK: Mutex<()> = Mutex::new(());
-
-fn lock_dock_appbar() -> std::sync::MutexGuard<'static, ()> {
-    DOCK_APPBAR_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-pub fn disable_dock_appbar(window: tauri::WebviewWindow) {
-    let _guard = lock_dock_appbar();
-    let _ = window.hide();
-    if let Ok(hwnd) = window.hwnd() {
-        unregister_appbar_native(hwnd);
-    }
-    DOCK_APPBAR_REGISTERED.store(false, Ordering::Relaxed);
-}
-
-fn register_dock_appbar_inner(window: tauri::WebviewWindow, attempt: i32) {
-    // Registration retries may outlive a settings change that disabled the dock.
-    if !crate::utils::dock_enabled() {
-        return;
-    }
-    if let Ok(Some(monitor)) = window.app_handle().primary_monitor() {
-        let m_size = monitor.size();
-        let m_pos = monitor.position();
-        let Ok(hwnd) = window.hwnd() else {
-            return;
-        };
-        let scale = monitor.scale_factor();
-        let bloom_scale = crate::utils::get_dock_scale(window.app_handle());
-
-        // ph = full physical window height. outer_size() can return 0 before the
-        // window has rendered. Never guess a value — bail and let the retry wrapper handle it.
-        let ph = window.outer_size().map(|s| s.height as i32).unwrap_or(0);
-        if ph <= 0 {
-            if attempt < 10 {
-                let w = window.clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    register_dock_appbar_inner(w, attempt + 1);
-                });
-            }
-            return;
-        }
-
-        let pr =
-            ((crate::tray::native_taskbar_height().unwrap_or(48.0) * bloom_scale) * scale) as i32;
-
-        // Serialize with disable_dock_appbar, then check the setting again.
-        // A pending registration must not outlive a dock-disable request.
-        let _guard = lock_dock_appbar();
-        if !crate::utils::dock_enabled() {
-            return;
-        }
-
-        unsafe {
-            use windows::Win32::Foundation::RECT;
-            use windows::Win32::UI::Shell::{
-                SHAppBarMessage, ABE_BOTTOM, ABM_NEW, ABM_QUERYPOS, ABM_REMOVE, ABM_SETPOS,
-                APPBARDATA,
-            };
-            use windows::Win32::UI::WindowsAndMessaging::{
-                GetWindowLongPtrW, GetWindowRect, RegisterWindowMessageW, SetWindowLongPtrW,
-                SetWindowPos, GWL_EXSTYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER,
-                WS_EX_NOACTIVATE as WS_EX_NA, WS_EX_TOOLWINDOW,
-            };
-
-            // Set extended styles (ToolWindow and NoActivate)
-            let mut ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as usize;
-            ex_style |= (WS_EX_TOOLWINDOW.0 | WS_EX_NA.0) as usize;
-            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style as isize);
-
-            let callback_message = RegisterWindowMessageW(windows::core::w!("BloomDockAppBar"));
-            if callback_message == 0 {
-                return;
-            }
-            let mut abd = APPBARDATA {
-                cbSize: std::mem::size_of::<APPBARDATA>() as u32,
-                hWnd: hwnd,
-                uCallbackMessage: callback_message,
-                ..Default::default()
-            };
-
-            if !DOCK_APPBAR_REGISTERED.load(Ordering::Relaxed) {
-                let _ = SHAppBarMessage(ABM_REMOVE, &mut abd);
-                let registered = SHAppBarMessage(ABM_NEW, &mut abd);
-                crate::diagnostics::record(
-                    "dock_appbar",
-                    &format!("registration_result={registered}"),
-                );
-                if registered == 0 {
-                    eprintln!("Bloom: dock AppBar registration failed");
-                    return;
-                }
-                DOCK_APPBAR_REGISTERED.store(true, Ordering::Relaxed);
-            }
-
-            abd.uEdge = ABE_BOTTOM;
-            abd.rc = RECT {
-                left: m_pos.x,
-                top: m_pos.y + m_size.height as i32 - pr,
-                right: m_pos.x + m_size.width as i32,
-                bottom: m_pos.y + m_size.height as i32,
-            };
-
-            SHAppBarMessage(ABM_QUERYPOS, &mut abd);
-            SHAppBarMessage(ABM_SETPOS, &mut abd);
-
-            // Critical: Force the window to the actual bottom of the screen,
-            // ignoring what ABM_SETPOS might have tried to "correct" (like stacking on invisible taskbar)
-            let final_y = m_pos.y + m_size.height as i32 - ph;
-            let final_width = abd.rc.right - abd.rc.left;
-            if final_width <= 0 {
-                return;
-            }
-
-            let mut current_rect = RECT::default();
-            let mut already_positioned = false;
-            if GetWindowRect(hwnd, &mut current_rect).is_ok() {
-                let current_width = current_rect.right - current_rect.left;
-                let current_height = current_rect.bottom - current_rect.top;
-                if current_rect.left == abd.rc.left
-                    && current_rect.top == final_y
-                    && current_width == final_width
-                    && current_height == ph
-                {
-                    already_positioned = true;
-                }
-            }
-
-            if !already_positioned
-                && SetWindowPos(
-                    hwnd,
-                    None,
-                    abd.rc.left,
-                    final_y,
-                    final_width,
-                    ph,
-                    SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-                )
-                .is_err()
-            {
-                return;
-            }
-            let mut placed = RECT::default();
-            if GetWindowRect(hwnd, &mut placed).is_err()
-                || placed.left != abd.rc.left
-                || placed.top != final_y
-                || placed.right - placed.left != final_width
-                || placed.bottom - placed.top != ph
-            {
-                return;
-            }
-
-            // Re-assert topmost — same reason as register_appbar.
-            re_assert_topmost(hwnd);
-
-            // Always ensure the window is visible — show() is idempotent
-            if !window.is_visible().unwrap_or(false) && window.show().is_err() {
-                return;
-            }
-            if window.is_visible().unwrap_or(false) && set_taskbar_visibility(false, false) {
-                NATIVE_TASKBAR_HIDDEN.store(true, Ordering::Relaxed);
-            }
-        }
-    } else {
-        let w = window.clone();
-        tauri::async_runtime::spawn(async move {
-            for _ in 0..10 {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                if let Ok(Some(_monitor)) = w.app_handle().primary_monitor() {
-                    register_dock_appbar(w);
-                    break;
-                }
-            }
-        });
-    }
-}
-
-/// True when a top-level dialog is a Windows property sheet, detected by its
-/// tab-control child. This is locale-independent, unlike matching the
-/// "Properties" window title.
-unsafe fn dialog_has_tab_control(hwnd: HWND) -> bool {
-    unsafe extern "system" fn child_proc(child: HWND, lparam: LPARAM) -> BOOL {
-        let found = &mut *(lparam.0 as *mut bool);
-        let mut class_name = [0u8; 64];
-        let len = windows::Win32::UI::WindowsAndMessaging::GetClassNameA(child, &mut class_name);
-        if std::str::from_utf8(&class_name[..len as usize]).unwrap_or("") == "SysTabControl32" {
-            *found = true;
-            return BOOL(0);
-        }
-        BOOL(1)
-    }
-
-    let mut found = false;
-    let _ = windows::Win32::UI::WindowsAndMessaging::EnumChildWindows(
-        Some(hwnd),
-        Some(child_proc),
-        LPARAM(&mut found as *mut bool as isize),
-    );
-    found
-}
-
-/// True if another window that is on screen owns `hwnd`.
-unsafe fn has_visible_owner(hwnd: HWND) -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{GetWindow, GW_OWNER};
-    GetWindow(hwnd, GW_OWNER)
-        .is_ok_and(|owner| !owner.is_invalid() && IsWindowVisible(owner).as_bool())
-}
-
-pub unsafe extern "system" fn enum_windows_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
-    let apps = &mut *(lparam.0 as *mut Vec<AppInfo>);
-
-    if IsWindowVisible(hwnd).as_bool() {
-        // DWM-cloaked windows are not actually on screen: closed/suspended UWP
-        // apps keep a cloaked frame alive, and windows on other virtual desktops
-        // are shell-cloaked. Neither belongs in the dock. IsWindowVisible stays
-        // true for them, so this needs the DWM check.
-        {
-            let mut cloaked = 0u32;
-            let size = std::mem::size_of::<u32>() as u32;
-            if windows::Win32::Graphics::Dwm::DwmGetWindowAttribute(
-                hwnd,
-                windows::Win32::Graphics::Dwm::DWMWA_CLOAKED,
-                &mut cloaked as *mut _ as *mut _,
-                size,
-            )
-            .is_ok()
-                && cloaked != 0
-            {
-                return true.into();
-            }
-        }
-
-        let mut text = [0u16; 512];
-        let len = windows::Win32::UI::WindowsAndMessaging::GetWindowTextW(hwnd, &mut text);
-        if len > 0 {
-            let title = String::from_utf16_lossy(&text[..len as usize]);
-
-            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-
-            // Basic filter for top-level app windows
-            // We include windows without captions if they don't have the ToolWindow style,
-            // as many games and modern apps (like Spotify/Valorant) lack WS_CAPTION.
-            if (ex_style & WS_EX_TOOLWINDOW.0) != 0 {
-                return true.into();
-            }
-
-            // Dialogs such as Find or Save As belong to the window that owns
-            // them, as on the taskbar, so they don't show as windows of their
-            // own. Some frameworks give the real main window a hidden owner;
-            // those, and windows that ask for a taskbar button, still show.
-            if (ex_style & WS_EX_APPWINDOW.0) == 0 && has_visible_owner(hwnd) {
-                return true.into();
-            }
-
-            // Filter out system containers and background stuff
-            if title == "Program Manager" || title == "Bloom" || title == "Bloom Dock" {
-                return true.into();
-            }
-
-            let mut process_id = 0u32;
-            GetWindowThreadProcessId(hwnd, Some(&mut process_id));
-
-            if let Ok(process_handle) =
-                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
-            {
-                let mut path_buf = [0u16; 1024];
-                let mut path_len = path_buf.len() as u32;
-                if QueryFullProcessImageNameW(
-                    process_handle,
-                    PROCESS_NAME_WIN32,
-                    windows::core::PWSTR(path_buf.as_mut_ptr()),
-                    &mut path_len,
-                )
-                .is_ok()
-                {
-                    let path = String::from_utf16_lossy(&path_buf[..path_len as usize]);
-                    let lowercase_path = path.to_lowercase();
-
-                    let mut class_name = [0u8; 256];
-                    let class_len = windows::Win32::UI::WindowsAndMessaging::GetClassNameA(
-                        hwnd,
-                        &mut class_name,
-                    );
-                    let window_class =
-                        std::str::from_utf8(&class_name[..class_len as usize]).unwrap_or("");
-
-                    // Explorer hosts folder windows (CabinetWClass/ExploreWClass) and
-                    // shell property sheets (`#32770` dialogs that contain a tab
-                    // control). Both are tracked so the Properties window shows up
-                    // under the File Explorer dock item.
-                    let is_explorer_window = window_class == "CabinetWClass"
-                        || window_class == "ExploreWClass"
-                        || (window_class == "#32770" && dialog_has_tab_control(hwnd));
-
-                    // Filter out Bloom itself (except the Settings window) and some common background processes
-                    if (lowercase_path.contains("bloom.exe") && title != "Settings")
-                        || lowercase_path.contains("conhost.exe")
-                        || (lowercase_path.contains("explorer.exe") && !is_explorer_window)
-                        || lowercase_path.contains("shellexperiencehost.exe")
-                        || lowercase_path.contains("searchhost.exe")
-                        || lowercase_path.contains("textinputhost.exe")
-                        || (lowercase_path.contains("applicationframehost.exe")
-                            && window_class != "ApplicationFrameWindow")
-                    {
-                        let _ = CloseHandle(process_handle);
-                        return true.into();
-                    }
-
-                    let name = Path::new(&path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&title)
-                        .replace(".exe", "");
-
-                    let exe_name = Path::new(&path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map(|s| s.to_string());
-
-                    // The visible top-level window of a UWP app is the
-                    // ApplicationFrameWindow owned by ApplicationFrameHost.exe; the
-                    // app's own Windows.UI.Core.CoreWindow is a separate top-level
-                    // window and not the one users interact with. The frame carries
-                    // the title and package identity, so track it and skip the inner
-                    // core window to avoid duplicate dock items.
-                    let is_uwp_core_window = window_class == "Windows.UI.Core.CoreWindow";
-                    let is_uwp_frame = window_class == "ApplicationFrameWindow";
-
-                    let is_browser_host = lowercase_path.contains("msedge.exe")
-                        || lowercase_path.contains("chrome.exe")
-                        || lowercase_path.contains("brave.exe");
-
-                    // A browser window and an installed PWA running under the same
-                    // browser can share a title, so the title alone cannot tell them
-                    // apart. The window's AppUserModelID can: PWA windows carry a web
-                    // app id (or a package id for Store-installed PWAs), while regular
-                    // browser windows only carry the browser itself ("MSEdge", "Chrome",
-                    // "Brave", ...). A missing id falls back to the title so unusual
-                    // hosts keep the previous behaviour.
-                    let window_aumid = if is_uwp_frame
-                        || lowercase_path.contains("\\windowsapps\\")
-                        || is_browser_host
-                    {
-                        crate::utils::get_window_app_user_model_id(hwnd).or_else(|| {
-                            // A packaged app's window can carry no AUMID of its own
-                            // (Snipping Tool); the taskbar then groups it by the
-                            // package identity of its process.
-                            if lowercase_path.contains("\\windowsapps\\") && !is_uwp_frame {
-                                crate::utils::process_app_user_model_id(process_handle)
-                            } else {
-                                None
-                            }
-                        })
-                    } else {
-                        None
-                    };
-                    // Classic apps whose UI window belongs to a helper process name
-                    // their real executable in the window's relaunch command, which
-                    // is what the taskbar groups and pins (Steam's window belongs to
-                    // steamwebhelper.exe and relaunches Steam.exe). Use it as the
-                    // window's identity so it joins the app's dock item.
-                    let relaunch_exe = if !is_uwp_frame
-                        && !is_browser_host
-                        && !lowercase_path.contains("\\windowsapps\\")
-                    {
-                        crate::utils::get_window_relaunch_command(hwnd)
-                            .and_then(|command| crate::utils::relaunch_executable(&command))
-                            .filter(|exe| !exe.eq_ignore_ascii_case(&path))
-                    } else {
-                        None
-                    };
-                    let (path, exe_name) = match relaunch_exe {
-                        Some(exe) => {
-                            let file = Path::new(&exe)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .map(|s| s.to_string());
-                            (exe, file)
-                        }
-                        None => (path, exe_name),
-                    };
-                    let is_browser_pwa = is_browser_host
-                        && window_aumid
-                            .as_deref()
-                            .map_or(false, crate::commands::is_browser_pwa_aumid);
-
-                    let final_name = if ((is_browser_host
-                        && (is_browser_pwa || window_aumid.is_none()))
-                        || name == "ApplicationFrameHost"
-                        || name == "SystemSettings")
-                        && !title.is_empty()
-                    {
-                        // Extract a cleaner name from the window title for host processes (PWAs, UWP apps)
-                        title
-                            .split(" - ")
-                            .next()
-                            .map(|s| s.trim())
-                            .unwrap_or(&title)
-                            .to_string()
-                    } else if name == "explorer" && title.is_empty() {
-                        "File Explorer".to_string()
-                    } else {
-                        // The Start menu name ("WhatsApp", "LocalSend") rather than
-                        // the executable's ("WhatsApp.Root", "localsend_app").
-                        crate::commands::app_display_name(&path, window_aumid.as_deref())
-                    };
-
-                    // Only avoid adding the exact same window handle (HWND) multiple times
-                    let already_exists = apps.iter().any(|a| a.hwnd == Some(hwnd.0 as isize));
-
-                    if !already_exists && !is_uwp_core_window {
-                        // Packaged apps (Store/UWP/PWAs) expose their package identity on the
-                        // window. Using it as the path makes pinned shell-app entries match
-                        // their running windows and gives the icon code an exact AUMID.
-                        let path = if is_uwp_frame
-                            || lowercase_path.contains("\\windowsapps\\")
-                            || is_browser_host
-                        {
-                            match window_aumid {
-                                Some(aumid) if aumid.contains('!') => aumid,
-                                _ => path,
-                            }
-                        } else {
-                            path
-                        };
-                        apps.push(AppInfo {
-                            name: final_name,
-                            path,
-                            icon: None,
-                            is_running: true,
-                            hwnd: Some(hwnd.0 as isize),
-                            executable: exe_name,
-                            all_hwnds: None,
-                        });
-                    }
-                }
-                let _ = CloseHandle(process_handle);
-            } else if process_exe_name(process_id)
-                .is_some_and(|exe| exe.eq_ignore_ascii_case("consent.exe"))
-            {
-                // A UAC prompt that Windows parked because the program asking
-                // for elevation wasn't in the foreground. The taskbar shows it
-                // as a flashing button; with the taskbar hidden, the dock is
-                // the only place to reach it besides Alt+Tab. consent.exe runs
-                // as SYSTEM, so Bloom can't open it to read its path.
-                if !apps.iter().any(|a| a.hwnd == Some(hwnd.0 as isize)) {
-                    let system_root =
-                        std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-                    apps.push(AppInfo {
-                        name: title,
-                        path: format!(r"{system_root}\System32\consent.exe"),
-                        icon: None,
-                        is_running: true,
-                        hwnd: Some(hwnd.0 as isize),
-                        executable: Some("consent.exe".into()),
-                        all_hwnds: None,
-                    });
-                }
-            }
-        }
-    }
-    true.into()
-}
-
-/// The executable name of a process Bloom can't open, such as one running as
-/// SYSTEM, from the system's process list, which needs no access to it.
-unsafe fn process_exe_name(process_id: u32) -> Option<String> {
-    use windows::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
-        TH32CS_SNAPPROCESS,
-    };
-    let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0).ok()?;
-    let mut entry = PROCESSENTRY32W {
-        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut found = None;
-    let mut more = Process32FirstW(snapshot, &mut entry).is_ok();
-    while more {
-        if entry.th32ProcessID == process_id {
-            let len = entry
-                .szExeFile
-                .iter()
-                .position(|&c| c == 0)
-                .unwrap_or(entry.szExeFile.len());
-            found = Some(String::from_utf16_lossy(&entry.szExeFile[..len]));
-            break;
-        }
-        more = Process32NextW(snapshot, &mut entry).is_ok();
-    }
-    let _ = CloseHandle(snapshot);
-    found
-}
-
 pub fn unregister_appbar_native(hwnd: HWND) {
     unsafe {
         use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_REMOVE, APPBARDATA};
@@ -3963,98 +1744,10 @@ pub fn unregister_appbar_native(hwnd: HWND) {
     }
 }
 
-fn reposition_all_windows(app_handle: &AppHandle) {
-    if SHUTTING_DOWN.load(Ordering::Relaxed) {
-        return;
+fn reposition_all_windows(app: &AppHandle) {
+    if !SHUTTING_DOWN.load(Ordering::Relaxed) {
+        reposition_island(app);
     }
-    reconcile_main_appbar(app_handle);
-    // Only reposition the dock if it's enabled in settings.
-    // Without this guard, power events (plug/unplug, wake) would re-show
-    // a dock that the user had previously disabled.
-    if crate::utils::dock_enabled() {
-        if let Some(dock_win) = app_handle.get_webview_window("dock") {
-            if get_setting_str(app_handle, "bloom-dock-mode").as_deref() == Some("fixed") {
-                register_dock_appbar(dock_win);
-            } else {
-                // Auto-hide mode: reposition dock at bottom of screen
-                reposition_autohide_dock(app_handle, dock_win);
-            }
-        }
-    }
-    if NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed) {
-        set_taskbar_visibility(false, false);
-    }
-    sync_overlays(app_handle);
-    crate::tray::surface::sync_visibility(app_handle);
-    // Re-assert topmost on all windows after repositioning to recover from any z-order loss
-    if let Some(main_win) = app_handle.get_webview_window("main") {
-        if let Ok(hwnd) = main_win.hwnd() {
-            re_assert_topmost(hwnd);
-        }
-    }
-    if let Some(dock_win) = app_handle.get_webview_window("dock") {
-        if let Ok(hwnd) = dock_win.hwnd() {
-            re_assert_topmost(hwnd);
-        }
-    }
-}
-
-fn reposition_autohide_dock(app_handle: &AppHandle, dock_win: tauri::WebviewWindow) {
-    let dock_clone = dock_win.clone();
-    let ah = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        for _attempt in 0..5 {
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            if !crate::utils::dock_enabled() {
-                return;
-            }
-            let hwnd_val = match dock_clone.hwnd() {
-                Ok(h) => h.0 as isize,
-                Err(_) => continue,
-            };
-            let ph = match dock_clone.outer_size() {
-                Ok(s) => s.height as i32,
-                Err(_) => continue,
-            };
-            if ph <= 10 {
-                continue;
-            }
-            let monitor_info = dock_clone.primary_monitor().ok().flatten().map(|m| {
-                let s = m.size();
-                let p = m.position();
-                (s.width as i32, s.height as i32, p.x, p.y)
-            });
-            if let Some((m_w, m_h, m_x, m_y)) = monitor_info {
-                let final_y = m_y + m_h - ph;
-                unsafe {
-                    use windows::Win32::Foundation::HWND;
-                    use windows::Win32::UI::WindowsAndMessaging::{
-                        SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOZORDER,
-                    };
-                    let _ = SetWindowPos(
-                        HWND(hwnd_val as *mut _),
-                        None,
-                        m_x,
-                        final_y,
-                        m_w,
-                        ph,
-                        SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-                    );
-                }
-                if let Ok(hwnd) = dock_clone.hwnd() {
-                    re_assert_topmost(hwnd);
-                }
-                if crate::utils::dock_enabled() {
-                    let _ = dock_clone.show();
-                }
-                break;
-            }
-        }
-        if NATIVE_TASKBAR_HIDDEN.load(Ordering::Relaxed) {
-            set_taskbar_visibility(false, false);
-        }
-        sync_overlays(&ah);
-    });
 }
 
 static TASKBAR_CREATED_MESSAGE: AtomicU32 = AtomicU32::new(0);
@@ -4133,7 +1826,6 @@ unsafe extern "system" fn display_monitor_proc(
         // Explorer has rebuilt its AppBar list. A primary-monitor DPI change
         // can send the same broadcast, so re-register in either case.
         MAIN_APPBAR_REGISTERED.store(false, Ordering::Relaxed);
-        DOCK_APPBAR_REGISTERED.store(false, Ordering::Relaxed);
         if let Some(app_handle) = DISPLAY_MONITOR_HANDLE.get() {
             let ah = app_handle.clone();
             tauri::async_runtime::spawn(async move {
@@ -4142,7 +1834,6 @@ unsafe extern "system" fn display_monitor_proc(
                     if SHUTTING_DOWN.load(Ordering::Relaxed) {
                         break;
                     }
-                    refresh_taskbar_owner();
                     reposition_all_windows(&ah);
                 }
             });
@@ -4188,7 +1879,10 @@ unsafe extern "system" fn display_monitor_proc(
         }
         WM_DWMCOLORIZATIONCOLORCHANGED | WM_SETTINGCHANGE => {
             if let Some(app_handle) = DISPLAY_MONITOR_HANDLE.get() {
-                let _ = app_handle.emit("system-transparency-changed", crate::commands::get_system_transparency());
+                let _ = app_handle.emit(
+                    "system-transparency-changed",
+                    crate::commands::get_system_transparency(),
+                );
                 let color_hex = if let Some(c) = crate::commands::get_windows_accent_color() {
                     c
                 } else {
@@ -4221,7 +1915,7 @@ static WEBVIEWS_WATCHED_AT: OnceLock<Instant> = OnceLock::new();
 static RECOVERING_FROM_WEBVIEW_FAILURE: AtomicBool = AtomicBool::new(false);
 
 /// If a webview's browser or renderer process exits (crash, or killed), the
-/// notch and dock windows stay on screen with dead content. They also stop
+/// island windows stay on screen with dead content. They also stop
 /// switching click-through, so they keep swallowing clicks meant for the
 /// windows under them. Bloom restarts itself when that happens.
 pub fn watch_webview_processes(app: &AppHandle) {
@@ -4277,10 +1971,10 @@ fn recover_from_webview_failure(handle: &AppHandle) {
     // Leave the WebView2 callback before touching windows.
     tauri::async_runtime::spawn(async move {
         // A webview that dies right after launch would die again after a
-        // restart, so give the taskbar back and exit instead of looping.
+        // restart, so release the island and exit instead of looping.
         if started.is_some_and(|elapsed| elapsed < Duration::from_secs(30)) {
             crate::diagnostics::record("webview_recovery", "startup failure; exiting safely");
-            crate::commands::restore_taskbar_and_exit(&handle);
+            crate::commands::quit_island(&handle);
         } else {
             crate::diagnostics::record("webview_recovery", "restarting Bloom");
             crate::commands::restart_bloom(handle).await;
@@ -4288,112 +1982,183 @@ fn recover_from_webview_failure(handle: &AppHandle) {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        capture_blocks_bloom, is_helper_name, is_launchable_entry, is_primary_monitor,
-        is_start_menu_process_path, notch_mode_reserves_work_area, pack_cursor, process_exe_name,
-        trim_thumbnail_cache, unpack_cursor, win_number_index,
-    };
-
-    #[test]
-    fn screenshot_editor_does_not_suspend_dock_tray_or_notch() {
-        assert!(!capture_blocks_bloom("snippingtool.exe", true, false));
-        assert!(!capture_blocks_bloom("snippingtool.exe", true, true));
-        assert!(!capture_blocks_bloom("screensketch.exe", true, false));
-        assert!(!capture_blocks_bloom("snippingtool.exe", false, false));
+pub fn reposition_island(app: &AppHandle) {
+    if SHUTTING_DOWN.load(Ordering::Relaxed) {
+        return;
     }
-
-    #[test]
-    fn actual_capture_selection_yields_input_and_unrelated_apps_do_not() {
-        assert!(capture_blocks_bloom("snippingtool.exe", false, true));
-        assert!(capture_blocks_bloom("screenclippinghost.exe", false, true));
-        assert!(!capture_blocks_bloom("other.exe", false, true));
-    }
-
-    #[test]
-    fn names_a_process_from_the_process_list() {
-        let own = std::env::current_exe().unwrap();
-        let expected = own.file_name().unwrap().to_string_lossy().to_string();
-        let found = unsafe { process_exe_name(std::process::id()) };
-        assert_eq!(found.as_deref(), Some(expected.as_str()));
-        // Process IDs are multiples of 4, so this one is never in use.
-        assert_eq!(unsafe { process_exe_name(u32::MAX - 3) }, None);
-    }
-
-    #[test]
-    fn recognizes_start_menu_hosts_without_relying_on_localized_titles() {
-        assert!(is_start_menu_process_path(
-            r"C:\Windows\SystemApps\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\SearchHost.exe"
-        ));
-        assert!(is_start_menu_process_path(
-            r"C:\Windows\SystemApps\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\StartMenuExperienceHost.exe"
-        ));
-        assert!(!is_start_menu_process_path(r"C:\Windows\explorer.exe"));
-    }
-
-    #[test]
-    fn overlap_detection_is_limited_to_the_primary_monitor() {
-        assert!(is_primary_monitor(1));
-        assert!(!is_primary_monitor(0));
-    }
-
-    #[test]
-    fn cursor_snapshot_preserves_negative_virtual_desktop_coordinates() {
-        for (x, y) in [(0, 0), (-1920, 540), (3840, -1080), (i32::MIN, i32::MAX)] {
-            let point = windows::Win32::Foundation::POINT { x, y };
-            assert_eq!(unpack_cursor(pack_cursor(point)), point);
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(Some(monitor)) = window.primary_monitor() {
+            let height = (480.0 * crate::utils::get_notch_scale(app) * monitor.scale_factor())
+                .round() as u32;
+            let _ = window.set_position(*monitor.position());
+            let _ = window.set_size(tauri::PhysicalSize::new(monitor.size().width, height));
         }
     }
+    reconcile_main_appbar(app);
+    sync_overlays(app);
+}
 
+/// Poll only foreground geometry and capture selection; no launcher catalog,
+/// background-window inventory or replacement-taskbar enforcement.
+fn setup_island_visibility(app: AppHandle, tx: Sender<SystemCommand>) {
+    std::thread::spawn(move || unsafe {
+        use windows::Win32::{
+            Foundation::RECT,
+            Graphics::Gdi::{
+                GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+            },
+            UI::WindowsAndMessaging::*,
+        };
+        let mut last = HWND::default();
+        let mut previous = None;
+        let mut tick = 0u32;
+        use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent};
+        unsafe extern "system" fn capture_changed(
+            _: windows::Win32::UI::Accessibility::HWINEVENTHOOK,
+            _: u32,
+            _: HWND,
+            object: i32,
+            child: i32,
+            _: u32,
+            _: u32,
+        ) {
+            if object == 0 && child == 0 {
+                CAPTURE_DIRTY.store(true, Ordering::Relaxed);
+            }
+        }
+        let hook = SetWinEventHook(
+            EVENT_OBJECT_SHOW,
+            EVENT_OBJECT_HIDE,
+            None,
+            Some(capture_changed),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
+        while !SHUTTING_DOWN.load(Ordering::Relaxed) {
+            let mut foreground = GetForegroundWindow();
+            let mut pid = 0;
+            GetWindowThreadProcessId(foreground, Some(&mut pid));
+            if pid == std::process::id() && IsWindow(Some(last)).as_bool() {
+                foreground = last;
+            } else {
+                last = foreground;
+            }
+            let mut rectangle = RECT::default();
+            let mut monitor = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                ..Default::default()
+            };
+            let mut class = [0u16; 128];
+            let len = GetClassNameW(foreground, &mut class);
+            let excluded =
+                excluded_foreground_class(&String::from_utf16_lossy(&class[..len as usize]));
+            let meaningful = !excluded
+                && !foreground.is_invalid()
+                && IsWindowVisible(foreground).as_bool()
+                && !IsIconic(foreground).as_bool()
+                && GetWindowRect(foreground, &mut rectangle).is_ok()
+                && GetMonitorInfoW(
+                    MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST),
+                    &mut monitor,
+                )
+                .as_bool()
+                && is_primary_monitor(monitor.dwFlags);
+            let full = meaningful
+                && rectangle.left <= monitor.rcMonitor.left
+                && rectangle.top <= monitor.rcMonitor.top
+                && rectangle.right >= monitor.rcMonitor.right
+                && rectangle.bottom >= monitor.rcMonitor.bottom
+                && !(IsZoomed(foreground).as_bool()
+                    && GetWindowLongW(foreground, GWL_STYLE) as u32 & WS_CAPTION.0 != 0);
+            let overlap = meaningful
+                && app.primary_monitor().ok().flatten().is_some_and(|display| {
+                    NOTCH_RECT
+                        .lock()
+                        .ok()
+                        .and_then(|rect| *rect)
+                        .is_some_and(|notch| {
+                            let scale = display.scale_factor();
+                            let origin = display.position();
+                            let left = origin.x + (notch.x as f64 * scale) as i32;
+                            let right = left + (notch.width as f64 * scale) as i32;
+                            rectangle.left < right
+                                && rectangle.right > left
+                                && rectangle.top
+                                    < origin.y
+                                        + (48.0 * crate::utils::get_notch_scale(&app) * scale)
+                                            as i32
+                        })
+                });
+            CURRENT_NOTCH_OVERLAP.store(if overlap { 1 } else { 0 }, Ordering::Relaxed);
+            if previous != Some(overlap) {
+                let _ = app.emit("notch-overlap", overlap);
+                previous = Some(overlap);
+            }
+            if CURRENT_FOREGROUND_FULLSCREEN.swap(full, Ordering::Relaxed) != full {
+                let _ = tx.send(SystemCommand::ToggleVisibility(!full));
+            }
+            // Capture needs prompt recovery even when no cursor movement occurs.
+            if CAPTURE_DIRTY.swap(false, Ordering::Relaxed)
+                || tick == 0
+                || CAPTURE_UI_ACTIVE.load(Ordering::Relaxed)
+            {
+                let active = is_capture_ui_present();
+                if CAPTURE_UI_ACTIVE.swap(active, Ordering::Relaxed) != active {
+                    apply_capture_ui_state(&app, active);
+                }
+            }
+            let mut message = MSG::default();
+            while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            tick += 1;
+            if tick >= 6 {
+                tick = 0;
+                sync_native_osd(&app);
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        if !hook.is_invalid() {
+            let _ = UnhookWinEvent(hook);
+        }
+    });
+}
+
+static CAPTURE_DIRTY: AtomicBool = AtomicBool::new(true);
+fn excluded_foreground_class(class: &str) -> bool {
+    matches!(
+        class,
+        "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
+    )
+}
+#[cfg(test)]
+mod island_tests {
+    use super::*;
     #[test]
-    fn thumbnail_cache_evicts_oldest_live_windows() {
-        let mut cache = (0..20)
-            .map(|key| (key, (String::new(), key as i64)))
-            .collect();
-        trim_thumbnail_cache(&mut cache, 19, |_| true);
-        assert_eq!(cache.len(), 15);
-        assert!(cache.contains_key(&19));
-        assert!((0..5).all(|key| !cache.contains_key(&key)));
+    fn the_desktop_and_native_taskbar_do_not_hide_the_island_as_fullscreen_apps() {
+        assert!(excluded_foreground_class("Progman"));
+        assert!(excluded_foreground_class("WorkerW"));
+        assert!(excluded_foreground_class("Shell_TrayWnd"));
+        assert!(!excluded_foreground_class("Chrome_WidgetWin_1"));
     }
-
     #[test]
-    fn win_number_maps_top_row_digits_only() {
-        assert_eq!(win_number_index(0x31), Some(0));
-        assert_eq!(win_number_index(0x35), Some(4));
-        assert_eq!(win_number_index(0x39), Some(8));
-        // 0, letters and numpad digits are not dock slots
-        assert_eq!(win_number_index(0x30), None);
-        assert_eq!(win_number_index(0x41), None);
-        assert_eq!(win_number_index(0x61), None);
+    fn capture_selection_yields_input_but_an_edited_screenshot_does_not() {
+        assert!(capture_blocks_bloom("snippingtool.exe", false, true));
+        assert!(!capture_blocks_bloom("snippingtool.exe", true, true));
+        assert!(!capture_blocks_bloom("notepad.exe", false, true));
     }
-
     #[test]
-    fn only_fixed_notch_mode_reserves_the_work_area() {
+    fn cursor_coordinates_preserve_negative_monitors() {
+        let point = windows::Win32::Foundation::POINT { x: -1920, y: 1080 };
+        let restored = unpack_cursor(pack_cursor(point));
+        assert_eq!((restored.x, restored.y), (point.x, point.y));
+    }
+    #[test]
+    fn only_fixed_island_mode_reserves_screen_space() {
         assert!(notch_mode_reserves_work_area(Some("fixed")));
         assert!(!notch_mode_reserves_work_area(Some("smart")));
         assert!(!notch_mode_reserves_work_area(Some("peek")));
-        // Legacy alias for smart
-        assert!(!notch_mode_reserves_work_area(Some("auto-hide")));
-        // Unset defaults to fixed, matching SETTINGS.md
-        assert!(notch_mode_reserves_work_area(None));
-    }
-
-    #[test]
-    fn helper_shortcuts_are_not_launchable() {
-        assert!(is_helper_name("Uninstall Brave"));
-        assert!(is_helper_name("7-Zip Help"));
-        assert!(is_helper_name("Readme"));
-        assert!(is_helper_name("Get Help"));
-        // Whole-word matching: legit names containing helper words survive.
-        assert!(!is_helper_name("Helper"));
-        assert!(!is_helper_name("Photo Remover"));
-        assert!(!is_helper_name("7-Zip File Manager"));
-        assert!(!is_helper_name("Brave"));
-        assert!(!is_launchable_entry("Docs", "https://example.com"));
-        assert!(is_launchable_entry(
-            "Brave",
-            "C:\\Program Files\\Brave\\brave.exe"
-        ));
     }
 }

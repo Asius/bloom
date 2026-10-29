@@ -10,8 +10,8 @@ interface EdgeSurfaceProps {
 }
 
 /**
- * Background of a surface attached to a screen edge (the notch, the dock, the
- * volume and brightness overlays): the pill plus its two flares, drawn as one
+ * Background of a surface attached to a screen edge (the island and the
+ * volume overlay): the pill plus its two flares, drawn as one
  * layer. Render it as the first child of a positioned, isolated element that
  * sets `--surface-bg`; the pill takes that element's corner radii.
  */

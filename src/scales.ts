@@ -1,35 +1,22 @@
 export interface ScaleSettings {
-	shared: number;
-	linked: boolean;
-	dock: number | null;
-	notch: number | null;
+	notch: number;
 	font: number;
 }
-
-export const SCALE_KEYS = ["bloom-scale", "bloom-scale-linked", "bloom-dock-scale", "bloom-notch-scale", "bloom-font-scale"] as const;
-export type ScaleKey = typeof SCALE_KEYS[number];
-
-function readNumber(value: unknown, fallback: number): number {
-	if (typeof value !== "number" && typeof value !== "string") return fallback;
+export const SCALE_KEYS = ["bloom-notch-scale", "bloom-font-scale"] as const;
+export type ScaleKey = (typeof SCALE_KEYS)[number];
+function readNumber(value: unknown): number {
+	if (typeof value !== "number" && typeof value !== "string") return 1;
 	const text = String(value).trim();
-	if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text)) return fallback;
+	if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text)) return 1;
 	const parsed = Number(text);
-	return Number.isFinite(parsed)
-		? Math.max(0.8, Math.min(1.3, parsed))
-		: fallback;
+	return Number.isFinite(parsed) ? Math.max(0.8, Math.min(1.3, parsed)) : 1;
 }
-
 export function readScales(values: Record<string, unknown>): ScaleSettings {
-	const shared = readNumber(values["bloom-scale"], 1);
 	return {
-		shared,
-		linked: String(values["bloom-scale-linked"] ?? "true") !== "false",
-		dock: values["bloom-dock-scale"] == null ? null : readNumber(values["bloom-dock-scale"], shared),
-		notch: values["bloom-notch-scale"] == null ? null : readNumber(values["bloom-notch-scale"], shared),
-		font: readNumber(values["bloom-font-scale"], 1)
+		notch: readNumber(values["bloom-notch-scale"]),
+		font: readNumber(values["bloom-font-scale"])
 	};
 }
-
-export function effectiveScale(settings: ScaleSettings, surface: "dock" | "notch"): number {
-	return settings.linked ? settings.shared : settings[surface] ?? settings.shared;
+export function effectiveScale(settings: ScaleSettings): number {
+	return settings.notch;
 }

@@ -8,7 +8,7 @@ function localValues(): Record<string, unknown> {
 }
 
 /** Read the same settings in each webview and apply live changes and resets. */
-export function useDesktopScales(): ScaleSettings {
+export function useIslandScales(): ScaleSettings {
 	const [values, setValues] = useState<Record<string, unknown>>(localValues);
 	useEffect(() => {
 		let cancelled = false;
@@ -28,7 +28,9 @@ export function useDesktopScales(): ScaleSettings {
 			if (cancelled) return;
 			try {
 				const saved = await invoke<Record<string, unknown>>("load_settings");
-				const readable = Object.keys(saved).length > 0 || await invoke<boolean>("settings_file_readable").catch(() => false);
+				const readable =
+					Object.keys(saved).length > 0 ||
+					(await invoke<boolean>("settings_file_readable").catch(() => false));
 				const initial = readable
 					? Object.fromEntries(SCALE_KEYS.map((key) => [key, saved[key] ?? null]))
 					: { ...localValues(), ...saved };

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { Info, Layers, Monitor, Palette, PanelTop, Settings, X } from "lucide-react";
+import { Info, Layers, Palette, PanelTop, Settings, X } from "lucide-react";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./Settings.css";
@@ -8,14 +8,13 @@ import type { SettingsTab } from "./settings/index";
 import {
 	AboutTab,
 	AppearanceTab,
-	DockTab,
 	GeneralTab,
 	NotchTab,
 	OverlaysTab,
 	useSettings
 } from "./settings/index";
 import { initTheme } from "./theme";
-import { useBloomFontScale, useDesktopScales } from "./hooks/useDesktopScales";
+import { useBloomFontScale, useIslandScales } from "./hooks/useIslandScales";
 
 const appWindow = getCurrentWebviewWindow();
 
@@ -23,13 +22,12 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Settings }[] = [
 	{ id: "general", label: "General", icon: Settings },
 	{ id: "appearance", label: "Appearance", icon: Palette },
 	{ id: "notch", label: "Notch", icon: PanelTop },
-	{ id: "dock", label: "Dock", icon: Monitor },
 	{ id: "overlays", label: "Overlays", icon: Layers },
 	{ id: "about", label: "About", icon: Info }
 ];
 
 function SettingsApp() {
-	const scales = useDesktopScales();
+	const scales = useIslandScales();
 	useBloomFontScale(scales.font);
 	const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 	const settings = useSettings();
@@ -41,7 +39,6 @@ function SettingsApp() {
 	useEffect(() => {
 		const preventContext = (e: MouseEvent) => e.preventDefault();
 		document.addEventListener("contextmenu", preventContext as any);
-
 
 		return () => {
 			document.removeEventListener("contextmenu", preventContext as any);
@@ -127,13 +124,7 @@ function SettingsApp() {
 							handleBrightnessChange={settings.handleBrightnessChange}
 							cornersEnabled={settings.cornersEnabled}
 							toggleCorners={settings.toggleCorners}
-							scale={scales.shared}
-							handleScaleChange={settings.handleScaleChange}
-							scaleLinked={scales.linked}
-							handleScaleLinkedChange={settings.handleScaleLinkedChange}
-							dockScale={scales.dock ?? scales.shared}
-							handleDockScaleChange={settings.handleDockScaleChange}
-							notchScale={scales.notch ?? scales.shared}
+							notchScale={scales.notch}
 							handleNotchScaleChange={settings.handleNotchScaleChange}
 							fontScale={scales.font}
 							handleFontScaleChange={settings.handleFontScaleChange}
@@ -172,43 +163,6 @@ function SettingsApp() {
 							handleCityClear={settings.handleCityClear}
 							statusWidgets={settings.statusWidgets}
 							handleWidgetsChange={settings.handleWidgetsChange}
-						/>
-					)}
-					{activeTab === "dock" && (
-						<DockTab
-							dockEnabled={settings.dockEnabled}
-							toggleDock={settings.toggleDock}
-							dockMode={settings.dockMode}
-							setDockModeValue={settings.setDockModeValue}
-							dockEdgeDelay={settings.dockEdgeDelay}
-							handleDockEdgeDelayChange={settings.handleDockEdgeDelayChange}
-							dockPreviewEnabled={settings.dockPreviewEnabled}
-							toggleDockPreview={settings.toggleDockPreview}
-							dockIconOnly={settings.dockIconOnly}
-							toggleDockIconOnly={settings.toggleDockIconOnly}
-							dockSeparatorEnabled={settings.dockSeparatorEnabled}
-							toggleDockSeparator={settings.toggleDockSeparator}
-							dockAdaptive={settings.dockAdaptive}
-							toggleDockAdaptive={settings.toggleDockAdaptive}
-							dockWinNumberEnabled={settings.dockWinNumberEnabled}
-							toggleDockWinNumber={settings.toggleDockWinNumber}
-							dockExtrasPosition={settings.dockExtrasPosition}
-							handleDockExtrasPositionChange={settings.handleDockExtrasPositionChange}
-							dockExtrasDrives={settings.dockExtrasDrives}
-							toggleDockExtrasDrives={settings.toggleDockExtrasDrives}
-							dockExtrasHiddenDrives={settings.dockExtrasHiddenDrives}
-							toggleDockExtrasDrive={settings.toggleDockExtrasDrive}
-							dockExtrasRecycleBin={settings.dockExtrasRecycleBin}
-							toggleDockExtrasRecycleBin={settings.toggleDockExtrasRecycleBin}
-							dockTaskView={settings.dockTaskView}
-							toggleDockTaskView={settings.toggleDockTaskView}
-							dockExtrasFolders={settings.dockExtrasFolders}
-							toggleDockExtraFolder={settings.toggleDockExtraFolder}
-							dockExtrasCustomFolders={settings.dockExtrasCustomFolders}
-							handleAddDockExtraFolder={settings.handleAddDockExtraFolder}
-							handleRemoveDockExtraFolder={settings.handleRemoveDockExtraFolder}
-							startIcon={settings.startIcon}
-							handleStartIconChange={settings.handleStartIconChange}
 						/>
 					)}
 					{activeTab === "overlays" && (

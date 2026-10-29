@@ -18,5 +18,4 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 	outline: 2px solid var(--bloom-accent, #0067c0);
 	outline-offset: 3px;
 }
-.bloom-opaque .settings-container, .bloom-opaque .preview-tooltip,
-.bloom-opaque .bloom-tray-icons { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.bloom-opaque .settings-container { backdrop-filter: none; -webkit-backdrop-filter: none; }

@@ -1,6 +1,8 @@
+> Desde 3.11.0 solo existe escala de isla y texto. Las preferencias retiradas se migran en island_settings.rs; ver ISLAND_MIGRATION.md.
+
 # Bloom Settings Reference
 
-All settings are stored in `settings.json` in the app config directory (`%APPDATA%/bloom/`). The file is a flat JSON object with `bloom-` prefixed keys. Bloom watches this file for external changes and applies them in real-time.
+All settings are stored in `settings.json` in Tauri's app config directory (Windows: `%APPDATA%/com.sehaz.bloom/`). The file is a flat JSON object with `bloom-` prefixed keys. Bloom watches this file for external changes and applies them in real-time.
 
 ## Quick Start
 
@@ -8,49 +10,20 @@ Edit `settings.json` with any text editor while Bloom is running. Changes are ap
 
 ```json
 {
-	"bloom-dock-enabled": "true",
-	"bloom-dock-mode": "smart",
+	"bloom-notch-mode": "smart",
+	"bloom-notch-scale": "1.0",
 	"bloom-theme-mode": "system",
-	"bloom-scale": "1.0"
+	"bloom-font-scale": "1.0"
 }
 ```
 
 ## Settings Keys
 
-### Dock
-
-The notification area is attached to the bottom-right of the Bloom dock. Its
-chevron opens the hidden icons above it; promoted icons remain beside the
-chevron. The old `bloom-tray-placement` value is ignored for compatibility with
-3.10.6 settings. When the dock is disabled, Windows' native taskbar and tray
-return. The hidden-icons panel scrolls vertically without growing indefinitely.
-Keyboard arrows/Tab reach every icon; Escape closes it. Right-click the chevron
-for Explorer's native overflow fallback.
-
-| Key                                | Type                             | Default       | Description                                                                                                                                                                      |
-| ---------------------------------- | -------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bloom-dock-enabled`               | `"true"` / `"false"`             | `"true"`      | Show or hide the Bloom Dock (taskbar replacement).                                                                                                                               |
-| `bloom-dock-mode`                  | `"fixed"` / `"smart"` / `"peek"` | `"smart"`     | Dock visibility behavior. **fixed** = always visible as AppBar. **smart** = auto-hide when overlapped by fullscreen apps. **peek** = hidden until cursor approaches bottom edge. |
-| `bloom-dock-edge-delay`            | milliseconds `"0"`–`"2000"`      | `"200"`       | In smart/peek mode, how long the cursor must rest against the bottom screen edge before the dock appears. `"0"` reveals instantly.                                               |
-| `bloom-dock-preview-enabled`       | `"true"` / `"false"`             | `"true"`      | Show window thumbnail previews when hovering dock icons.                                                                                                                         |
-| `bloom-dock-icon-only`             | `"true"` / `"false"`             | `"false"`     | Minimal icon-only style (no background/padding around icons).                                                                                                                    |
-| `bloom-dock-separator-enabled`     | `"true"` / `"false"`             | `"true"`      | Show a divider between pinned and unpinned dock apps when unpinned apps are present. Unpinned apps remain on the right when disabled.                                            |
-| `bloom-start-icon`                 | icon key / `custom:<data URI>`   | `"default"`   | Start button icon: `default`, `bloom-colorful`, `bloom-golden`, `bloom-biscuit`, `windows`, or `custom:` followed by an uploaded image's data URI.                               |
-| `bloom-dock-task-view`             | `"true"` / `"false"`             | `"false"`     | Show a Task View button beside Start that opens Task View, like the taskbar's. Right-click it to hide it again.                                                                  |
-| `bloom-dock-adaptive`              | `"true"` / `"false"`             | `"false"`     | Fixed dock only. Stretch the dock to full width like a traditional taskbar while a window is maximized, and contract back when it's restored.                                    |
-| `bloom-dock-win-number-enabled`    | `"true"` / `"false"`             | `"true"`      | When the taskbar is replaced, Win+1 through Win+9 activate the matching pinned dock app (focus/minimize if running, launch otherwise) instead of the native taskbar slots.       |
-| `bloom-dock-extras-position`       | `"off"` / `"left"` / `"right"`   | `"off"`       | Show a dock extras section with drives, folders and the Recycle Bin beside the app icons, on the left or right side of the dock.                                                 |
-| `bloom-dock-extras-drives`         | `"true"` / `"false"`             | `"true"`      | Show fixed, removable (with media) and connected mapped network drives in the dock extras. Empty card readers and unloaded discs are hidden.                                     |
-| `bloom-dock-extras-hidden-drives`  | comma-separated letters          | `""`          | Drives left out of the dock extras, e.g. `"D,E"`. Drives not listed appear, including newly connected ones. Right-clicking a drive and choosing Remove from Dock adds it here. |
-| `bloom-dock-extras-recycle-bin`    | `"true"` / `"false"`             | `"true"`      | Show the Recycle Bin in the dock extras. The icon reflects whether the bin holds anything.                                                                                       |
-| `bloom-dock-extras-folders`        | comma-separated ids              | `"downloads"` | Known folders in the dock extras: any of `desktop`, `downloads`, `documents`, `pictures`, `music`, `videos`, or `"none"` for no folders.                                         |
-| `bloom-dock-extras-custom-folders` | JSON array                       | `"[]"`        | User-added folders, e.g. `[{"name":"Projects","path":"D:\\Projects"}]`. Folders that no longer exist are skipped until they return.                                              |
-
 ### Notch
 
 | Key                      | Type                             | Default   | Description                                                                                                                    |
 | ------------------------ | -------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `bloom-notch-mode`       | `"fixed"` / `"smart"` / `"peek"` | `"fixed"` | Notch (top bar) visibility behavior. Same modes as dock. **peek** shows the notch briefly on media events and notifications.   |
+| `bloom-notch-mode`       | `"fixed"` / `"smart"` / `"peek"` | `"fixed"` | Notch (top bar) visibility behavior. **peek** shows the notch briefly on media events and notifications.   |
 | `bloom-notch-edge-delay` | milliseconds `"0"`–`"2000"`      | `"200"`   | In smart/peek mode, how long the cursor must rest against the top screen edge before the notch peeks. `"0"` reveals instantly. |
 
 ### Weather
@@ -127,10 +100,7 @@ Example:
 
 | Key                            | Type                 | Default   | Description                                                                                          |
 | ------------------------------ | -------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
-| `bloom-scale`                  | float string         | `"1.0"`   | Shared scale of dock and notch when linked, and scale of the volume HUD (0.8 to 1.3). |
-| `bloom-scale-linked`           | `"true"` / `"false"` | `"true"`  | Use the shared scale for both dock/tray and notch; old settings remain linked. |
-| `bloom-dock-scale`             | float string         | shared scale | Separate dock and tray scale when linking is off (0.8 to 1.3). |
-| `bloom-notch-scale`            | float string         | shared scale | Separate notch scale when linking is off (0.8 to 1.3). |
+| `bloom-notch-scale`            | float string         | `"1.0"` | Island and volume overlay scale (0.8 to 1.3). |
 | `bloom-font-scale`             | float string         | `"1.0"`   | Text size independently of icon and surface size (0.8 to 1.3). |
 | `bloom-auto-update`            | `"true"` / `"false"` | `"false"` | Check for and download updates automatically on startup.                                             |
 | `bloom-show-update-indicator`  | `"true"` / `"false"` | `"true"`  | Show a green dot on the notch when an update is available.                                           |
@@ -152,7 +122,7 @@ Bloom uses two Tauri events for settings synchronization:
 - **Emitted by:** `save_setting` command (frontend or backend)
 - **Payload:** `{ "key": "bloom-...", "value": ... }`
 - **Purpose:** Broadcasts changes made through the Bloom UI to all windows
-- **Key format:** Bloom-prefixed keys as-is (e.g. `"bloom-dock-mode"`)
+- **Key format:** Bloom-prefixed keys as-is (e.g. `"bloom-notch-mode"`)
 
 ### `settings-external-changed`
 
@@ -180,31 +150,17 @@ useSettingsSync hook updates React state
 UI re-renders with new values
 ```
 
-## Example: Changing Dock Mode via Script
+## Example: Changing Island Mode via Script
 
-```powershell
-# PowerShell: switch dock to smart mode
-$json = Get-Content "$env:APPDATA\bloom\settings.json" | ConvertFrom-Json
-$json.'bloom-dock-mode' = 'smart'
-$json | ConvertTo-Json | Set-Content "$env:APPDATA\bloom\settings.json"
-```
-
-```python
-# Python: disable dock
-import json, os
-path = os.path.join(os.environ['APPDATA'], 'bloom', 'settings.json')
-with open(path) as f: settings = json.load(f)
-settings['bloom-dock-enabled'] = 'false'
-with open(path, 'w') as f: json.dump(settings, f)
-```
+Set `bloom-notch-mode` to `"smart"` in the existing settings file to reveal the island when its top screen edge is hovered. Use `"fixed"` to keep it visible or `"peek"` for brief media activity.
 
 ## Notes
 
 - All boolean values are strings (`"true"` / `"false"`) for consistency with `localStorage`.
 - The `useSettingsSync` hook auto-converts `"true"` / `"false"` strings to booleans.
-- `auto-hide` mode values in `bloom-dock-mode` and `bloom-notch-mode` are legacy aliases for `smart` — they are mapped automatically.
-- Changing shared, linked, dock or notch scale reconciles AppBar reservations and the notch window size. Font scale changes text without changing the configured surface scale or icon dimensions.
-- Settings → General → Reset to Defaults removes every `bloom-` key from `settings.json` and `localStorage` (except the `bloom-first-run` / `bloom-app-version` lifecycle sentinels), then restarts Bloom. Pinned apps (`pinned_apps.json`) and uploaded icons (`custom_icons/`) are preserved.
+- `auto-hide` mode values in `bloom-notch-mode` are legacy aliases for `smart` — they are mapped automatically.
+- Changing island scale reconciles AppBar reservations and the notch window size. Font scale changes text without changing the configured surface scale or icon dimensions.
+- Settings → General → Reset to Defaults removes every `bloom-` key from `settings.json` and `localStorage` (except the `bloom-first-run` / `bloom-app-version` lifecycle sentinels), then restarts Bloom. Retired files from earlier versions are preserved as historical data and are no longer read.
 - Theme changes (`bloom-theme-*`) are applied by reading all theme values from `localStorage` and calling `applyTheme()` — the theme system depends on all five theme keys being in sync.
 
 ## Retired desktop controls

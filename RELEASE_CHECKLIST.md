@@ -16,16 +16,15 @@ replace the owner's installation or control their desktop automatically.
 
 - [ ] CI green on `main` (Build, CodeQL) and `bun run build` passes locally.
 - [ ] `bun audit` passes for the application lockfile, including development
-      dependencies. Review security overrides in `DESKTOP_BASELINE.md` before
-      updating their parent packages.
+      dependencies. Review dependency updates individually before integrating.
 - [ ] In `src-tauri`: `cargo check --locked`, `cargo clippy --locked --all-targets`, `cargo test --locked`.
 - [ ] Prepare the affected native test cases for the owner (or record a requested
       development smoke test separately). Physical checks assigned to the owner:
   - [ ] notch modes (fixed / smart / peek) and hover expansion
-  - [ ] dock modes, pinned apps, Start menu
+  - [ ] native Windows taskbar/Start/tray remain available, with no replacement dock
   - [ ] desktop volume overlay and per-app mixer
   - [ ] Settings → About: "Check for Updates" reaches the network without erroring
-  - [ ] tray → Quit restores the native taskbar (and no crash flag is left behind)
+  - [ ] Bloom icon → Quit closes only Bloom; the native taskbar keeps its own state
 - [ ] Updater channel health: `bun scripts/verify-updater.mjs v<current>` passes.
       This fetches `latest.json` and every installer the way the app does, within
       the app's own `CHECK_TIMEOUT_SECS` budget (`src-tauri/src/updater.rs`). If it
@@ -53,7 +52,7 @@ replace the owner's installation or control their desktop automatically.
       but the badge/label must appear immediately.
 - [ ] **Owner: fresh install**: download `bloom_X.Y.Z_x64-setup.exe`, install, confirm it
       launches and About shows the new version.
-- [ ] **Owner:** quit from the tray on the fresh install; confirm the taskbar returns.
+- [ ] **Owner:** quit from Bloom's native notification icon; confirm Windows' taskbar remains available.
 - [ ] Record workarounds, known issues and the owner's test cases in Release
       notes and the delivery log. The desktop app has no remote announcement feed.
 

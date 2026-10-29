@@ -1851,3 +1851,6 @@ img {
 .calendar-column {
 	width: 100%;
 }
+
+/* The retained mode control occupies the existing controls row. */
+.cc-pills-island { grid-template-columns: 1fr; }

@@ -1,57 +1,37 @@
 # AGENTS.md
 
-Windows-only Tauri v2 app: Rust backend + React 19/TypeScript frontend. Replaces the native Windows taskbar (dock) and adds a notch/island UI. Bun is the package manager. CI runs on `windows-latest`.
-
-Current product scope: [DESKTOP_BASELINE.md](DESKTOP_BASELINE.md). The owner approved the simplified personal desktop profile on 25 October 2026. Do not restore timer, battery/radios/brightness, DND or the original announcement feed as incidental fixes. Hardware detection and real notch notifications are deferred. Preserve music, calendar, volume, dock/notch modes, animations and the fork's signed update channel.
+Windows-only Tauri v2 application: Rust backend + React 19/TypeScript frontend. Since the owner's 28 October 2026 direction, Bloom adds an interactive island to Windows; it does not replace or hide its taskbar or system tray. See DESKTOP_BASELINE.md and ISLAND_MIGRATION.md. Earlier dock/tray requirements are historical and must not be reintroduced.
 
 ## Commands
 
-Run from the repo root unless noted. Bun 1.4.0, Rust stable.
+Use Bun 1.4.0 (portable official copy one directory above if absent from PATH), Rust stable and Windows MSVC/SDK.
 
-- `bun install` — deps (CI uses `bun install --frozen-lockfile`; never create a root `package-lock.json`)
-- `bun run tauri dev` — full dev loop. Vite is on strict port 1420; do not start `bun run dev` separately
-- `bun run test` — `bun test scripts`; runs the frontend logic tests also executed by Windows CI
-- `bun run build` — `tsc && vite build`; this is the frontend typecheck. `strict` + `noUnusedLocals`/`noUnusedParameters` fail the build. There is no root lint script
-- `cargo check --locked` and `cargo clippy --locked --all-targets` in `src-tauri` — CI's Rust gates
-- `cargo test --locked` in `src-tauri` — pure-function unit tests, also executed by Windows CI
-- `bun run bump <x.y.z>` — bumps `package.json`, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` together
-- `bun run release <x.y.z>` — bump + commit + tag + push, must be on `main`. The release workflow fails unless all four version files match the tag. Before/after releasing, follow `RELEASE_CHECKLIST.md` (updater manifest verification, N‑1 install smoke test)
-- `website/` is a separate static site: use `npm install` / `npm run dev` there. Root scripts and CI do not build it
+- bun install --frozen-lockfile; do not create package-lock.json.
+- bun run tauri dev: complete app, strict Vite port 1420; no separate dev server.
+- bun run test: frontend behavior tests in scripts/.
+- bun run build: TypeScript and production frontend.
+- In src-tauri: cargo check --locked, cargo clippy --locked --all-targets, cargo test --locked.
+- bun run bump <version>: keep package.json, tauri.conf.json, Cargo.toml and Cargo.lock coherent.
+- Follow RELEASE_CHECKLIST.md for all publication checks. The automatic release helper does not provide the required Spanish commit body or wait for checks; use explicit release steps.
 
-## Architecture
+## Architecture and scope
 
-- Five webview windows, each a separate Vite/HTML entry: `main` = notch (`index.html` → `src/main.tsx` → `src/App.tsx`), `dock` (`dock.html` → `src/Dock.tsx`), `overlay` (`overlay.html` → `src/Overlay.tsx`), `settings` (`settings.html` → `src/Settings.tsx`), `tray` (`tray.html` → `src/tray-main.tsx`). Adding or renaming a window means editing `src-tauri/tauri.conf.json`, `vite.config.ts` inputs, its HTML entry and capabilities. Tray has its own minimal `capabilities/tray.json`.
-- Tray input uses a dedicated HWND and a native union of bar/flyout regions. Never enable tao ignore-cursor events on that window. Per the owner's 27 October request, its visibility follows the dock's Smart/Peek reveal, and interaction with the tray keeps both visible. See [TRAY_SURFACE.md](TRAY_SURFACE.md).
-- Live tray provider: see [TRAY_LIVE.md](TRAY_LIVE.md). The owner authorized the scoped Explorer observer and controlled fixture testing. Preserve bounded messages/queues, shell and owner identity, byte-verified DLL loading, cleanup and the UIA fallback. Do not replace it with global process injection or downloaded mods. Native tests are deliberately ignored in the regular suite; distinguish callback fixture proof from testing user applications.
-- Rust entrypoint is `src-tauri/src/main.rs`; `lib.rs` is an empty stub. Every `#[tauri::command]` must be registered in the `generate_handler!` list in `main.rs`
-- `commands.rs` = IPC surface; `services.rs` = long-lived Win32 hooks/workers (keyboard hook, thumbnail capture, audio visualizer, AppBar registration); `utils.rs` = settings cache and file IO; `state.rs`/`types.rs` = shared statics/types
-- Backend→frontend events use `app.emit`: `settings-changed`, `settings-external-changed`, `media-update`, `volume-change`, `brightness-change`, `dock-overlap`, `notch-overlap`, `windows-changed`, `update-available`, `auto-update-status`. Listen via `@tauri-apps/api/event`
+Three WebView entries: main/index.html (island), overlay/overlay.html (volume and startup/update states), settings/settings.html. Configuration, Vite input and capabilities must agree.
 
-## Settings
+commands.rs exposes only island/settings/audio/file APIs. services.rs handles island input/overlap, media/audio, capture exclusion and display/preferences. window_region.rs bounds native input to visible content; preserve click-through outside that region. The settings window never takes island scale; text scale is independent.
 
-- Stored in `%APPDATA%/bloom/settings.json` as a flat object of `bloom-`-prefixed keys; all values are strings (`"true"`/`"false"` for booleans). `SETTINGS.md` documents every key
-- UI write path: set `localStorage`, then `invoke("save_setting")` → backend caches it and emits `settings-changed`. External file edits are watched and emitted as `settings-external-changed`
-- `src/hooks/useSettingsSync.ts` is the single sync hook for both events and normalizes string booleans/numbers
-- The CSP in `tauri.conf.json` allow-lists network origins (weather APIs only); add new origins there. New Tauri plugins also need permissions in `capabilities/default.json`
+island_settings.rs migrates retired preferences and preserves one original backup. legacy_taskbar.rs restores only an existing old crash marker at startup; it never hides Windows or starts a watchdog. Do not add Explorer integration, live tray inventory, window thumbnails, launcher catalogs, bottom AppBars or Win-key overrides. The ordinary Bloom icon in Windows' notification area offers settings, diagnostics, restart and quit.
 
-## Gotchas
+Preserve current clock/calendar, music/visualizer, file shelf, volume and island modes. Do not add AI/services from Coucou, notifications, hardware controls or a new layout without choosing scope/design with the owner. Removed timer/radios/battery/brightness/DND/remote promotions stay removed. Preserve original GPL attribution and the fork's signed update channel.
 
-- The app hides the native Windows taskbar and registers AppBars while running. Any new exit/restart path must restore the taskbar and unregister AppBars, like the tray menu in `main.rs` does. A marker file restores it after a crash
-- The `windows` crate is pinned to 0.61 with an explicit feature list in `Cargo.toml`; add features there when using new Win32 APIs
-- Commits follow conventional commits (`feat:`, `fix:`); release notes are generated from them and commits touching only `website/*`, `.github/*`, or `*.md` are filtered out
+Settings live in app_config_dir/settings.json, with bloom-prefixed string values. Persist through atomic file/cache functions; listen to settings-changed and settings-external-changed. Retired preference keys cannot reactivate removed features. Preserve a damaged settings file instead of overwriting it.
 
-## Commit log and GitHub management
+Windows bindings use windows 0.61 with explicit features. windows-core remains a direct dependency required by the shelf COM implementation macro. There is no native observer DLL or C++ build step.
 
-- Every commit must have a short conventional-commit Summary as its first line, then a blank line and a brief description. Write the Summary and body in Spanish.
-- Explain the change and purpose in the body; briefly record validation and relevant limitations. Do not claim checks that were not run.
-- Standing owner authorization, 24 October 2026: manage `Asius/bloom`, push commits/branches, create/review/update/merge PRs and prepare/publish new version tags and Releases as appropriate. Do not ask again for routine GitHub/release permission. This replaces the previous owner-only push and per-release approval rules.
-- Work on `main` by default; use branches/PRs when useful for review or isolation. Review diffs and checks before merging; do not batch-merge dependency PRs just because they exist. Preserve repository protections and published tags.
-- Before publishing, synchronize all four version files and verify relevant local checks plus CI/CodeQL on the exact revision. Wait for Release completion and verify the updater manifest, downloads, hashes and signatures. Keep the private signing key out of code/logs. Use release steps that preserve the Spanish Summary/body rule; the existing automatic release script does not supply that body.
-- Report the commit hash, Summary and description to the owner. Stage only files belonging to the current delivery.
+## Git, releases and verification
 
-## Installed Windows testing
+Work on main following Asius/bloom by default. Every commit needs a short conventional Summary and a brief Spanish body explaining result, purpose, verification and limits. Report hash, Summary and description. Stage only delivery files.
 
-- The agent owns code review, automated tests, builds, GitHub checks and technical verification of published artifacts.
-- The owner runs physical tests on their PC, including N-1 updates, real windows, hardware, tray and taskbar recovery. Provide a short per-release test list and record their feedback.
-- Pending owner tests do not block publishing a technically validated version for those tests or require another approval. Keep them explicitly pending; publication and mocked IPC are not proof of native behavior or completion of a roadmap stage.
-- Do not automatically replace the installed app or control the owner's desktop during a release. Only do so when requested for a particular test.
+The owner authorizes normal pushes, reviewing/updating/merging PRs, tags and Releases permanently. Never move published tags or log signing secrets. Review dependency updates individually. Synchronize all four versions; verify local checks plus CI/CodeQL on the exact revision before tagging; wait for Release completion and verify latest manifest, full downloads, SHA-256 and updater signatures.
+
+The agent owns technical checks; the owner tests installed behavior. Publication, pure tests and browser IPC mocks do not prove native Windows behavior. List pending owner cases per release and keep roadmap status honest. Do not replace the installed app or control the owner's desktop as an automatic publication step.

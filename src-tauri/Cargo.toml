@@ -1,6 +1,6 @@
 [package]
 name = "bloom"
-version = "3.10.23"
+version = "3.11.0"
 description = ""
 authors = ["Asius", "Sehajveer Singh (original Bloom)"]
 edition = "2021"
@@ -17,7 +17,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-cc = "=1.2.57"
 
 [dependencies]
 tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
@@ -25,12 +24,9 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 windows-core = "0.61"
-windows-collections = "0.2"
 windows = { version = "0.61", features = [
 	"Win32_UI_Input_KeyboardAndMouse",
 	"Win32_UI_Shell",
-	"Win32_UI_Shell_PropertiesSystem",
-	"Win32_Storage_Packaging_Appx",
 	"Win32_UI_WindowsAndMessaging",
 	"Win32_UI_HiDpi",
 	"Win32_Foundation",
@@ -41,7 +37,6 @@ windows = { version = "0.61", features = [
 	"Win32_Media_Audio",
 	"Win32_Media_Audio_Endpoints",
 	"Win32_System_Threading",
-	"Win32_System_Diagnostics_ToolHelp",
 	"Win32_System_Memory",
 	"Win32_System_Com_StructuredStorage",
 	"Win32_System_SystemInformation",
@@ -50,31 +45,24 @@ windows = { version = "0.61", features = [
 	"Data_Pdf",
 	"Storage",
 	"Storage_Streams",
-	"Win32_System_Console",
 	"Graphics_Imaging",
 	"Win32_Graphics_Imaging",
 	"Win32_Graphics_Dwm",
 	"Win32_Graphics_Gdi",
 	"Win32_System_LibraryLoader",
 	"Win32_System_IO",
-	"Win32_System_DataExchange",
 	"Win32_Security",
 	"Win32_System_Registry",
-	"Win32_Devices_FunctionDiscovery",
 	"Foundation_Collections",
 	"Win32_Media_KernelStreaming",
 	"Win32_NetworkManagement_IpHelper",
 	"Win32_NetworkManagement_Ndis",
-	"Win32_NetworkManagement_WNet",
-	"Win32_Networking_NetworkListManager",
-	"Win32_System_WinRT",
-	"Networking_Connectivity"
+	"Win32_System_WinRT"
 ] }
 base64 = "0.22"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-updater = "2"
-wmi = "0.14"
 tokio = { version = "1", features = ["time", "sync"] }
 webview2-com = "0.38"
 image = "0.25"

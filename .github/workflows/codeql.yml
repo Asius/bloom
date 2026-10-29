@@ -17,33 +17,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  native-observer:
-    if: github.actor != 'dependabot[bot]'
-    runs-on: windows-latest
-    timeout-minutes: 40
-    permissions:
-      security-events: write
-      packages: read
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
-        with:
-          toolchain: stable
-      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
-        with:
-          languages: c-cpp
-          build-mode: manual
-      # No build cache: the observer's MSVC invocation must be traced each run.
-      - name: Compile native observer through its real build script
-        run: cargo check --locked
-        working-directory: src-tauri
-      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370
-        with:
-          category: /language:c-cpp
-
   analyze:
     if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest

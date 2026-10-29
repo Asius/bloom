@@ -15,7 +15,7 @@ function convertSettingValue(value: any): any {
  * - `settings-changed` — emitted by save_setting (bloom keys, native values)
  * - `settings-external-changed` — emitted by file watcher for external edits (bloom keys, string values)
  *
- * Both events use the same bloom-prefixed keys (e.g. "bloom-dock-enabled").
+ * Both events use the same bloom-prefixed keys (e.g. "bloom-notch-mode").
  * Values may pass through String() conversion in the frontend, producing
  * "true"/"false" strings — the hook auto-converts these to booleans.
  *

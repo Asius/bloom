@@ -39,17 +39,6 @@ pub struct IntRect {
     pub height: i32,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct AppInfo {
-    pub name: String,
-    pub path: String,
-    pub icon: Option<String>,
-    pub is_running: bool,
-    pub hwnd: Option<isize>,
-    pub executable: Option<String>,
-    pub all_hwnds: Option<Vec<(isize, String)>>, // (hwnd, title)
-}
-
 #[derive(Clone, Serialize)]
 pub struct VolumeChangeEvent {
     pub volume: f32,

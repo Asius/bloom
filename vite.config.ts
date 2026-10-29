@@ -37,9 +37,7 @@ export default defineConfig(async () => ({
 			input: {
 				main: "index.html",
 				overlay: "overlay.html",
-				settings: "settings.html",
-				dock: "dock.html",
-				tray: "tray.html"
+				settings: "settings.html"
 			}
 		}
 	}
