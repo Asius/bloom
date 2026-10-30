@@ -78,6 +78,7 @@ fn main() {
             Some(vec![]),
         ))
         .invoke_handler(tauri::generate_handler![
+            open_calendar_setup_guide,
             setup_shelf_drop,
             shelf_thumbnail,
             shelf_open,

@@ -8,6 +8,16 @@ use tauri::{AppHandle, Emitter, Manager, Window};
 use windows::core::Interface;
 const MAX_SETTINGS_IMPORT_BYTES: u64 = 1024 * 1024;
 
+/// Documentation only. No OAuth client, personal calendar or token is read.
+#[tauri::command]
+pub fn open_calendar_setup_guide() -> Result<(), String> {
+    tauri_plugin_opener::open_url(
+        "https://github.com/Asius/bloom/blob/main/GOOGLE_CALENDAR.md",
+        None::<&str>,
+    )
+    .map_err(|_| "No se pudo abrir la guía de Google Calendar".to_string())
+}
+
 #[tauri::command]
 pub fn setup_shelf_drop(app: AppHandle) {
     let first = app.clone();

@@ -1,6 +1,7 @@
 import { islandView, type IslandMode } from "./islandView";
 import { sameMediaInfo, type MediaInfo } from "./mediaInfo";
 import { Visualizer } from "./components/Visualizer";
+import { IslandCalendar } from "./components/IslandCalendar";
 import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
@@ -103,16 +104,6 @@ function GreenDownArrowIcon() {
 		</div>
 	);
 }
-
-// Number of week rows the current month occupies. Calendar mode sizes the
-// notch to the month so five-row months stay compact and six-row months never
-// clip the last row.
-const calendarMonthRows = () => {
-	const now = new Date();
-	const firstWeekday = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
-	const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-	return Math.ceil((firstWeekday + daysInMonth) / 7);
-};
 
 // A shelf file's preview from the backend: a picture when one can be made,
 // else the opening text of a document or text file, and whether it's a folder
@@ -1281,7 +1272,7 @@ function App() {
 	const handleWheel = (e: React.WheelEvent) => {
 		const target = e.target as HTMLElement;
 		if (
-			target.closest(".calendar-grid") ||
+			target.closest(".calendar-content") ||
 			target.closest(".shelf-content") ||
 			target.closest(".qp-list")
 		) {
@@ -1809,7 +1800,9 @@ function App() {
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
-		if (isCalendarMode) return 350;
+		if (isCalendarMode) {
+			return Math.min(620 + Math.max(0, scales.font - 1) * 140, window.innerWidth / scale - 48);
+		}
 		if (activeView === "shelf") return 380;
 		if (activeView === "command-center") return 350;
 		if (showMusicOnStatusHover) {
@@ -1835,9 +1828,14 @@ function App() {
 		if (!isExpanded || !isVisible || isHidden) {
 			return isImpacted ? 28.9 : 44.2;
 		}
-		// The calendar keeps room for every row of the displayed month.
+		// Six stable calendar rows; browsing months never changes the region.
 		const headerExtra = notchHeaderHeight - 36;
-		if (activeView === "calendar") return notchHeaderHeight + 100 + calendarMonthRows() * 42;
+		if (activeView === "calendar") {
+			return Math.min(
+				notchHeaderHeight + 380 + Math.max(0, scales.font - 1) * 100,
+				window.innerHeight / scale - 24
+			);
+		}
 		// Shelf expands on mode alone (no hover needed: there is no cursor
 		// hover during an OS drag) and is sized to exactly one row of tiles,
 		// plus room for the scrollbar once the tiles overflow it.
@@ -2591,9 +2589,7 @@ function App() {
 
 									transition={{ type: "spring", stiffness: 400, damping: 30 }}
 								>
-									<div className="calendar-column">
-										<Calendar />
-									</div>
+									<IslandCalendar />
 								</motion.div>
 							)}
 
@@ -2741,57 +2737,6 @@ function App() {
 						</motion.button>
 					)}
 				</AnimatePresence>
-			</div>
-		</div>
-	);
-}
-
-function Calendar() {
-	const date = new Date();
-
-	const daysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-	const firstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
-
-	const currentMonth = date.getMonth();
-	const currentYear = date.getFullYear();
-	const monthName = date.toLocaleString("default", { month: "long" });
-
-	const totalDays = daysInMonth(currentYear, currentMonth);
-	const startDay = firstDayOfMonth(currentYear, currentMonth);
-	const days = [];
-
-	// Padding for start of month
-	for (let i = 0; i < startDay; i++) {
-		days.push(<div key={`empty-${i}`} className="calendar-day empty" />);
-	}
-
-	// Actual days
-	const today = new Date().getDate();
-	const isCurrentMonth =
-		new Date().getMonth() === currentMonth && new Date().getFullYear() === currentYear;
-
-	for (let i = 1; i <= totalDays; i++) {
-		days.push(
-			<div key={i} className={`calendar-day ${isCurrentMonth && i === today ? "today" : ""}`}>
-				{i}
-			</div>
-		);
-	}
-
-	return (
-		<div className="calendar-container">
-			<div className="calendar-header">
-				<span className="month-year">
-					{monthName} {currentYear}
-				</span>
-			</div>
-			<div className="calendar-grid">
-				{["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-					<div key={`${d}-${i}`} className="day-name">
-						{d}
-					</div>
-				))}
-				{days}
 			</div>
 		</div>
 	);

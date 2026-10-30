@@ -1,0 +1,275 @@
+.island-calendar {
+	--calendar-holiday: #a52740;
+	--calendar-observance: #7650ac;
+	display: grid;
+	grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+	gap: 20px;
+	height: 100%;
+	min-height: 0;
+	grid-template-rows: minmax(0, 1fr);
+	white-space: normal;
+	font-size: calc(13px * var(--bloom-font-scale, 1));
+	color: var(--bloom-text);
+	overflow: auto;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+.island-calendar,
+.island-calendar * {
+	box-sizing: border-box;
+}
+:root.dark-mode .island-calendar {
+	--calendar-holiday: #ff9bae;
+	--calendar-observance: #c8aeff;
+}
+.island-calendar-month {
+	min-width: 0;
+}
+.island-calendar button {
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+	border: 0;
+}
+.island-calendar button:focus-visible,
+.island-calendar-agenda:focus-visible {
+	outline: 2px solid var(--bloom-text);
+	outline-offset: -2px;
+}
+.island-calendar button:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+.island-calendar-navigation {
+	display: flex;
+	align-items: center;
+	height: 38px;
+	gap: 3px;
+}
+.island-calendar-navigation h2 {
+	font-size: calc(14px * var(--bloom-font-scale, 1));
+	font-weight: 600;
+	flex: 1;
+	margin: 0;
+	text-align: center;
+	text-transform: none;
+}
+.island-calendar-navigation button {
+	display: grid;
+	place-items: center;
+	width: 32px;
+	height: 32px;
+	border-radius: 8px;
+	background: transparent;
+	flex-shrink: 0;
+}
+.island-calendar-navigation button:hover:not(:disabled),
+.island-calendar-day:hover:not(.selected) {
+	background: var(--bloom-group-bg);
+}
+.island-calendar-weekdays,
+.island-calendar-week {
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.island-calendar-weekdays {
+	height: 28px;
+	align-items: center;
+	text-align: center;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	color: var(--bloom-text-muted);
+}
+.island-calendar-week > div {
+	height: calc(36px + (var(--bloom-font-scale, 1) - 1) * 10px);
+	min-width: 0;
+	padding: 1px;
+}
+.island-calendar-day {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	display: grid;
+	place-items: center;
+	background: transparent;
+	border-radius: 10px;
+	font-variant-numeric: tabular-nums;
+}
+.island-calendar-day.holiday {
+	color: var(--calendar-holiday);
+	font-weight: 600;
+}
+.island-calendar-day.selected {
+	color: var(--bloom-bg-expanded);
+}
+.island-calendar-selection {
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	background: var(--bloom-text);
+}
+.island-calendar-number {
+	position: relative;
+	z-index: 1;
+}
+.island-calendar-day[aria-current="date"]:not(.selected) {
+	box-shadow: inset 0 0 0 1px var(--bloom-border);
+}
+.island-calendar-dots {
+	position: absolute;
+	bottom: 3px;
+	display: flex;
+	gap: 3px;
+	z-index: 1;
+}
+.island-calendar i {
+	display: inline-block;
+	height: 4px;
+	width: 4px;
+	border-radius: 50%;
+	background: var(--calendar-holiday);
+	flex-shrink: 0;
+}
+.island-calendar i.observance {
+	background: var(--calendar-observance);
+}
+.island-calendar-day.selected i {
+	background: currentColor;
+}
+.island-calendar-footer {
+	margin-top: 11px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.island-calendar-legend {
+	display: flex;
+	gap: 9px;
+	flex-wrap: wrap;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+	color: var(--bloom-text-muted);
+}
+.island-calendar-legend span {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+.island-calendar button.island-calendar-today {
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	padding: 5px 10px;
+	border-radius: 7px;
+	border: 1px solid var(--bloom-border);
+	background: var(--bloom-group-bg);
+}
+.island-calendar-agenda {
+	min-width: 0;
+	min-height: 0;
+	overflow: auto;
+	border-left: 1px solid var(--bloom-border);
+	padding: 7px 4px 2px 20px;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+}
+.island-calendar-eyebrow {
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+	letter-spacing: 0.1em;
+	font-weight: 600;
+	color: var(--bloom-text-muted);
+}
+.island-calendar-agenda h3 {
+	font-size: calc(16px * var(--bloom-font-scale, 1));
+	font-weight: 600;
+	line-height: 1.4;
+	margin: 8px 0 16px;
+	text-transform: none;
+}
+.island-calendar-agenda ul {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+	display: grid;
+	gap: 8px;
+}
+.island-calendar-event {
+	background: var(--bloom-group-bg);
+	border-radius: 10px;
+	padding: 11px 10px;
+	border-left: 3px solid var(--calendar-holiday);
+}
+.island-calendar-event.observance {
+	border-left-color: var(--calendar-observance);
+}
+.island-calendar-category {
+	color: var(--calendar-holiday);
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+	line-height: 1.5;
+	display: block;
+}
+.island-calendar-event.observance .island-calendar-category {
+	color: var(--calendar-observance);
+}
+.island-calendar-event strong {
+	display: block;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
+	font-weight: 600;
+	line-height: 1.45;
+	margin: 5px 0;
+	overflow-wrap: anywhere;
+}
+.island-calendar-event small,
+.island-calendar-google small {
+	display: block;
+	color: var(--bloom-text-muted);
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+	line-height: 1.5;
+}
+.island-calendar-empty {
+	color: var(--bloom-text-muted);
+	font-size: calc(12px * var(--bloom-font-scale, 1));
+	line-height: 1.6;
+}
+.island-calendar-google {
+	border-top: 1px solid var(--bloom-border);
+	padding-top: 16px;
+	margin-top: 18px;
+}
+.island-calendar-google strong {
+	font-size: calc(12px * var(--bloom-font-scale, 1));
+	font-weight: 600;
+	display: block;
+}
+.island-calendar-status {
+	color: var(--bloom-text-muted);
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+}
+.island-calendar-google p {
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	color: var(--bloom-text-muted);
+	line-height: 1.5;
+	margin: 9px 0;
+}
+.island-calendar-google button {
+	width: 100%;
+	padding: 8px;
+	background: var(--bloom-group-bg);
+	border: 1px solid var(--bloom-border);
+	border-radius: 8px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	gap: 7px;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	margin-bottom: 9px;
+}
+@media (forced-colors: active) {
+	.island-calendar-selection {
+		background: Highlight;
+	}
+	.island-calendar-day.selected {
+		color: HighlightText;
+	}
+	.island-calendar i {
+		background: CanvasText;
+	}
+}
