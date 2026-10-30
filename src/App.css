@@ -169,6 +169,9 @@ img {
 
 .time-center {
 	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 8px;
 }
 
 /* Shelf: OS file drag hovering over the notch (see onDragDropEvent in App.tsx) */

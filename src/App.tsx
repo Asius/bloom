@@ -1,6 +1,7 @@
 import { islandView, type IslandMode } from "./islandView";
 import { sameMediaInfo, type MediaInfo } from "./mediaInfo";
 import { Visualizer } from "./components/Visualizer";
+import { BloomAvatar } from "./components/BloomAvatar";
 import { IslandCalendar } from "./components/IslandCalendar";
 import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
@@ -1806,7 +1807,7 @@ function App() {
 		if (activeView === "shelf") return 380;
 		if (activeView === "command-center") return 350;
 		if (showMusicOnStatusHover) {
-			return 170 + (settingsVisualizerEnabled ? 30 : 0);
+			return 206 + (settingsVisualizerEnabled ? 30 : 0);
 		}
 		if (bloomMode === "status" && isHovered) {
 			const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
@@ -1815,7 +1816,8 @@ function App() {
 		if (activeView === "music") return mediaLayout === "compact" ? 300 : 340;
 		if (showUpdatePulse && !isHovered) return 200;
 
-		let w = 140 - clock24hTrim;
+		// Reserve the avatar's 28px plus its 8px gap without shrinking clock/media.
+		let w = 176 - clock24hTrim;
 		if (isMusicMode) {
 			if (settingsVisualizerEnabled && isPlaying) w += 30;
 			if (settingsAlbumArtEnabled) w += 30;
@@ -2338,6 +2340,7 @@ function App() {
 
 													{/* Center - Time (always visible) */}
 													<div className="time-center" ref={timeCenterRef}>
+														<BloomAvatar active={isVisible && !isHidden && isExpanded} playing={isPlaying} />
 														<AnimatePresence>
 															{showPanelArrows && (
 																<motion.button

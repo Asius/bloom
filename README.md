@@ -5,6 +5,7 @@ Una isla interactiva para Windows que complementa el escritorio. La barra de tar
 ## Funciones de esta base
 
 - Hora y calendario navegable con agenda, festivos de Colombia y conmemoraciones.
+- Avatar Bloom junto a la hora: saludo, curiosidad, música y descanso, con reacciones locales y movimiento reducido.
 - Reproducción multimedia, visualizador y controles.
 - Volumen y mezclador por aplicación.
 - Espacio para archivos/texto arrastrados.
