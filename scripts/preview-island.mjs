@@ -66,6 +66,15 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "peripheral_batteries") {
+				if (query.get("battery") === "low") await new Promise((resolve) => setTimeout(resolve, 3000));
+				return { bluetoothAvailable: true, devices: [
+				{ id: "mouse", name: "Logitech G PRO Wireless", kind: "mouse", connected: true, percent: 82, approximate: false, charging: false },
+				{ id: "keyboard", name: "Logitech G613", kind: "keyboard", connected: true, percent: 64, approximate: true, charging: false },
+				{ id: "headphones", name: "Razer Barracuda X", kind: "headphones", connected: true, percent: query.get("battery") === "low" ? 15 : 70, approximate: true, charging: null },
+				...(query.get("bluetooth") === "example" ? [{ id: "bluetooth-example", name: "Dispositivo Bluetooth", kind: "other", connected: true, percent: null, approximate: false, charging: null }] : [])
+			] };
+			}
 			if (cmd === "google_calendar_connected") return mockGoogleConnected;
 			if (cmd === "google_calendar_events") {
 				if (query.get("events") === "error") throw "Error simulado: Google no disponible";

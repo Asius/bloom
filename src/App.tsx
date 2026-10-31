@@ -3,6 +3,7 @@ import { sameMediaInfo, type MediaInfo } from "./mediaInfo";
 import { Visualizer } from "./components/Visualizer";
 import { BloomAvatar } from "./components/BloomAvatar";
 import { IslandCalendar } from "./components/IslandCalendar";
+import { IslandPeripherals, PeripheralNoticeView } from "./components/IslandPeripherals";
 import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
@@ -13,6 +14,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { AnimatePresence, motion, useAnimation } from "framer-motion";
 import {
 	ArrowUpDown,
+	Battery,
 	ChevronLeft,
 	ChevronRight,
 	Cpu,
@@ -40,6 +42,7 @@ import { reloadIfMirrorWasStale } from "./hooks/settingsMirror";
 import { useBloomFontScale, useIslandScales } from "./hooks/useIslandScales";
 import { useSettingsSync } from "./hooks/useSettingsSync";
 import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
+import { usePeripherals } from "./hooks/usePeripherals";
 import { useWeather } from "./hooks/useWeather";
 import {
 	HeadphonesIcon,
@@ -66,8 +69,8 @@ import { createRegionSender, measureElements, notchPillBox, type RegionRect } fr
  *   Dragging files onto the notch also opens the shelf. Wheel/swipe switches
  *   between tool panels, including when a live activity occupies the pill.
  */
-type NotchPanel = "calendar" | "command-center";
-const NOTCH_PANELS: readonly NotchPanel[] = ["calendar", "command-center"];
+type NotchPanel = "calendar" | "command-center" | "devices";
+const NOTCH_PANELS: readonly NotchPanel[] = ["calendar", "command-center", "devices"];
 const asNotchPanel = (value: unknown): NotchPanel | null =>
 	NOTCH_PANELS.includes(value as NotchPanel) ? (value as NotchPanel) : null;
 
@@ -352,6 +355,13 @@ function App() {
 	};
 	const [systemSettingsReady, setSystemSettingsReady] = useState(false);
 	const [waitForStartupSplash, setWaitForStartupSplash] = useState(false);
+	const peripherals = usePeripherals(
+		windowLabel === "main" && systemSettingsReady,
+		isReady && isVisible && !isOpen && !waitForStartupSplash
+	);
+	useEffect(() => {
+		if (peripherals.notice && isReady && isVisible && !isOpen && !waitForStartupSplash) triggerEventPeek(6000);
+	}, [peripherals.notice, isReady, isVisible, isOpen, waitForStartupSplash, triggerEventPeek]);
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
 	const systemSyncQueue = useRef<Promise<void>>(Promise.resolve());
@@ -360,7 +370,7 @@ function App() {
 	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
 	const isHidden =
 		!startupAnimating &&
-		((notchMode === "smart" && isOverlapped && interactionState === "none") ||
+		((notchMode === "smart" && isOverlapped && interactionState === "none" && !peripherals.notice) ||
 			(notchMode === "peek" && interactionState === "none" && !eventPeek));
 
 	useEffect(() => {
@@ -1056,6 +1066,7 @@ function App() {
 			prev === "music" ||
 			prev === "command-center" ||
 			prev === "calendar" ||
+			prev === "devices" ||
 			prev === "status" ||
 			prev === "shelf"
 				? restingModeRef.current
@@ -1805,7 +1816,11 @@ function App() {
 			return Math.min(620 + Math.max(0, scales.font - 1) * 140, window.innerWidth / scale - 48);
 		}
 		if (activeView === "shelf") return 380;
+		if (activeView === "devices") {
+			return Math.min(350 + Math.max(0, scales.font - 1) * 90, window.innerWidth / scale - 48);
+		}
 		if (activeView === "command-center") return 350;
+		if (peripherals.notice && !isOpen) return 320;
 		if (showMusicOnStatusHover) {
 			return 206 + (settingsVisualizerEnabled ? 30 : 0);
 		}
@@ -1817,7 +1832,7 @@ function App() {
 		if (showUpdatePulse && !isHovered) return 200;
 
 		// Reserve the avatar's 28px plus its 8px gap without shrinking clock/media.
-		let w = 176 - clock24hTrim;
+		let w = 200 - clock24hTrim;
 		if (isMusicMode) {
 			if (settingsVisualizerEnabled && isPlaying) w += 30;
 			if (settingsAlbumArtEnabled) w += 30;
@@ -1846,6 +1861,14 @@ function App() {
 			return (shelfOverflowing ? 190 : 176) + headerExtra;
 		}
 		if (activeView === "command-center") return 190 + headerExtra;
+		if (activeView === "devices") {
+			return Math.min(
+				270 + Math.max(0, peripherals.devices.length - 3) * 47 * scales.font +
+					Math.max(0, scales.font - 1) * 85 + headerExtra,
+				460,
+				window.innerHeight / scale - 24
+			);
+		}
 		if (activeView === "collapsed") return notchHeaderHeight;
 		if (activeView === "music") {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
@@ -2285,7 +2308,17 @@ function App() {
 								>
 									<div className="main-row">
 										<AnimatePresence mode="wait">
-											{showUpdatePulse && !isHovered ? (
+											{peripherals.notice && !isOpen ? (
+												<PeripheralNoticeView
+													key="peripheral-notice"
+													notice={peripherals.notice}
+													onDismiss={peripherals.dismiss}
+													onOpen={() => {
+														peripherals.dismiss();
+														openNotch("devices");
+													}}
+												/>
+											) : showUpdatePulse && !isHovered ? (
 												<motion.div
 													key="update-pulse-view"
 													initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
@@ -2297,7 +2330,7 @@ function App() {
 													<span className="label" style={{ color: "#32D74B" }}>
 														Update Available
 													</span>
-												</motion.div>
+													</motion.div>
 											) : (
 												<motion.div
 													key="standard-view"
@@ -2400,6 +2433,19 @@ function App() {
 														{updateAvailable && showUpdateIndicator && (
 															<div className="update-dot" />
 														)}
+																				<button
+																					className="peripheral-access"
+																					type="button"
+																					aria-label="Abrir dispositivos inalámbricos"
+																					title="Dispositivos inalámbricos"
+																					onClick={(e) => {
+																						e.stopPropagation();
+																						peripherals.refresh();
+																						openNotch("devices");
+																					}}
+																				>
+																					<Battery size={15} />
+																				</button>
 													</div>
 
 													{/* Right: album art on a retained music session, otherwise status widgets */}
@@ -2580,6 +2626,17 @@ function App() {
 							)}
 
 							{/* Calendar */}
+							{activeView === "devices" && (
+								<motion.div onClick={(e) => e.stopPropagation()} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+									<IslandPeripherals
+										devices={peripherals.devices}
+										error={peripherals.error}
+										loading={peripherals.loading}
+										bluetoothAvailable={peripherals.bluetoothAvailable}
+										refresh={peripherals.refresh}
+									/>
+								</motion.div>
+							)}
 
 							{activeView === "calendar" && (
 								<motion.div

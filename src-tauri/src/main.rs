@@ -5,6 +5,7 @@ mod google_auth;
 mod google_events;
 mod island_settings;
 mod legacy_taskbar;
+mod peripherals;
 mod services;
 mod shelf;
 mod shelf_preview;
@@ -84,6 +85,7 @@ fn main() {
             google_auth::google_calendar_connected,
             google_auth::google_calendar_disconnect,
             google_events::google_calendar_events,
+            peripherals::peripheral_batteries,
             open_calendar_setup_guide,
             setup_shelf_drop,
             shelf_thumbnail,

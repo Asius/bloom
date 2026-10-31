@@ -22,7 +22,7 @@ commands.rs exposes only island/settings/audio/file APIs. services.rs handles is
 
 island_settings.rs migrates retired preferences and preserves one original backup. legacy_taskbar.rs restores only an existing old crash marker at startup; it never hides Windows or starts a watchdog. Do not add Explorer integration, live tray inventory, window thumbnails, launcher catalogs, bottom AppBars or Win-key overrides. The ordinary Bloom icon in Windows' notification area offers settings, diagnostics, restart and quit.
 
-Preserve current clock/calendar, music/visualizer, file shelf, volume and island modes. Do not add AI/services from Coucou, notifications, hardware controls or a new layout without choosing scope/design with the owner. Removed timer/radios/battery/brightness/DND/remote promotions stay removed. Preserve original GPL attribution and the fork's signed update channel.
+Preserve current clock/calendar, music/visualizer, file shelf, volume and island modes. Do not add AI/services from Coucou, additional notifications, hardware controls or a new layout without choosing scope/design with the owner. The owner approved a peripheral battery panel and low-battery alerts on 31 October; it does not restore the retired PC battery widget, radio toggles, timer, brightness, DND or remote promotions. Preserve original GPL attribution and the fork's signed update channel.
 
 Settings live in app_config_dir/settings.json, with bloom-prefixed string values. Persist through atomic file/cache functions; listen to settings-changed and settings-external-changed. Retired preference keys cannot reactivate removed features. Preserve a damaged settings file instead of overwriting it.
 

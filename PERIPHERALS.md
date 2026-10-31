@@ -1,0 +1,9 @@
+# Dispositivos inalámbricos
+
+Bloom incluye una vista de lectura de batería para los receptores del propietario: Logitech G PRO Wireless y G613 mediante LIGHTSPEED, y Razer Barracuda X con receptor 1532:0550. También consulta dispositivos Bluetooth emparejados y conectados que Windows expone mediante sus propiedades de dispositivo; si no proporciona un porcentaje, muestra «—». La interfaz muestra «Estado no disponible» cuando no puede confirmar una respuesta. La presencia del receptor no confirma que el periférico esté encendido.
+
+Los proveedores de estos modelos y la enumeración Bluetooth están pendientes de prueba en la aplicación instalada con hardware real. Otros modelos Razer o Logitech con receptores específicos no se consultan todavía. El soporte de una marca o de un identificador de receptor no garantiza compatibilidad con todas sus variantes. Windows puede no exponer la batería de todos los dispositivos Bluetooth.
+
+Bloom consulta periódicamente y al abrir la vista. Los niveles aproximados se marcan con ≈; el Barracuda usa una estimación por voltaje, que puede no estar disponible al cargar. Se ofrecen avisos temporales al detectar una conexión y al alcanzar el 20 % o 10 %, sujetos a la información que responda el receptor. Las reconexiones entre dos consultas pueden no detectarse. El aviso se muestra en la isla y se pospone mientras está ocupada o invisible; no modifica las notificaciones de Windows.
+
+Se usan comandos HID de consulta; el receptor Razer entra temporalmente en modo remoto durante la lectura y se intenta devolverlo al modo local. No se cambian configuraciones ni firmware. Las lecturas permanecen en memoria y no se transmiten a Internet. Es posible que otro programa o controlador impida acceder a un receptor. Las referencias y licencias se incluyen en THIRD_PARTY_NOTICES.md.

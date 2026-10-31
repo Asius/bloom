@@ -8,6 +8,7 @@ Una isla interactiva para Windows que complementa el escritorio. La barra de tar
 - Avatar Bloom junto a la hora: saludo, curiosidad, música y descanso, con reacciones locales y movimiento reducido.
 - Reproducción multimedia, visualizador y controles.
 - Volumen y mezclador por aplicación.
+- Vista de periféricos inalámbricos y avisos de batería baja; la compatibilidad con modelos concretos requiere prueba instalada. [Detalles](PERIPHERALS.md).
 - Espacio para archivos/texto arrastrados.
 - Modos Fixed/Smart/Peek, temas claro/oscuro y escala de texto independiente.
 - Actualización firmada desde [Asius/bloom](https://github.com/Asius/bloom/releases/latest).

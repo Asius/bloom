@@ -1,4 +1,4 @@
-export type IslandMode = "music" | "calendar" | "command-center" | "status" | "shelf";
+export type IslandMode = "music" | "calendar" | "command-center" | "status" | "shelf" | "devices";
 export type IslandView = Exclude<IslandMode, "status"> | "collapsed";
 
 /** Geometry and content must select the same view, including the frame before
@@ -18,6 +18,7 @@ export function islandView({
 }): IslandView {
 	if (!open) return "collapsed";
 	if (mode === "shelf") return "shelf";
+	if (mode === "devices") return "devices";
 	if (mode === "music" && musicEnabled && hasMedia) return "music";
 	if (mode === "calendar" && calendarEnabled) return "calendar";
 	return "command-center";

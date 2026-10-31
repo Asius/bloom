@@ -5,7 +5,7 @@ import { sameMediaInfo, type MediaInfo } from "../src/mediaInfo";
 describe("exclusive island views", () => {
 	const enabled = { calendarEnabled: true, musicEnabled: true, hasMedia: true };
 	test("closing during a panel or activity switch always returns to a single collapsed view", () => {
-		for (const mode of ["music", "calendar", "command-center", "status", "shelf"] as IslandMode[]) {
+		for (const mode of ["music", "calendar", "command-center", "status", "shelf", "devices"] as IslandMode[]) {
 			expect(islandView({ ...enabled, mode, open: false })).toBe("collapsed");
 		}
 	});
@@ -15,14 +15,16 @@ describe("exclusive island views", () => {
 			{ mode: "command-center", open: true },
 			{ mode: "music", open: false },
 			{ mode: "music", open: true },
-			{ mode: "calendar", open: true }
+			{ mode: "calendar", open: true },
+			{ mode: "devices", open: true }
 		] as const;
 		expect(frames.map((frame) => islandView({ ...enabled, ...frame }))).toEqual([
 			"music",
 			"command-center",
 			"collapsed",
 			"music",
-			"calendar"
+			"calendar",
+			"devices"
 		]);
 	});
 	test("an ended or disabled activity cannot retain music geometry or an invisible calendar", () => {

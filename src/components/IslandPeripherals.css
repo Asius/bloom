@@ -1,0 +1,129 @@
+.peripheral-panel {
+	padding: 10px 18px 14px;
+	width: 100%;
+	max-height: min(400px, 55vh);
+	overflow-y: auto;
+	box-sizing: border-box;
+}
+.peripheral-panel h2 {
+	font-size: calc(16px * var(--bloom-font-scale, 1));
+	margin: 0 0 3px;
+}
+.peripheral-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+.peripheral-heading button {
+	border: 0;
+	background: transparent;
+	color: inherit;
+	opacity: 0.75;
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+	cursor: pointer;
+}
+.peripheral-caption {
+	color: var(--text-secondary, #999);
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	margin: 0 0 8px;
+}
+.peripheral-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: calc(47px * var(--bloom-font-scale, 1));
+	border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+	font-size: calc(12px * var(--bloom-font-scale, 1));
+}
+.peripheral-icon {
+	width: 34px;
+	height: 34px;
+	display: grid;
+	place-items: center;
+	border-radius: 9px;
+	background: color-mix(in srgb, currentColor 7%, transparent);
+	flex: none;
+}
+.peripheral-details {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.peripheral-details strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.peripheral-details span {
+	color: var(--text-secondary, #999);
+	font-size: calc(10px * var(--bloom-font-scale, 1));
+}
+.peripheral-low {
+	color: #e8a22a;
+}
+.peripheral-access {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 24px;
+	height: 24px;
+	margin-left: 4px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+.peripheral-access:hover,
+.peripheral-access:focus-visible {
+	background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.peripheral-notice {
+	position: relative;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 3px 10px;
+	cursor: pointer;
+}
+.peripheral-notice-text {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-direction: column;
+	text-align: left;
+	font-size: 11px;
+}
+.peripheral-notice-text strong,
+.peripheral-notice-text span {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.peripheral-notice-text span {
+	opacity: 0.7;
+}
+.peripheral-notice-indicator {
+	width: 22px;
+	height: 22px;
+	border: 1px solid #65a9d3;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	flex: none;
+}
+.peripheral-notice-indicator.is-low {
+	border-color: #e8a22a;
+	color: #e8a22a;
+}
+.peripheral-notice button {
+	background: transparent;
+	border: 0;
+	color: inherit;
+	cursor: pointer;
+}
