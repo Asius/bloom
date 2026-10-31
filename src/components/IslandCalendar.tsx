@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { motion, useReducedMotion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { eventsForDay, type GoogleEvent } from "../calendar/googleEvents";
 import {
 	addDays,
 	addMonths,
@@ -59,6 +60,16 @@ function Entry({ entry }: { entry: CalendarEntry }) {
 	);
 }
 
+function googleTimeLabel(event: GoogleEvent, date: string) {
+	if (event.start.date) return "Todo el día";
+	const start = new Date(event.start.dateTime!);
+	const [year, month, day] = date.split("-").map(Number);
+	if (start < new Date(year, month - 1, day)) {
+		return `Continúa · comenzó ${new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(start)}`;
+	}
+	return new Intl.DateTimeFormat("es-CO", { hour: "numeric", minute: "2-digit" }).format(start);
+}
+
 export function IslandCalendar() {
 	const [today, setToday] = useState(() => clamp(todayCivil()));
 	const [selected, setSelected] = useState(today);
@@ -71,6 +82,12 @@ export function IslandCalendar() {
 	const [googleConnected, setGoogleConnected] = useState(false);
 	const [googleStatusError, setGoogleStatusError] = useState(false);
 	const [googleBusy, setGoogleBusy] = useState(false);
+	const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
+	const [eventsLoading, setEventsLoading] = useState(false);
+	const [eventsError, setEventsError] = useState("");
+	const [eventsWarning, setEventsWarning] = useState("");
+	const [eventsRevision, setEventsRevision] = useState(0);
+	const eventsQueue = useRef<Promise<void>>(Promise.resolve());
 	useEffect(() => {
 		let disposed = false;
 		const refresh = () => {
@@ -110,6 +127,62 @@ export function IslandCalendar() {
 		return map;
 	}, [entries]);
 	const selectedKey = dateKey(selected);
+	useEffect(() => {
+		let cancelled = false;
+		setGoogleEvents([]);
+		setEventsError("");
+		setEventsWarning("");
+		if (!googleConnected) {
+			setEventsLoading(false);
+			return;
+		}
+		setEventsLoading(true);
+		const [year, month, day] = selectedKey.split("-").map(Number);
+		const start = new Date(year, month - 1, day);
+		const end = new Date(year, month - 1, day + 1);
+		// Include all-day events even when the Google calendar uses a different zone.
+		const margin = 27 * 60 * 60 * 1000;
+		const timer = window.setTimeout(() => {
+			eventsQueue.current = eventsQueue.current
+				.catch(() => {})
+				.then(async () => {
+					if (cancelled) return;
+					try {
+						const items = await invoke<GoogleEvent[]>("google_calendar_events", {
+							start: new Date(start.getTime() - margin).toISOString(),
+							end: new Date(end.getTime() + margin).toISOString()
+						});
+						if (!cancelled) {
+							setGoogleEvents(eventsForDay(items, selectedKey, start, end));
+							if (
+								items.some(
+									(item) =>
+										!item.start.date &&
+										(!item.start.dateTime ||
+											!item.end.dateTime ||
+											!/(?:Z|[+-]\d\d:\d\d)$/i.test(item.start.dateTime) ||
+											!/(?:Z|[+-]\d\d:\d\d)$/i.test(item.end.dateTime))
+								)
+							)
+								setEventsWarning(
+									"Algunos eventos no se muestran porque Google no proporcionó una zona horaria compatible."
+								);
+						}
+					} catch (error) {
+						if (!cancelled)
+							setEventsError(
+								typeof error === "string" ? error : "No se pudieron consultar los eventos."
+							);
+					} finally {
+						if (!cancelled) setEventsLoading(false);
+					}
+				});
+		}, 300);
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	}, [googleConnected, selectedKey, eventsRevision]);
 	// Selection can stay in the previous year while the user browses another month.
 	const selectedEntries = useMemo(
 		() => calendarEntries(selected.getUTCFullYear()).filter((entry) => entry.date === selectedKey),
@@ -318,6 +391,37 @@ export function IslandCalendar() {
 						<p className="island-calendar-empty">Sin festivos ni conmemoraciones en esta fecha.</p>
 					)}
 				</div>
+				{googleConnected && (
+					<section aria-label="Eventos de Google Calendar" className="island-google-events">
+						<strong>Eventos de Google</strong>
+						{eventsLoading ? (
+							<p>Cargando eventos…</p>
+						) : eventsError ? (
+							<p role="alert">{eventsError}</p>
+						) : googleEvents.length === 0 ? (
+							<p>No hay eventos de Google para este día.</p>
+						) : (
+							<ul>
+								{googleEvents.map((event) => (
+									<li className="island-calendar-event google" key={event.id}>
+										<span className="island-calendar-category">
+											{googleTimeLabel(event, selectedKey)}
+										</span>
+										<strong>{event.summary?.trim() || "Sin título"}</strong>
+									</li>
+								))}
+							</ul>
+						)}
+						{eventsWarning && <p role="status">{eventsWarning}</p>}
+						<button
+							type="button"
+							onClick={() => setEventsRevision((n) => n + 1)}
+							disabled={eventsLoading}
+						>
+							Actualizar eventos
+						</button>
+					</section>
+				)}
 				<div className="island-calendar-google">
 					<strong>Google Calendar</strong>
 					<span className="island-calendar-status">
@@ -329,8 +433,8 @@ export function IslandCalendar() {
 					</span>
 					<p>
 						{googleConnected
-							? "Conexión guardada en este equipo. La consulta de eventos llegará en la siguiente etapa."
-							: "Conecta tu cuenta con permiso de solo lectura. La agenda de Google aún no está disponible."}
+							? "Eventos del calendario principal, en la zona horaria de tu equipo."
+							: "Conecta tu cuenta para consultar eventos con permiso de solo lectura."}
 					</p>
 					<button
 						type="button"
@@ -362,8 +466,7 @@ export function IslandCalendar() {
 					</button>
 					{helpError && <p role="alert">{helpError}</p>}
 					<small>
-						Solo lectura · Sin consulta de eventos todavía. Para revocar el acceso en Google, usa la
-						configuración de tu cuenta.
+						Solo lectura · Para revocar el acceso en Google, usa la configuración de tu cuenta.
 					</small>
 				</div>
 			</aside>

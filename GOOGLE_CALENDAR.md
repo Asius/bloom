@@ -1,4 +1,4 @@
-# Calendario de Bloom y preparación de Google Calendar
+# Calendario de Bloom y Google Calendar
 
 ## Qué funciona hoy
 
@@ -9,11 +9,12 @@ cuenta. El calendario usa español de Colombia; Hoy sigue la fecha del PC.
 
 La conexión opcional permite seleccionar un cliente OAuth de escritorio y autorizar
 la lectura en el navegador del sistema. Se guarda la autorización protegida con
-DPAPI para el usuario de Windows. La conexión real con una cuenta requiere la
-prueba instalada del propietario. **Todavía no se consultan ni muestran eventos**
-de Google y no se activan notificaciones.
+DPAPI para el usuario de Windows. El propietario confirmó el inicio de sesión en
+la aplicación instalada. La nueva consulta muestra los eventos del calendario
+principal del día seleccionado, en la zona horaria del equipo; su prueba con
+una cuenta real en la versión instalada queda pendiente. No activa notificaciones.
 
-## Crear el cliente para la próxima etapa
+## Crear el cliente y conectar la cuenta
 
 1. Accede con tu cuenta a [Google Cloud Console](https://console.cloud.google.com/).
 2. Crea o elige un proyecto para Bloom. En APIs y servicios → Biblioteca,
@@ -43,15 +44,18 @@ condiciones nuevas o una configuración que no conoces, revisa ese paso primero.
   impredecible y callback loopback temporal en 127.0.0.1. Sin login en WebView.
 - Autorización inicial: `calendar.events.readonly`. No crea, edita ni borra.
   La selección de calendarios, si se incorpora, requerirá revisar sus permisos.
-- Cancelar, denegar permisos, revocarlos o quedarse sin conexión no debe bloquear
-  el calendario local. El usuario verá el estado real de sincronización.
+- Cancelar, denegar permisos, revocarlos o quedarse sin conexión no bloquea
+  el calendario local. Si falla la consulta, se muestra un error y un reintento.
 - Tokens en el backend, protegidos para el usuario Windows mediante DPAPI,
   fuera de settings.json, localStorage, logs y exportaciones.
 - Eliminar conexión borra el archivo protegido local. Revocar el permiso en
   Google es un paso separado. No hay caché de eventos personales en esta fase.
-- Pedir un intervalo acotado de eventos; paginación, recurrentes, cancelados,
-  eventos de todo el día con final exclusivo y zonas horarias se prueban antes
-  de sincronizar en segundo plano. No duplicar los festivos locales.
+- Se consulta el calendario principal en un intervalo acotado, con paginación y
+  expansión de recurrentes; se excluyen cancelados. Se respetan los eventos de
+  todo el día con final exclusivo. Las horas se presentan en la zona del equipo;
+  si una hora no incluye desplazamiento compatible, se avisa y no se adivina.
+  No se guardan eventos en disco ni se realiza sincronización en segundo plano.
+  Un festivo presente también en Google puede aparecer junto al festivo local.
 - Los avisos del notch se implementarán después, con elección del usuario,
   privacidad de títulos y exclusiones; conectar Calendar no los activa.
 - Un cliente en modo Testing puede requerir volver a autorizar con frecuencia;
@@ -60,6 +64,7 @@ condiciones nuevas o una configuración que no conoces, revisa ese paso primero.
 
 Referencias oficiales:
 [OAuth para escritorio](https://developers.google.com/identity/protocols/oauth2/native-app),
+[consulta de eventos](https://developers.google.com/workspace/calendar/api/v3/reference/events/list),
 [scopes de Calendar](https://developers.google.com/workspace/calendar/api/auth),
 [buenas prácticas](https://developers.google.com/identity/protocols/oauth2/resources/best-practices).
 

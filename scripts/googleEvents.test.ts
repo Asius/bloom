@@ -48,3 +48,18 @@ test("timed events use real instants and exclusive day boundaries", () => {
 	);
 	expect(matches.map((x) => x.id)).toEqual(["overnight"]);
 });
+
+test("day bounds support daylight-saving days and reject invalid civil dates", () => {
+	const events: GoogleEvent[] = [
+		{
+			id: "event",
+			start: { dateTime: "2026-03-08T01:30:00-05:00" },
+			end: { dateTime: "2026-03-08T03:30:00-04:00" }
+		}
+	];
+	const start = new Date("2026-03-08T05:00:00Z"),
+		end = new Date("2026-03-09T04:00:00Z");
+	expect(eventsForDay(events, "2026-03-08", start, end).map((e) => e.id)).toEqual(["event"]);
+	expect(eventsForDay(events, "2026-02-30", start, end)).toEqual([]);
+	expect(eventsForDay(events, "2026-03-08", end, start)).toEqual([]);
+});

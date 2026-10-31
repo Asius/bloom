@@ -16,14 +16,20 @@ const TOKEN: &str = "https://oauth2.googleapis.com/token";
 const SCOPE: &str = "https://www.googleapis.com/auth/calendar.events.readonly";
 static LOGIN: Mutex<()> = Mutex::new(());
 
+pub(crate) fn lock_connection() -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    LOGIN
+        .try_lock()
+        .map_err(|_| "Hay una operación de Google Calendar en curso. Inténtalo de nuevo.".into())
+}
+
 #[derive(Deserialize)]
 struct FileConfig {
     installed: Client,
 }
 #[derive(Deserialize, Serialize)]
-struct Client {
-    client_id: String,
-    client_secret: String,
+pub(crate) struct Client {
+    pub(crate) client_id: String,
+    pub(crate) client_secret: String,
 }
 #[derive(Deserialize, Serialize)]
 struct TokenResponse {
@@ -32,9 +38,9 @@ struct TokenResponse {
     scope: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
-struct Stored {
-    client: Client,
-    refresh_token: String,
+pub(crate) struct Stored {
+    pub(crate) client: Client,
+    pub(crate) refresh_token: String,
 }
 
 fn storage(app: &AppHandle) -> Result<PathBuf, String> {
@@ -54,7 +60,7 @@ fn pkce_challenge(verifier: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
 }
 
-fn secure_http_client() -> Result<reqwest::blocking::Client, String> {
+pub(crate) fn secure_http_client() -> Result<reqwest::blocking::Client, String> {
     // The updater uses rustls-no-provider; login can run before the updater.
     // Keep an already-installed provider and explicitly install ring otherwise.
     if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -137,6 +143,20 @@ fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
         let _ = LocalFree(Some(HLOCAL(output.pbData as *mut _)));
         Ok(result)
     }
+}
+
+pub(crate) fn load_stored(app: &AppHandle) -> Result<Stored, String> {
+    let file = std::fs::File::open(storage(app)?)
+        .map_err(|_| "Conecta Google Calendar para consultar eventos")?;
+    let mut encrypted = Vec::new();
+    file.take(65537)
+        .read_to_end(&mut encrypted)
+        .map_err(|_| "No se pudo leer la conexión protegida")?;
+    if encrypted.len() > 65536 {
+        return Err("La conexión guardada es inválida".into());
+    }
+    serde_json::from_slice(&unprotect(&encrypted)?)
+        .map_err(|_| "La conexión guardada es inválida".into())
 }
 
 fn parse_callback(request: &str, expected: &str) -> Option<Result<String, String>> {
@@ -370,6 +390,7 @@ pub fn google_calendar_disconnect(app: AppHandle, window: Window) -> Result<(), 
     if window.label() != "main" {
         return Err("Acción no disponible en esta ventana".into());
     }
+    let _guard = lock_connection()?;
     let path = storage(&app)?;
     let temp = path.with_extension("tmp");
     if path.exists() {

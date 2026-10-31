@@ -67,6 +67,14 @@ function simulateIPC(version) {
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
 			if (cmd === "google_calendar_connected") return mockGoogleConnected;
+			if (cmd === "google_calendar_events") {
+				if (query.get("events") === "error") throw "Error simulado: Google no disponible";
+				const date = new Date(Date.parse(args.start) + 27 * 60 * 60 * 1000);
+				const civil = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+				const tomorrow = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+				const end = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+				return [{ id: "mock-1", summary: "Evento de ejemplo", start: { date: civil }, end: { date: end } }];
+			}
 			if (cmd === "google_calendar_connect") { mockGoogleConnected = true; dispatch("google-calendar-state", null); return true; }
 			if (cmd === "google_calendar_disconnect") { mockGoogleConnected = false; dispatch("google-calendar-state", null); return; }
 			if (cmd === "load_settings") return { ...values };

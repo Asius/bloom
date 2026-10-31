@@ -200,6 +200,33 @@
 .island-calendar-event.observance {
 	border-left-color: var(--calendar-observance);
 }
+.island-calendar-event.google {
+	border-left-color: var(--bloom-accent, #478cff);
+}
+.island-calendar-event.google .island-calendar-category {
+	color: var(--bloom-accent, #478cff);
+}
+.island-google-events {
+	border-top: 1px solid var(--bloom-border);
+	margin-top: 14px;
+	padding-top: 12px;
+}
+.island-google-events > strong {
+	font-size: calc(12px * var(--bloom-font-scale, 1));
+}
+.island-google-events p,
+.island-google-events button {
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	color: var(--bloom-text-muted);
+}
+.island-google-events button {
+	background: var(--bloom-group-bg);
+	border: 1px solid var(--bloom-border);
+	border-radius: 7px;
+	padding: 6px 8px;
+	margin-top: 8px;
+	color: var(--bloom-text);
+}
 .island-calendar-category {
 	color: var(--calendar-holiday);
 	font-size: calc(10px * var(--bloom-font-scale, 1));
