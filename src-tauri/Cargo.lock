@@ -434,7 +434,7 @@ dependencies = [
 
 [[package]]
 name = "bloom"
-version = "3.11.5"
+version = "3.11.6"
 dependencies = [
  "base64 0.22.1",
  "chrono",
