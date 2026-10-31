@@ -184,7 +184,7 @@ const TitleMarquee = ({ title }: { title: string }) => {
 function App() {
 	const scales = useIslandScales();
 	const scale = effectiveScale(scales);
-	const notchHeaderHeight = 48;
+	const notchHeaderHeight = 36;
 	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
@@ -1828,7 +1828,7 @@ function App() {
 
 	const getDynamicHeight = () => {
 		if (!isExpanded || !isVisible || isHidden) {
-			return isImpacted ? 28.9 : 44.2;
+			return isImpacted ? 28.9 : notchHeaderHeight;
 		}
 		// Six stable calendar rows; browsing months never changes the region.
 		const headerExtra = notchHeaderHeight - 36;
@@ -1943,7 +1943,7 @@ function App() {
 					initial={{
 						y: 250,
 						width: 30.6,
-						height: 44.2,
+						height: notchHeaderHeight,
 						borderTopLeftRadius: 18,
 						borderTopRightRadius: 18,
 						borderBottomLeftRadius: 18,
@@ -2340,7 +2340,7 @@ function App() {
 
 													{/* Center - Time (always visible) */}
 													<div className="time-center" ref={timeCenterRef}>
-														<BloomAvatar active={isVisible && !isHidden && isExpanded} playing={isPlaying} />
+														<BloomAvatar active={isVisible && !isHidden && isExpanded} playing={isPlaying} mediaType={mediaInfo.playback_type} />
 														<AnimatePresence>
 															{showPanelArrows && (
 																<motion.button

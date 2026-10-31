@@ -2,13 +2,20 @@ import { useEffect, useState } from "react";
 import "./BloomAvatar.css";
 
 /** Local reactions only: no global pointer listener, network or background loop. */
-export function BloomAvatar({ active, playing }: { active: boolean; playing: boolean }) {
+export function BloomAvatar({
+	active,
+	playing,
+	mediaType
+}: {
+	active: boolean;
+	playing: boolean;
+	mediaType?: "music" | "video" | "unknown";
+}) {
 	const [hovered, setHovered] = useState(false);
 	const [focused, setFocused] = useState(false);
 	const curious = hovered || focused;
 	const [greeting, setGreeting] = useState(0);
 	const [asleep, setAsleep] = useState(false);
-	const [music, setMusic] = useState(false);
 	useEffect(() => {
 		if (!active) {
 			setHovered(false);
@@ -26,20 +33,16 @@ export function BloomAvatar({ active, playing }: { active: boolean; playing: boo
 		const timer = window.setTimeout(() => setGreeting(0), 900);
 		return () => window.clearTimeout(timer);
 	}, [greeting]);
-	useEffect(() => {
-		setMusic(active && playing);
-		if (!active || !playing) return;
-		const timer = window.setTimeout(() => setMusic(false), 1800);
-		return () => window.clearTimeout(timer);
-	}, [active, playing]);
 	const state = greeting
 		? "greeting"
 		: curious
 			? "curious"
 			: asleep
 				? "sleep"
-				: music
-					? "music"
+				: playing
+					? mediaType === "music"
+						? "music"
+						: "attentive"
 					: "idle";
 	return (
 		<button

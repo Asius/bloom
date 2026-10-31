@@ -5,7 +5,7 @@ El personaje aprobado vive junto a la hora y conserva la silueta ondulada del lo
 - Reposo: parpadeos limitados y descanso después de 30 segundos sin interacción con el avatar ni música.
 - Curiosidad: mirada horizontal sobre el propio botón; también responde al foco de teclado.
 - Saludo: clic, Enter o Espacio; no propaga el clic a la navegación de paneles.
-- Música: balanceo breve al comenzar la reproducción; después se queda quieto. El reproductor ampliado conserva su espacio.
+- Música: balanceo suave durante la reproducción cuando Windows indica música. Vídeo o tipo desconocido: mirada atenta y parpadeo. El reproductor ampliado conserva su espacio. Algunas aplicaciones no informan del tipo de contenido; Bloom no intenta adivinarlo.
 - Descanso: ojos cerrados; vuelve a responder al entrar o pulsarlo.
 
 Usa el tema y la escala de la isla. Las animaciones se desactivan con movimiento reducido o mientras la isla está oculta. Los temporizadores se limpian al desmontar; no hay seguimiento global del ratón ni bucle de sondeo. Las futuras funciones delegadas quedan fuera de esta entrega.

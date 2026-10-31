@@ -113,8 +113,8 @@ export function AppearanceTab({
 
 				<SettingRow
 					icon={Contrast}
-					label="Background Opacity"
-					desc={`Adjust theme transparency (${Math.round(themeOpacity * 100)}%)`}
+					label="Notch Background Opacity"
+					desc={`Adjust the notch transparency (${Math.round(themeOpacity * 100)}%)`}
 					divider={showAdvancedSliders}
 				>
 					<input

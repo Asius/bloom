@@ -117,6 +117,8 @@ function simulateIPC(version) {
 			seek_enabled: false
 		};
 		for (const [label, action] of [
+			["Play music", () => dispatch("media-update", { ...media, playback_type: "music", position_updated_at: Date.now() })],
+			["Play video", () => dispatch("media-update", { ...media, playback_type: "video", position_updated_at: Date.now() })],
 			[
 				"Start media",
 				() => dispatch("media-update", { ...media, position_updated_at: Date.now() })

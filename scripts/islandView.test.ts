@@ -53,4 +53,5 @@ test("media capability and clock updates are not dropped as duplicate titles", (
 	expect(sameMediaInfo(previous, { ...previous, seek_enabled: true })).toBe(false);
 	expect(sameMediaInfo(previous, { ...previous, position_updated_at: 11000 })).toBe(false);
 	expect(sameMediaInfo(previous, { ...previous, has_media: false })).toBe(false);
+	expect(sameMediaInfo({ ...previous, playback_type: "music" }, { ...previous, playback_type: "video" })).toBe(false);
 });

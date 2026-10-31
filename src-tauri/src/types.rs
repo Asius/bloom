@@ -11,6 +11,7 @@ pub struct MediaInfo {
     pub artist: String,
     pub is_playing: bool,
     pub has_media: bool,
+    pub playback_type: String,
     pub artwork: Option<Vec<String>>,
     #[serde(default)]
     pub position_ms: i64,

@@ -350,6 +350,7 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                 .and_then(|op| op.get())
                 .ok();
             let mut last_processed_media = std::time::Instant::now();
+            let mut last_playback_type = String::new();
             let mut last_device_check = std::time::Instant::now();
             #[allow(clippy::type_complexity)]
             let mut last_emitted_info: Option<(
@@ -610,6 +611,20 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                                                 artist,
                                                 is_playing,
                                                 has_media: true,
+                                                playback_type: match props
+                                                    .PlaybackType()
+                                                    .ok()
+                                                    .and_then(|v| v.Value().ok())
+                                                {
+                                                    Some(
+                                                        windows::Media::MediaPlaybackType::Music,
+                                                    ) => "music",
+                                                    Some(
+                                                        windows::Media::MediaPlaybackType::Video,
+                                                    ) => "video",
+                                                    _ => "unknown",
+                                                }
+                                                .into(),
                                                 artwork,
                                                 position_ms,
                                                 duration_ms,
@@ -633,6 +648,7 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                         artist: "".into(),
                         is_playing: false,
                         has_media: false,
+                        playback_type: "unknown".into(),
                         artwork: None,
                         position_ms: 0,
                         duration_ms: 0,
@@ -640,12 +656,13 @@ pub fn setup_system_worker(app_handle: AppHandle) -> Sender<SystemCommand> {
                         position_updated_at: 0,
                     });
                     let art_str = current.artwork.as_ref().and_then(|a| a.first()).cloned();
-                    if last_emitted_info.as_ref().is_none_or(|(t, a, p, h, art, pos, _dur)| {
+                    if last_playback_type != current.playback_type || last_emitted_info.as_ref().is_none_or(|(t, a, p, h, art, pos, _dur)| {
                         t != &current.title || a != &current.artist || p != &current.is_playing || h != &current.has_media || art != &art_str ||
                         // For position: emit if >1s difference (avoid spamming on every poll)
                         (*pos - current.position_ms).abs() > 1000
                     }) {
                         let _ = handle_system.emit("media-update", current.clone());
+                        last_playback_type = current.playback_type.clone();
                         ANY_MEDIA_PLAYING.store(current.is_playing, Ordering::Relaxed);
                         last_emitted_info = Some((current.title, current.artist, current.is_playing, current.has_media, art_str, current.position_ms, current.duration_ms));
                     }
@@ -1143,7 +1160,8 @@ fn in_top_edge_band(cursor: windows::Win32::Foundation::POINT, scale: f64) -> bo
         .map(|s| s.0 as i32)
         .unwrap_or(1920);
 
-    cursor.y <= (mon_y + (TOP_EDGE_BAND_PX * scale) as i32)
+    cursor.y >= mon_y
+        && cursor.y <= (mon_y + (TOP_EDGE_BAND_PX * scale) as i32)
         && cursor.x >= mon_x
         && cursor.x <= (mon_x + mon_w)
 }
@@ -1233,9 +1251,11 @@ fn update_main_interaction(
     // dwell-gated, and fixed mode (always visible) skips it entirely. This is
     // about showing the notch — the hit-testing continuity below is separate
     // and must stay immediate.
-    let edge_armed = if notch_mode_reserves_work_area(
-        get_setting_str(app_handle, "bloom-notch-mode").as_deref(),
-    ) {
+    let edge_armed = if get_setting_str(app_handle, "bloom-notch-mode")
+        .as_deref()
+        .unwrap_or("fixed")
+        == "fixed"
+    {
         MH_TOP_EDGE_ENTER_MS.store(0, Ordering::Relaxed);
         MH_TOP_EDGE_ARMED.store(false, Ordering::Relaxed);
         false
@@ -1701,10 +1721,9 @@ fn set_main_appbar_reservation(main_win: tauri::WebviewWindow, reserve: bool) {
 }
 
 /// Whether the notch's top strip should currently be reserved as an AppBar.
-/// Only fixed mode reserves screen space; smart and peek hide the notch freely.
-/// An unset mode defaults to fixed, matching SETTINGS.md and `re_register_appbars`.
-fn notch_mode_reserves_work_area(mode: Option<&str>) -> bool {
-    mode.map(|m| m == "fixed").unwrap_or(true)
+/// The island overlays windows in all modes; never reserve the work area.
+fn notch_mode_reserves_work_area(_mode: Option<&str>) -> bool {
+    false
 }
 
 /// Bring the main AppBar registration in line with the configured notch mode.
@@ -2084,9 +2103,10 @@ fn setup_island_visibility(app: AppHandle, tx: Sender<SystemCommand>) {
                             let right = left + (notch.width as f64 * scale) as i32;
                             rectangle.left < right
                                 && rectangle.right > left
+                                && rectangle.bottom > origin.y
                                 && rectangle.top
                                     < origin.y
-                                        + (48.0 * crate::utils::get_notch_scale(&app) * scale)
+                                        + (36.0 * crate::utils::get_notch_scale(&app) * scale)
                                             as i32
                         })
                 });
@@ -2156,8 +2176,8 @@ mod island_tests {
         assert_eq!((restored.x, restored.y), (point.x, point.y));
     }
     #[test]
-    fn only_fixed_island_mode_reserves_screen_space() {
-        assert!(notch_mode_reserves_work_area(Some("fixed")));
+    fn no_island_mode_reserves_screen_space() {
+        assert!(!notch_mode_reserves_work_area(Some("fixed")));
         assert!(!notch_mode_reserves_work_area(Some("smart")));
         assert!(!notch_mode_reserves_work_area(Some("peek")));
     }

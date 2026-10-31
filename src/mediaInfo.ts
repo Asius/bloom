@@ -3,6 +3,7 @@ export interface MediaInfo {
 	artist: string;
 	is_playing: boolean;
 	has_media: boolean;
+	playback_type?: "music" | "video" | "unknown";
 	artwork?: string[];
 	position_ms?: number;
 	duration_ms?: number;
@@ -18,6 +19,7 @@ export function sameMediaInfo(a: MediaInfo, b: MediaInfo): boolean {
 		a.artist === b.artist &&
 		a.is_playing === b.is_playing &&
 		a.has_media === b.has_media &&
+		a.playback_type === b.playback_type &&
 		a.artwork?.[0] === b.artwork?.[0] &&
 		a.position_ms === b.position_ms &&
 		a.duration_ms === b.duration_ms &&

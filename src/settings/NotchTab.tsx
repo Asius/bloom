@@ -89,7 +89,7 @@ export function NotchTab({
 		<>
 			<div className="setting-group-label">Notch</div>
 			<div className="setting-group">
-				<SettingRow icon={PanelTop} label="Notch Behavior" desc="Choose how the notch appears">
+				<SettingRow icon={PanelTop} label="Notch Behavior" desc={notchMode === "fixed" ? "Visible above windows, hidden in full screen" : notchMode === "smart" ? "Hides when a window overlaps; reveal at the top edge" : "Hidden until you approach the top edge"}>
 					<select
 						className="settings-select"
 						value={notchMode}
