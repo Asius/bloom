@@ -13,29 +13,43 @@ export interface PeripheralReading {
 
 export type PeripheralNotice =
 	| { kind: "connected"; device: PeripheralReading }
+	| { kind: "disconnected"; device: PeripheralReading }
 	| { kind: "low"; device: PeripheralReading; threshold: 20 | 10 };
 
 export interface PeripheralSnapshot {
 	devices: PeripheralReading[];
 	bluetoothAvailable: boolean;
+	ghubAvailable?: boolean;
 }
+
+export interface ConfirmedState { value: boolean | null; candidate: boolean | null; count: number }
 
 /** Notice on a transition, not on every poll. */
 export function peripheralNotices(
 	previous: readonly PeripheralReading[] | null,
 	current: readonly PeripheralReading[],
-	latches: Map<string, 0 | 1 | 2> = new Map()
+	latches: Map<string, 0 | 1 | 2> = new Map(),
+	states: Map<string, ConfirmedState> = new Map()
 ): PeripheralNotice[] {
 	const before = new Map((previous ?? []).map((item) => [item.id, item]));
 	const notices: PeripheralNotice[] = [];
 	for (const item of current) {
 		const old = before.get(item.id);
+		const state = states.get(item.id) ?? { value: null, candidate: null, count: 0 };
+		if (item.connected === null) {
+			state.candidate = null;
+			state.count = 0;
+		} else {
+			if (state.candidate === item.connected) state.count++;
+			else { state.candidate = item.connected; state.count = 1; }
+			if (state.count >= 2 && state.value !== item.connected) {
+				if (state.value !== null && previous && old)
+					notices.push({ kind: item.connected ? "connected" : "disconnected", device: item });
+				state.value = item.connected;
+			}
+		}
+		states.set(item.id, state);
 		if (!item.connected) continue;
-		// A responding device after an unavailable reading may have reconnected.
-		// The current response confirms it is online, even if the reason for
-		// the preceding missing reading was unknown.
-		if (previous && (!old || old.connected !== true))
-			notices.push({ kind: "connected", device: item });
 		if (item.charging) {
 			latches.set(item.id, 0);
 			continue;

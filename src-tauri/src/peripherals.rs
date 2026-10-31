@@ -22,13 +22,13 @@ static POLLING: Mutex<()> = Mutex::new(());
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PeripheralReading {
-    id: String,
-    name: String,
-    kind: String,
-    connected: Option<bool>,
-    percent: Option<u8>,
-    approximate: bool,
-    charging: Option<bool>,
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) connected: Option<bool>,
+    pub(crate) percent: Option<u8>,
+    pub(crate) approximate: bool,
+    pub(crate) charging: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -36,6 +36,7 @@ pub(crate) struct PeripheralReading {
 pub(crate) struct PeripheralSnapshot {
     devices: Vec<PeripheralReading>,
     bluetooth_available: bool,
+    ghub_available: bool,
 }
 
 fn unknown(id: &'static str, name: &'static str, kind: &'static str) -> PeripheralReading {
@@ -494,22 +495,42 @@ pub(crate) async fn peripheral_batteries(
     tauri::async_runtime::spawn_blocking(|| {
         let _guard = POLLING.try_lock().map_err(|_| "Consulta ya en curso")?;
         let api = HidApi::new().map_err(|_| "No se pudieron consultar los dispositivos")?;
-        let mut devices = vec![
-            logitech_device(
-                &api,
-                0xc539,
-                unknown("logitech-mouse", "Logitech G PRO Wireless", "mouse"),
-            ),
-            logitech_device(
-                &api,
-                0xc53d,
-                unknown("logitech-keyboard", "Logitech G613", "keyboard"),
-            ),
-            razer_device(
+        let ghub = crate::ghub::snapshot();
+        let ghub_available = ghub.is_some();
+        let mut devices = ghub.unwrap_or_default();
+        if !ghub_available {
+            // Fall back only for receivers actually present; silence is unknown.
+            if api
+                .device_list()
+                .any(|i| i.vendor_id() == 0x046d && i.product_id() == 0xc539)
+            {
+                devices.push(logitech_device(
+                    &api,
+                    0xc539,
+                    unknown("logitech-mouse", "Logitech G PRO Wireless", "mouse"),
+                ));
+            }
+            if api
+                .device_list()
+                .any(|i| i.vendor_id() == 0x046d && i.product_id() == 0xc53d)
+            {
+                devices.push(logitech_device(
+                    &api,
+                    0xc53d,
+                    unknown("logitech-keyboard", "Logitech G613", "keyboard"),
+                ));
+            }
+        }
+        if api
+            .device_list()
+            .any(|i| i.vendor_id() == 0x1532 && i.product_id() == 0x0550)
+        {
+            devices.push(razer_device(
                 &api,
                 unknown("razer-headset", "Razer Barracuda X", "headphones"),
-            ),
-        ];
+            ));
+        }
+
         let bluetooth = bluetooth_devices();
         let bluetooth_available = bluetooth.is_some();
         if let Some(items) = bluetooth {
@@ -518,6 +539,7 @@ pub(crate) async fn peripheral_batteries(
         Ok(PeripheralSnapshot {
             devices,
             bluetooth_available,
+            ghub_available,
         })
     })
     .await

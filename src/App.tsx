@@ -14,7 +14,6 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { AnimatePresence, motion, useAnimation } from "framer-motion";
 import {
 	ArrowUpDown,
-	Battery,
 	ChevronLeft,
 	ChevronRight,
 	Cpu,
@@ -355,12 +354,9 @@ function App() {
 	};
 	const [systemSettingsReady, setSystemSettingsReady] = useState(false);
 	const [waitForStartupSplash, setWaitForStartupSplash] = useState(false);
-	const peripherals = usePeripherals(
-		windowLabel === "main" && systemSettingsReady,
-		isReady && isVisible && !isOpen && !waitForStartupSplash
-	);
+	const peripherals = usePeripherals(windowLabel === "main" && systemSettingsReady);
 	useEffect(() => {
-		if (peripherals.notice && isReady && isVisible && !isOpen && !waitForStartupSplash) triggerEventPeek(6000);
+		if (peripherals.notice && isReady && isVisible && !isOpen && !waitForStartupSplash) triggerEventPeek(10000);
 	}, [peripherals.notice, isReady, isVisible, isOpen, waitForStartupSplash, triggerEventPeek]);
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
@@ -1863,7 +1859,7 @@ function App() {
 		if (activeView === "command-center") return 190 + headerExtra;
 		if (activeView === "devices") {
 			return Math.min(
-				270 + Math.max(0, peripherals.devices.length - 3) * 47 * scales.font +
+				240 + Math.max(0, peripherals.devices.length - 3) * 47 * scales.font +
 					Math.max(0, scales.font - 1) * 85 + headerExtra,
 				460,
 				window.innerHeight / scale - 24
@@ -2433,20 +2429,7 @@ function App() {
 														{updateAvailable && showUpdateIndicator && (
 															<div className="update-dot" />
 														)}
-																				<button
-																					className="peripheral-access"
-																					type="button"
-																					aria-label="Abrir dispositivos inalámbricos"
-																					title="Dispositivos inalámbricos"
-																					onClick={(e) => {
-																						e.stopPropagation();
-																						peripherals.refresh();
-																						openNotch("devices");
-																					}}
-																				>
-																					<Battery size={15} />
-																				</button>
-													</div>
+												</div>
 
 													{/* Right: album art on a retained music session, otherwise status widgets */}
 													<div className="side-content right">

@@ -13,6 +13,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	padding-bottom: 10px;
 }
 .peripheral-heading button {
 	border: 0;
@@ -21,11 +22,6 @@
 	opacity: 0.75;
 	font-size: calc(10px * var(--bloom-font-scale, 1));
 	cursor: pointer;
-}
-.peripheral-caption {
-	color: var(--text-secondary, #999);
-	font-size: calc(11px * var(--bloom-font-scale, 1));
-	margin: 0 0 8px;
 }
 .peripheral-row {
 	display: flex;
@@ -60,26 +56,16 @@
 	color: var(--text-secondary, #999);
 	font-size: calc(10px * var(--bloom-font-scale, 1));
 }
-.peripheral-low {
-	color: #e8a22a;
+.peripheral-status {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin-right: 6px;
+	border-radius: 50%;
+	background: #9b9eaa;
 }
-.peripheral-access {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex: none;
-	width: 24px;
-	height: 24px;
-	margin-left: 4px;
-	border: 0;
-	border-radius: 6px;
-	background: transparent;
-	color: inherit;
-	cursor: pointer;
-}
-.peripheral-access:hover,
-.peripheral-access:focus-visible {
-	background: color-mix(in srgb, currentColor 12%, transparent);
+.peripheral-status.is-connected {
+	background: #45d984;
 }
 .peripheral-notice {
 	position: relative;

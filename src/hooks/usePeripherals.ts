@@ -4,10 +4,11 @@ import {
 	peripheralNotices,
 	type PeripheralNotice,
 	type PeripheralReading,
-	type PeripheralSnapshot
+	type PeripheralSnapshot,
+	type ConfirmedState
 } from "../peripheralState";
 
-export function usePeripherals(enabled: boolean, canPresent: boolean) {
+export function usePeripherals(enabled: boolean) {
 	const [devices, setDevices] = useState<PeripheralReading[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<PeripheralNotice | null>(null);
@@ -16,6 +17,7 @@ export function usePeripherals(enabled: boolean, canPresent: boolean) {
 	const refreshRef = useRef<() => void>(() => {});
 	const latches = useRef(new Map<string, 0 | 1 | 2>());
 	const previous = useRef<PeripheralReading[] | null>(null);
+	const states = useRef(new Map<string, ConfirmedState>());
 	const pending = useRef<PeripheralNotice[]>([]);
 	useEffect(() => {
 		if (!enabled) return;
@@ -31,19 +33,29 @@ export function usePeripherals(enabled: boolean, canPresent: boolean) {
 				const snapshot = await invoke<PeripheralSnapshot>("peripheral_batteries");
 				const next = snapshot.devices;
 				if (cancelled) return;
-				setDevices(next);
+				// A source disappearing is not evidence that a device disconnected.
+				for (const [id, state] of states.current) {
+					if (!next.some((device) => device.id === id)) {
+						state.candidate = null;
+						state.count = 0;
+					}
+				}
 				setBluetoothAvailable(snapshot.bluetoothAvailable);
 				setError(null);
 				const stillApplies = (item: PeripheralNotice) => {
 					const fresh = next.find((device) => device.id === item.device.id);
 					return (
-						!!fresh?.connected &&
+						(item.kind === "disconnected" ? fresh?.connected === false : !!fresh?.connected &&
 						(item.kind === "connected" ||
 							(!fresh.charging && fresh.percent !== null && fresh.percent <= item.threshold))
+						)
 					);
 				};
 				pending.current = pending.current.filter(stillApplies);
-				pending.current.push(...peripheralNotices(previous.current, next, latches.current));
+				pending.current.push(...peripheralNotices(previous.current, next, latches.current, states.current));
+				setDevices(next.map((device) => device.connected === false && states.current.get(device.id)?.value !== false
+					? { ...device, connected: null, percent: null }
+					: device));
 				const retained = !snapshot.bluetoothAvailable
 					? (previous.current ?? []).filter((item) => item.id.startsWith("bluetooth-"))
 					: [];
@@ -62,7 +74,7 @@ export function usePeripherals(enabled: boolean, canPresent: boolean) {
 				polling = false;
 				if (!cancelled) {
 					setLoading(false);
-					timer = setTimeout(poll, 30_000);
+					timer = setTimeout(poll, 15_000);
 				}
 			}
 		};
@@ -77,10 +89,10 @@ export function usePeripherals(enabled: boolean, canPresent: boolean) {
 		};
 	}, [enabled]);
 	useEffect(() => {
-		if (!notice || !canPresent) return;
-		const timer = setTimeout(() => setNotice(pending.current.shift() ?? null), 6000);
+		if (!notice) return;
+		const timer = setTimeout(() => setNotice(pending.current.shift() ?? null), 10_000);
 		return () => clearTimeout(timer);
-	}, [notice, canPresent]);
+	}, [notice]);
 	return {
 		devices,
 		error,

@@ -43,7 +43,7 @@ export function PeripheralNoticeView({
 						: device.name}
 				</strong>
 				<span>
-					{notice.kind === "low" ? device.name : "Conectado"}
+					{notice.kind === "low" ? device.name : notice.kind === "disconnected" ? "Desconectado" : "Conectado"}
 					{level}
 				</span>
 			</div>
@@ -88,12 +88,11 @@ export function IslandPeripherals({
 					{loading ? "Actualizando…" : "Actualizar"}
 				</button>
 			</div>
-			<p className="peripheral-caption">Batería de tus periféricos inalámbricos</p>
 			{error && <p role="status">{error}</p>}
 			{!error && !bluetoothAvailable && (
 				<p role="status">Bluetooth no está disponible en este momento.</p>
 			)}
-			{!error && devices.length === 0 && <p role="status">Consultando dispositivos…</p>}
+			{!error && devices.length === 0 && <p role="status">{loading ? "Consultando dispositivos…" : "No se encontraron dispositivos disponibles."}</p>}
 			{devices.map((device) => {
 				const Icon =
 					device.kind === "mouse"
@@ -105,7 +104,7 @@ export function IslandPeripherals({
 								: Bluetooth;
 				let detail =
 					device.connected === false
-						? "Receptor desconectado"
+						? "Desconectado"
 						: device.connected === null
 							? "Estado no disponible"
 							: "Conectado";
@@ -119,13 +118,8 @@ export function IslandPeripherals({
 						</div>
 						<div className="peripheral-details">
 							<strong>{device.name}</strong>
-							<span>{detail}</span>
+							<span><i className={`peripheral-status${device.connected === true ? " is-connected" : ""}`} aria-hidden="true" />{detail} · {level}</span>
 						</div>
-						<strong
-							className={device.percent !== null && device.percent <= 20 ? "peripheral-low" : ""}
-						>
-							{level}
-						</strong>
 					</div>
 				);
 			})}

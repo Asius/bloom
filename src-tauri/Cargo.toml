@@ -83,4 +83,5 @@ tauri-plugin-drag = "2.1.1"
 tauri-plugin-dialog = "2"
 rustfft = "6"
 hidapi = "2.6.7"
+tungstenite = { version = "0.28.0", default-features = false, features = ["handshake"] }
 

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod commands;
 mod diagnostics;
+mod ghub;
 mod google_auth;
 mod google_events;
 mod island_settings;
