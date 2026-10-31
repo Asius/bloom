@@ -31,6 +31,9 @@ dist-ssr
 *.key.pub
 
 # Local credentials and recovery archives
+client_secret*.json
+google-oauth*.json
+google-calendar-token*.json
 .env
 .env.*
 !.env.example

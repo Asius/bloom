@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod commands;
 mod diagnostics;
+mod google_auth;
 mod island_settings;
 mod legacy_taskbar;
 mod services;
@@ -78,6 +79,9 @@ fn main() {
             Some(vec![]),
         ))
         .invoke_handler(tauri::generate_handler![
+            google_auth::google_calendar_connect,
+            google_auth::google_calendar_connected,
+            google_auth::google_calendar_disconnect,
             open_calendar_setup_guide,
             setup_shelf_drop,
             shelf_thumbnail,

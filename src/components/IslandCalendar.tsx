@@ -1,8 +1,9 @@
 // Adapted from EasyUI Calendar, Copyright (c) 2026 Suraj Maurya (MIT).
 // License and upstream reference: THIRD_PARTY_NOTICES.md.
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { motion, useReducedMotion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
 	addDays,
@@ -67,6 +68,35 @@ export function IslandCalendar() {
 	const [focused, setFocused] = useState(today);
 	const [direction, setDirection] = useState(1);
 	const [helpError, setHelpError] = useState("");
+	const [googleConnected, setGoogleConnected] = useState(false);
+	const [googleStatusError, setGoogleStatusError] = useState(false);
+	const [googleBusy, setGoogleBusy] = useState(false);
+	useEffect(() => {
+		let disposed = false;
+		const refresh = () => {
+			invoke<boolean>("google_calendar_connected")
+				.then((value) => {
+					if (!disposed) {
+						setGoogleConnected(value);
+						setGoogleStatusError(false);
+					}
+				})
+				.catch(() => {
+					if (!disposed) {
+						setGoogleStatusError(true);
+						setHelpError(
+							"No se pudo leer la conexión guardada. Puedes eliminarla y volver a conectar."
+						);
+					}
+				});
+		};
+		const subscription = listen("google-calendar-state", refresh);
+		refresh();
+		return () => {
+			disposed = true;
+			void subscription.then((unlisten) => unlisten()).catch(() => {});
+		};
+	}, []);
 	const reducedMotion = useReducedMotion();
 	const selectionId = useId();
 	const headingId = useId();
@@ -290,24 +320,50 @@ export function IslandCalendar() {
 				</div>
 				<div className="island-calendar-google">
 					<strong>Google Calendar</strong>
-					<span className="island-calendar-status">Sin configurar</span>
-					<p>Consulta aquí tus eventos cuando habilitemos la conexión con tu cuenta.</p>
+					<span className="island-calendar-status">
+						{googleStatusError
+							? "Estado no disponible"
+							: googleConnected
+								? "Autorización guardada"
+								: "Sin conectar"}
+					</span>
+					<p>
+						{googleConnected
+							? "Conexión guardada en este equipo. La consulta de eventos llegará en la siguiente etapa."
+							: "Conecta tu cuenta con permiso de solo lectura. La agenda de Google aún no está disponible."}
+					</p>
 					<button
 						type="button"
-						onClick={() => {
+						disabled={googleBusy}
+						onClick={async () => {
 							setHelpError("");
-							invoke("open_calendar_setup_guide").catch(() =>
+							setGoogleBusy(true);
+							try {
+								if (googleConnected || googleStatusError) {
+									await invoke("google_calendar_disconnect");
+									setGoogleConnected(false);
+									setGoogleStatusError(false);
+								} else if (await invoke<boolean>("google_calendar_connect"))
+									setGoogleConnected(true);
+							} catch (error) {
 								setHelpError(
-									"No se pudo abrir la guía. Está en el repositorio: GOOGLE_CALENDAR.md."
-								)
-							);
+									typeof error === "string" ? error : "No se pudo completar la conexión."
+								);
+							} finally {
+								setGoogleBusy(false);
+							}
 						}}
 					>
-						Preparar conexión <ExternalLink size={13} />
+						{googleBusy
+							? "Esperando autorización…"
+							: googleConnected || googleStatusError
+								? "Eliminar conexión local"
+								: "Conectar Google Calendar"}
 					</button>
 					{helpError && <p role="alert">{helpError}</p>}
 					<small>
-						Opcional · Primera conexión prevista: solo lectura. Las notificaciones llegarán después.
+						Solo lectura · Sin consulta de eventos todavía. Para revocar el acceso en Google, usa la
+						configuración de tu cuenta.
 					</small>
 				</div>
 			</aside>

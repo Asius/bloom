@@ -7,10 +7,11 @@ La isla tiene navegación de meses, selección de día, botón Hoy y teclado
 nacionales de Colombia y una selección de conmemoraciones, sin Internet ni
 cuenta. El calendario usa español de Colombia; Hoy sigue la fecha del PC.
 
-La conexión con Google **todavía no está implementada ni activada**. El
-propietario pidió dejarla preparada hasta crear un cliente OAuth. El botón
-«Preparar conexión» abre esta guía; no inicia sesión, no lee eventos ni guarda
-credenciales. No hay sincronización o avisos en segundo plano en esta entrega.
+La conexión opcional permite seleccionar un cliente OAuth de escritorio y autorizar
+la lectura en el navegador del sistema. Se guarda la autorización protegida con
+DPAPI para el usuario de Windows. La conexión real con una cuenta requiere la
+prueba instalada del propietario. **Todavía no se consultan ni muestran eventos**
+de Google y no se activan notificaciones.
 
 ## Crear el cliente para la próxima etapa
 
@@ -26,25 +27,28 @@ credenciales. No hay sincronización o avisos en segundo plano en esta entrega.
 5. Descarga el JSON de ese cliente y consérvalo en una carpeta privada fuera
    del repositorio. No lo subas a GitHub. No necesitamos tu contraseña, códigos
    de verificación, access tokens ni refresh tokens por este chat.
-6. Avísanos cuando esté creado. Implementaremos/importaremos su configuración
-   y probaremos la conexión explícita de tu cuenta antes de habilitarla.
+6. En el calendario de Bloom elige «Conectar Google Calendar», selecciona ese
+   JSON y autoriza el permiso en tu navegador. La app no solicita tu contraseña.
+   Para eliminar las credenciales locales, usa «Eliminar conexión local»; para
+   revocar además el permiso concedido, retira Bloom en la configuración de tu
+   cuenta de Google. El cierre del navegador puede tardar hasta tres minutos en
+   detectarse si no se completa la autorización.
 
 No aceptes pagos o una suscripción solo para seguir esta guía. Si Google pide
 condiciones nuevas o una configuración que no conoces, revisa ese paso primero.
 
-## Contrato de la próxima integración
+## Contrato y límites de la integración
 
 - OAuth de escritorio, navegador del sistema, PKCE S256, parámetro state
   impredecible y callback loopback temporal en 127.0.0.1. Sin login en WebView.
-- Primera versión: lectura. Scopes mínimos previstos:
-  `calendar.calendarlist.readonly` (elegir calendarios) y
-  `calendar.events.readonly` (mostrar eventos). No crear, editar ni borrar.
+- Autorización inicial: `calendar.events.readonly`. No crea, edita ni borra.
+  La selección de calendarios, si se incorpora, requerirá revisar sus permisos.
 - Cancelar, denegar permisos, revocarlos o quedarse sin conexión no debe bloquear
   el calendario local. El usuario verá el estado real de sincronización.
-- Tokens en el backend, protegidos para el usuario Windows (Credential Manager
-  o DPAPI), fuera de settings.json, localStorage, logs y exportaciones.
-- Desconectar elimina tokens y caché de eventos personales; revocar en Google
-  debe producir un estado recuperable. No basta con esconder la cuenta.
+- Tokens en el backend, protegidos para el usuario Windows mediante DPAPI,
+  fuera de settings.json, localStorage, logs y exportaciones.
+- Eliminar conexión borra el archivo protegido local. Revocar el permiso en
+  Google es un paso separado. No hay caché de eventos personales en esta fase.
 - Pedir un intervalo acotado de eventos; paginación, recurrentes, cancelados,
   eventos de todo el día con final exclusivo y zonas horarias se prueban antes
   de sincronizar en segundo plano. No duplicar los festivos locales.

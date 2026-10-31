@@ -52,6 +52,7 @@ windows = { version = "0.61", features = [
 	"Win32_System_LibraryLoader",
 	"Win32_System_IO",
 	"Win32_Security",
+	"Win32_Security_Cryptography",
 	"Win32_System_Registry",
 	"Foundation_Collections",
 	"Win32_Media_KernelStreaming",
@@ -60,6 +61,11 @@ windows = { version = "0.61", features = [
 	"Win32_System_WinRT"
 ] }
 base64 = "0.22"
+getrandom = "0.2"
+sha2 = "0.10"
+url = "2"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "form", "json", "rustls-no-provider", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-clipboard-manager = "2"
 # Only signed NSIS executables are published; legacy ZIP/TAR updater bundles

@@ -17,8 +17,10 @@ Desde 3.11.1 se publica un único instalador Windows x64 `.exe` (NSIS), acompañ
 Desde 3.11.2 el calendario adapta [EasyUI](https://easyui.site/components/calendar)
 a la isla, con navegación de teclado y selección animada. Los festivos funcionan
 sin conexión; las conmemoraciones se distinguen de los descansos nacionales.
-Google Calendar está **sin configurar**: hay una [guía de preparación](GOOGLE_CALENDAR.md),
-pero aún no se inicia sesión, sincroniza o notifica. [Licencia del componente](THIRD_PARTY_NOTICES.md).
+Google Calendar permite autorizar la lectura mediante el navegador del sistema
+y un cliente Desktop propio; la autorización se protege con DPAPI. Todavía no
+se consultan eventos ni se muestran notificaciones; la prueba con una cuenta
+real queda pendiente. [Guía](GOOGLE_CALENDAR.md). [Licencia](THIRD_PARTY_NOTICES.md).
 
 La línea 3.11 retira el dock y bandeja propios de la línea 3.10. No requiere reinstalar ni reiniciar Explorer al usar la actualización integrada. Ver [migración y pruebas](ISLAND_MIGRATION.md).
 

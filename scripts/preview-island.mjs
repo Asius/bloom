@@ -34,6 +34,7 @@ function simulateIPC(version) {
 	const callbacks = new Map(),
 		events = new Map();
 	let counter = 0;
+	let mockGoogleConnected = false;
 	const values = {
 		"bloom-first-run": "done",
 		"bloom-app-version": version,
@@ -65,6 +66,9 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "google_calendar_connected") return mockGoogleConnected;
+			if (cmd === "google_calendar_connect") { mockGoogleConnected = true; dispatch("google-calendar-state", null); return true; }
+			if (cmd === "google_calendar_disconnect") { mockGoogleConnected = false; dispatch("google-calendar-state", null); return; }
 			if (cmd === "load_settings") return { ...values };
 			if (cmd === "settings_file_readable" || cmd === "plugin:window|is_visible") return true;
 			if (cmd === "save_setting") {
