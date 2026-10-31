@@ -66,6 +66,7 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "ghub_batteries") return null;
 			if (cmd === "peripheral_batteries") {
 				if (query.get("battery") === "low") await new Promise((resolve) => setTimeout(resolve, 3000));
 				return { bluetoothAvailable: true, devices: [

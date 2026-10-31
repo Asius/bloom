@@ -12,9 +12,8 @@ export interface PeripheralReading {
 }
 
 export type PeripheralNotice =
-	| { kind: "connected"; device: PeripheralReading }
-	| { kind: "disconnected"; device: PeripheralReading }
-	| { kind: "low"; device: PeripheralReading; threshold: 20 | 10 };
+	| { kind: "connected" | "disconnected"; device: PeripheralReading }
+	| { kind: "low" | "empty" | "full"; device: PeripheralReading };
 
 export interface PeripheralSnapshot {
 	devices: PeripheralReading[];
@@ -22,50 +21,50 @@ export interface PeripheralSnapshot {
 	ghubAvailable?: boolean;
 }
 
-export interface ConfirmedState { value: boolean | null; candidate: boolean | null; count: number }
-
-/** Notice on a transition, not on every poll. */
+/** Only observable transitions produce notices; startup and unknown values are silent. */
 export function peripheralNotices(
 	previous: readonly PeripheralReading[] | null,
 	current: readonly PeripheralReading[],
-	latches: Map<string, 0 | 1 | 2> = new Map(),
-	states: Map<string, ConfirmedState> = new Map()
+	latches: Map<string, "low" | "empty" | "full" | null> = new Map()
 ): PeripheralNotice[] {
-	const before = new Map((previous ?? []).map((item) => [item.id, item]));
+	if (!previous) return [];
+	const before = new Map(previous.map((item) => [item.id, item]));
 	const notices: PeripheralNotice[] = [];
 	for (const item of current) {
 		const old = before.get(item.id);
-		const state = states.get(item.id) ?? { value: null, candidate: null, count: 0 };
-		if (item.connected === null) {
-			state.candidate = null;
-			state.count = 0;
-		} else {
-			if (state.candidate === item.connected) state.count++;
-			else { state.candidate = item.connected; state.count = 1; }
-			if (state.count >= 2 && state.value !== item.connected) {
-				if (state.value !== null && previous && old)
-					notices.push({ kind: item.connected ? "connected" : "disconnected", device: item });
-				state.value = item.connected;
-			}
+		if (!old) continue;
+		if (old.connected !== null && item.connected !== null && old.connected !== item.connected) {
+			notices.push({ kind: item.connected ? "connected" : "disconnected", device: item });
+		} else if (item.id === "razer-headset" && old.connected === null && item.connected === true) {
+			// A Razer battery response proves the link is active. Silence does not prove it is off.
+			notices.push({ kind: "connected", device: item });
 		}
-		states.set(item.id, state);
-		if (!item.connected) continue;
-		if (item.charging) {
-			latches.set(item.id, 0);
+		if (
+			old.connected !== true ||
+			item.connected !== true ||
+			old.percent === null ||
+			item.percent === null
+		)
 			continue;
+		let latch = latches.get(item.id) ?? null;
+		if (item.percent > 25 && item.percent < 95) latch = null;
+		if (item.percent === 0 && old.percent > 0 && !item.approximate && latch !== "empty") {
+			notices.push({ kind: "empty", device: item });
+			latch = "empty";
+		} else if (
+			item.percent < 20 &&
+			old.percent >= 20 &&
+			!item.charging &&
+			latch !== "low" &&
+			latch !== "empty"
+		) {
+			notices.push({ kind: "low", device: item });
+			latch = "low";
+		} else if (item.percent === 100 && old.percent < 100 && !item.approximate && latch !== "full") {
+			notices.push({ kind: "full", device: item });
+			latch = "full";
 		}
-		if (item.percent === null || !Number.isFinite(item.percent)) continue;
-		let level = latches.get(item.id) ?? 0;
-		if (item.percent > 25) level = 0;
-		else if (item.percent > 15 && level === 2) level = 1;
-		if (item.percent <= 10 && level < 2) {
-			notices.push({ kind: "low", device: item, threshold: 10 });
-			level = 2;
-		} else if (item.percent <= 20 && level === 0) {
-			notices.push({ kind: "low", device: item, threshold: 20 });
-			level = 1;
-		}
-		latches.set(item.id, level);
+		latches.set(item.id, latch);
 	}
 	return notices;
 }

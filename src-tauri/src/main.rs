@@ -87,6 +87,7 @@ fn main() {
             google_auth::google_calendar_disconnect,
             google_events::google_calendar_events,
             peripherals::peripheral_batteries,
+            ghub::ghub_batteries,
             open_calendar_setup_guide,
             setup_shelf_drop,
             shelf_thumbnail,

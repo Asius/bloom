@@ -4,7 +4,20 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
+use tauri::WebviewWindow;
 use tungstenite::{client::IntoClientRequest, Message};
+
+#[tauri::command]
+pub(crate) async fn ghub_batteries(
+    window: WebviewWindow,
+) -> Result<Option<Vec<PeripheralReading>>, String> {
+    if window.label() != "main" {
+        return Err("Acceso no disponible".into());
+    }
+    tauri::async_runtime::spawn_blocking(snapshot)
+        .await
+        .map_err(|_| "No se pudieron consultar los dispositivos".into())
+}
 
 fn read_response(socket: &mut tungstenite::WebSocket<TcpStream>, path: &str) -> Option<Value> {
     let deadline = Instant::now() + Duration::from_secs(2);

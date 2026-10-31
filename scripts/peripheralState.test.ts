@@ -1,64 +1,61 @@
 import { describe, expect, test } from "bun:test";
 import { peripheralNotices, type PeripheralReading } from "../src/peripheralState";
-
-const mouse = (
+const device = (
 	percent: number | null,
-	connected = true,
-	charging: boolean | null = false
+	connected: boolean | null = true,
+	id = "ghub-mouse"
 ): PeripheralReading => ({
-	id: "mouse",
-	name: "G PRO",
+	id,
+	name: "Device",
 	kind: "mouse",
 	connected,
 	percent,
-	charging,
+	charging: false,
 	approximate: false
 });
-
-describe("peripheral notices", () => {
-	test("initial detection does not produce a burst of connection notices", () => {
-		expect(peripheralNotices(null, [mouse(50)])).toEqual([]);
+describe("peripheral transitions", () => {
+	test("startup and unchanged battery never display unsolicited alerts", () => {
+		expect(peripheralNotices(null, [device(15)])).toEqual([]);
+		expect(peripheralNotices([device(15)], [device(15)])).toEqual([]);
+		expect(peripheralNotices([device(75)], [device(75)])).toEqual([]);
 	});
-	test("reports connection and each low threshold once", () => {
-		const latches = new Map<string, 0 | 1 | 2>();
-		const states = new Map();
-        peripheralNotices(null, [mouse(null, false)], latches, states);
-        peripheralNotices([mouse(null, false)], [mouse(null, false)], latches, states);
-        expect(peripheralNotices([mouse(null, false)], [mouse(60)], latches, states)).toEqual([]);
-        expect(peripheralNotices([mouse(60)], [mouse(60)], latches, states).map(x => x.kind)).toEqual(["connected"]);
-		expect(peripheralNotices([mouse(21)], [mouse(20)], latches)[0]?.kind).toBe("low");
-		expect(peripheralNotices([mouse(20)], [mouse(19)], latches)).toEqual([]);
-		expect(peripheralNotices([mouse(11)], [mouse(9)], latches)[0]?.kind).toBe("low");
-		expect(peripheralNotices([mouse(9)], [mouse(11)], latches)).toEqual([]);
-		expect(peripheralNotices([mouse(11)], [mouse(9)], latches)).toEqual([]);
+	test("known connection changes are immediate and do not repeat", () => {
+		expect(peripheralNotices([device(null, false)], [device(60)]).map((n) => n.kind)).toEqual([
+			"connected"
+		]);
+		expect(peripheralNotices([device(60)], [device(null, false)]).map((n) => n.kind)).toEqual([
+			"disconnected"
+		]);
+		expect(peripheralNotices([device(60)], [device(60)])).toEqual([]);
 	});
-	test("reports low battery at startup and rearms after recovery", () => {
-		const latches = new Map<string, 0 | 1 | 2>();
-		expect(peripheralNotices(null, [mouse(15)], latches)[0]?.kind).toBe("low");
-		expect(peripheralNotices([mouse(15)], [mouse(26)], latches)).toEqual([]);
-		expect(peripheralNotices([mouse(26)], [mouse(20)], latches)[0]?.kind).toBe("low");
+	test("unknown is not a proven Logitech connection change", () => {
+		expect(peripheralNotices([device(null, null)], [device(60)])).toEqual([]);
+		expect(peripheralNotices([device(60)], [device(null, null)])).toEqual([]);
 	});
-	test("a device becomes available after an unknown status", () => {
-		const unknown = { ...mouse(null), connected: null };
-		const states = new Map();
-        peripheralNotices(null, [unknown], new Map(), states);
-        expect(peripheralNotices([unknown], [mouse(55)], new Map(), states)).toEqual([]);
-        expect(peripheralNotices([mouse(55)], [mouse(55)], new Map(), states)).toEqual([]);
+	test("Razer successful response after silence can show reconnection", () => {
+		expect(
+			peripheralNotices(
+				[device(null, null, "razer-headset")],
+				[device(60, true, "razer-headset")]
+			).map((n) => n.kind)
+		).toEqual(["connected"]);
 	});
-	test("transient unknown is silent; a confirmed disconnect is emitted once", () => {
-        const states = new Map(); const latch = new Map(); const active = mouse(50);
-        const unknown = {...active, connected: null}; const off = mouse(null, false);
-        peripheralNotices(null, [active], latch, states);
-        peripheralNotices([active], [active], latch, states);
-        expect(peripheralNotices([active], [unknown], latch, states)).toEqual([]);
-        expect(peripheralNotices([unknown], [active], latch, states)).toEqual([]);
-        expect(peripheralNotices([active], [off], latch, states)).toEqual([]);
-        expect(peripheralNotices([off], [off], latch, states).map(x => x.kind)).toEqual(["disconnected"]);
-        expect(peripheralNotices([off], [off], latch, states)).toEqual([]);
-    });
-    test("unknown, disconnected and charging values never produce a low warning", () => {
-		expect(peripheralNotices([mouse(30)], [mouse(null)])).toEqual([]);
-		expect(peripheralNotices([mouse(30)], [mouse(5, false)])).toEqual([]);
-		expect(peripheralNotices([mouse(30)], [mouse(5, true, true)])).toEqual([]);
+	test("battery notices only on crossing below 20, zero or a reliable 100", () => {
+		const latches = new Map();
+		expect(peripheralNotices([device(21)], [device(20)], latches)).toEqual([]);
+		expect(peripheralNotices([device(20)], [device(19)], latches).map((n) => n.kind)).toEqual([
+			"low"
+		]);
+		expect(peripheralNotices([device(19)], [device(20)], latches)).toEqual([]);
+		expect(peripheralNotices([device(20)], [device(19)], latches)).toEqual([]);
+		expect(peripheralNotices([device(1)], [device(0)], latches).map((n) => n.kind)).toEqual([
+			"empty"
+		]);
+		expect(peripheralNotices([device(99)], [device(100)], latches).map((n) => n.kind)).toEqual([
+			"full"
+		]);
+		expect(
+			peripheralNotices([device(99)], [{ ...device(100), approximate: true }], new Map())
+		).toEqual([]);
 	});
 });

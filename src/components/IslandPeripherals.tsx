@@ -36,19 +36,27 @@ export function PeripheralNoticeView({
 			<BloomAvatar active={false} playing={false} />
 			<div className="peripheral-notice-text">
 				<strong>
-					{notice.kind === "low"
-						? device.id === "logitech-keyboard"
-							? "Batería baja · Cambiar pilas"
-							: "Batería baja"
-						: device.name}
+					{notice.kind === "full"
+						? "Batería completa"
+						: notice.kind === "empty"
+							? "Batería agotada"
+							: notice.kind === "low"
+								? device.id === "logitech-keyboard"
+									? "Batería baja · Cambiar pilas"
+									: "Batería baja"
+								: device.name}
 				</strong>
 				<span>
-					{notice.kind === "low" ? device.name : notice.kind === "disconnected" ? "Desconectado" : "Conectado"}
+					{notice.kind === "low" || notice.kind === "empty" || notice.kind === "full"
+						? device.name
+						: notice.kind === "disconnected"
+							? "Desconectado"
+							: "Conectado"}
 					{level}
 				</span>
 			</div>
 			<div
-				className={`peripheral-notice-indicator${notice.kind === "low" ? " is-low" : ""}`}
+				className={`peripheral-notice-indicator${notice.kind === "low" || notice.kind === "empty" ? " is-low" : ""}`}
 				aria-hidden="true"
 			>
 				<Icon size={13} />
@@ -92,7 +100,11 @@ export function IslandPeripherals({
 			{!error && !bluetoothAvailable && (
 				<p role="status">Bluetooth no está disponible en este momento.</p>
 			)}
-			{!error && devices.length === 0 && <p role="status">{loading ? "Consultando dispositivos…" : "No se encontraron dispositivos disponibles."}</p>}
+			{!error && devices.length === 0 && (
+				<p role="status">
+					{loading ? "Consultando dispositivos…" : "No se encontraron dispositivos disponibles."}
+				</p>
+			)}
 			{devices.map((device) => {
 				const Icon =
 					device.kind === "mouse"
@@ -118,7 +130,13 @@ export function IslandPeripherals({
 						</div>
 						<div className="peripheral-details">
 							<strong>{device.name}</strong>
-							<span><i className={`peripheral-status${device.connected === true ? " is-connected" : ""}`} aria-hidden="true" />{detail} · {level}</span>
+							<span>
+								<i
+									className={`peripheral-status${device.connected === true ? " is-connected" : ""}`}
+									aria-hidden="true"
+								/>
+								{detail} · {level}
+							</span>
 						</div>
 					</div>
 				);
