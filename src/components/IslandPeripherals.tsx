@@ -129,7 +129,12 @@ export function IslandPeripherals({
 				const level = percent === null ? "—" : `${device.approximate ? "≈" : ""}${percent}%`;
 				const chargeClass = percent === null ? "is-unknown" : percent < 20 ? "is-low" : "is-normal";
 				return (
-					<div className="peripheral-row" key={device.id} aria-label={`${device.name}: ${detail}, batería ${level}`}>
+					<div
+						className="peripheral-row"
+						key={device.id}
+						role="group"
+						aria-label={`${device.name}: ${detail}, batería ${level}`}
+					>
 						<div className="peripheral-icon">
 							<Icon size={20} aria-hidden="true" />
 							<i className={`peripheral-status ${device.connected === true ? "is-connected" : device.connected === false ? "is-disconnected" : "is-unknown"}`} aria-hidden="true" />
