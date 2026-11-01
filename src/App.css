@@ -82,6 +82,15 @@ img {
 	position: relative;
 }
 
+/* The compact media activity grows on the right; it has no empty left slot. */
+.main-row-inner.has-compact-media .side-content.left {
+	flex: 0 0 0;
+}
+.main-row-inner.has-compact-media .side-content.right {
+	flex: 0 0 auto;
+	margin-left: 14px;
+}
+
 .power-pulse-content {
 	display: flex;
 	align-items: center;
@@ -439,13 +448,27 @@ img {
 }
 
 .visualizer-horizontal .bar-horizontal {
-	width: 3px;
+	width: 5px;
+	flex-shrink: 0;
 	height: 100%;
 	background: var(--bloom-text, white);
-	box-shadow: 0 0 8px var(--bloom-border, rgba(255, 255, 255, 0.3));
-	border-radius: 2px;
+	border-radius: 999px;
 	transform-origin: center;
 	will-change: transform;
+}
+
+.compact-audio-visualizer {
+	padding: 2px;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	border-radius: 6px;
+}
+
+.compact-audio-visualizer:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
 }
 
 /* Album art (compact mode) */
@@ -463,8 +486,8 @@ img {
 	flex-shrink: 0;
 	overflow: hidden;
 
-	width: 24px;
-	height: 24px;
+	width: 30px;
+	height: 30px;
 	transition:
 		width 0.2s ease,
 		height 0.2s ease,
@@ -484,8 +507,8 @@ img {
 }
 
 .album-art.paused {
-	width: 20px;
-	height: 20px;
+	width: 26px;
+	height: 26px;
 }
 
 .album-art img {
@@ -653,7 +676,7 @@ img {
 	align-items: center;
 	width: 100%;
 	height: 100%;
-	gap: 22px;
+	gap: 18px;
 }
 
 .album-art-section {
@@ -661,8 +684,8 @@ img {
 }
 
 .premium-album-art {
-	width: 96px;
-	height: 96px;
+	width: 92px;
+	height: 92px;
 	border-radius: var(--bloom-panel-radius);
 	overflow: hidden;
 	background: rgba(255, 255, 255, 0.05);
@@ -792,9 +815,9 @@ img {
 .controls-row-sleek {
 	display: flex;
 	align-items: center;
-	justify-content: center;
 	width: 100%;
-	gap: 24px;
+	justify-content: space-between;
+	gap: 8px;
 }
 
 .sleek-btn {
@@ -1809,4 +1832,6 @@ img {
 	color: var(--bloom-text, white);
 }
 /* The retained mode control occupies the existing controls row. */
-.cc-pills-island { grid-template-columns: 1fr; }
+.cc-pills-island {
+	grid-template-columns: 1fr;
+}

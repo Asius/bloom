@@ -356,7 +356,8 @@ function App() {
 	const [waitForStartupSplash, setWaitForStartupSplash] = useState(false);
 	const peripherals = usePeripherals(windowLabel === "main" && systemSettingsReady);
 	useEffect(() => {
-		if (peripherals.notice && isReady && isVisible && !isOpen && !waitForStartupSplash) triggerEventPeek(10000);
+		if (peripherals.notice && isReady && isVisible && !isOpen && !waitForStartupSplash)
+			triggerEventPeek(10000);
 	}, [peripherals.notice, isReady, isVisible, isOpen, waitForStartupSplash, triggerEventPeek]);
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
@@ -366,7 +367,10 @@ function App() {
 	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
 	const isHidden =
 		!startupAnimating &&
-		((notchMode === "smart" && isOverlapped && interactionState === "none" && !peripherals.notice) ||
+		((notchMode === "smart" &&
+			isOverlapped &&
+			interactionState === "none" &&
+			!peripherals.notice) ||
 			(notchMode === "peek" && interactionState === "none" && !eventPeek));
 
 	useEffect(() => {
@@ -1326,29 +1330,9 @@ function App() {
 
 	const lastTrackRef = useRef<string | null>(null);
 	const lastPlayingRef = useRef<boolean>(false);
-	const [musicActivityVisible, setMusicActivityVisible] = useState(false);
-
-	// Keep a paused media session visible briefly so it can be resumed, then
-	// clear its compact activity even if Windows retains the media session.
-	useEffect(() => {
-		if (!settingsMusicModeEnabled || !mediaInfo.has_media) {
-			setMusicActivityVisible(false);
-			return;
-		}
-		setMusicActivityVisible(true);
-		if (isPlaying) return;
-		const timeout = window.setTimeout(() => setMusicActivityVisible(false), 5000);
-		return () => window.clearTimeout(timeout);
-	}, [settingsMusicModeEnabled, mediaInfo.has_media, isPlaying]);
-
-	// Like the Dynamic Island, the collapsed notch shows one live activity at a
-	// time. Music fades a few seconds after playback stops.
-
+	// A paused session remains reachable on hover, without reserving space at rest.
 	const musicActivity =
-		settingsMusicModeEnabled &&
-		settingsMusicCompactNotch &&
-		mediaInfo.has_media &&
-		musicActivityVisible;
+		settingsMusicModeEnabled && settingsMusicCompactNotch && mediaInfo.has_media && isPlaying;
 	const collapsedMode = musicActivity ? "music" : "status";
 
 	const showShelfBubble = shelfItems.length > 0 && !isOpen && isVisible && !isHidden;
@@ -1790,18 +1774,17 @@ function App() {
 		hasMedia: mediaInfo.has_media
 	});
 
-	// Music mode shows any time we have media info (playing or paused) and music mode setting is enabled
-	const isMusicMode = mediaInfo.has_media && bloomMode === "music" && settingsMusicModeEnabled;
-	// A media session remains reachable on hover after its activity fades, or
-	// whenever the compact music display is disabled.
+	// A retained paused session (or a disabled compact activity) stays accessible on hover.
 	const showMusicOnStatusHover =
 		!isOpen &&
 		isHovered &&
-		bloomMode === "status" &&
 		settingsMusicModeEnabled &&
 		mediaInfo.has_media &&
-		(!musicActivityVisible || !settingsMusicCompactNotch);
-	const showCompactMusicIcons = isMusicMode || showMusicOnStatusHover;
+		(!musicActivity || (!settingsAlbumArtEnabled && !settingsVisualizerEnabled));
+	const showCompactMusicIcons =
+		!isOpen &&
+		((musicActivity && (settingsAlbumArtEnabled || settingsVisualizerEnabled)) ||
+			showMusicOnStatusHover);
 
 	// The 24-hour clock is ~16px narrower than the 12-hour one.
 	const clock24hTrim = timeFormat24h ? 16 : 0;
@@ -1816,25 +1799,25 @@ function App() {
 			return Math.min(350 + Math.max(0, scales.font - 1) * 90, window.innerWidth / scale - 48);
 		}
 		if (activeView === "command-center") return 350;
-		if (peripherals.notice && !isOpen) return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
-		if (showMusicOnStatusHover) {
-			return 206 + (settingsVisualizerEnabled ? 30 : 0);
+		if (peripherals.notice && !isOpen)
+			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
+		if (showCompactMusicIcons) {
+			return (
+				196 -
+				clock24hTrim +
+				(settingsAlbumArtEnabled || showMusicOnStatusHover ? 42 : 0) +
+				(settingsVisualizerEnabled ? 43 : 0)
+			);
 		}
 		if (bloomMode === "status" && isHovered) {
 			const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
-			return Math.max(Math.min(220 + totalWidgets * 50, 400) - clock24hTrim, statusFitWidth);
+			return Math.max(Math.min(196 + totalWidgets * 50, 400) - clock24hTrim, statusFitWidth);
 		}
 		if (activeView === "music") return mediaLayout === "compact" ? 300 : 340;
 		if (showUpdatePulse && !isHovered) return 200;
 
 		// Reserve the larger avatar and its separator alongside the clock/media.
-		let w = 220 - clock24hTrim;
-		if (isMusicMode) {
-			if (settingsVisualizerEnabled && isPlaying) w += 30;
-			if (settingsAlbumArtEnabled) w += 30;
-		}
-
-		return w;
+		return 196 - clock24hTrim;
 	};
 
 	const getDynamicHeight = () => {
@@ -1859,8 +1842,10 @@ function App() {
 		if (activeView === "command-center") return 190 + headerExtra;
 		if (activeView === "devices") {
 			return Math.min(
-				270 + Math.max(0, peripherals.devices.length - 3) * 56 * scales.font +
-					Math.max(0, scales.font - 1) * 85 + headerExtra,
+				270 +
+					Math.max(0, peripherals.devices.length - 3) * 56 * scales.font +
+					Math.max(0, scales.font - 1) * 85 +
+					headerExtra,
 				460,
 				window.innerHeight / scale - 24
 			);
@@ -2327,33 +2312,20 @@ function App() {
 													<span className="label" style={{ color: "#32D74B" }}>
 														Update Available
 													</span>
-													</motion.div>
+												</motion.div>
 											) : (
 												<motion.div
 													key="standard-view"
-													className="main-row-inner"
+													className={`main-row-inner${showCompactMusicIcons ? " has-compact-media" : ""}`}
 													initial={{ opacity: 0 }}
 													animate={{ opacity: 1 }}
 													exit={{ opacity: 0 }}
 												>
-													{/* Left: music on hover while a paused session remains, otherwise status widgets */}
+													{/* Status widgets never reserve a slot for the waveform. */}
 													<div className="side-content left">
-														{showCompactMusicIcons && settingsVisualizerEnabled ? (
-															<AnimatePresence>
-																{settingsVisualizerEnabled && (
-																	<motion.div
-																		key="visualizer"
-																		initial={{ scale: 0.8, opacity: 0 }}
-																		animate={{ scale: 1, opacity: 1 }}
-																		exit={{ scale: 0.8, opacity: 0 }}
-																	>
-																		<Visualizer isPlaying={isPlaying} />
-																	</motion.div>
-																)}
-															</AnimatePresence>
-														) : !showCompactMusicIcons &&
-														  isHovered &&
-														  statusWidgets.left.length > 0 ? (
+														{!showCompactMusicIcons &&
+														isHovered &&
+														statusWidgets.left.length > 0 ? (
 															<motion.div
 																key="left-widgets"
 																ref={leftWidgetsRef}
@@ -2370,7 +2342,11 @@ function App() {
 
 													{/* Center - Time (always visible) */}
 													<div className="time-center" ref={timeCenterRef}>
-														<BloomAvatar active={isVisible && !isHidden && isExpanded} playing={isPlaying} mediaType={mediaInfo.playback_type} />
+														<BloomAvatar
+															active={isVisible && !isHidden && isExpanded}
+															playing={isPlaying}
+															mediaType={mediaInfo.playback_type}
+														/>
 														<AnimatePresence>
 															{showPanelArrows && (
 																<motion.button
@@ -2430,69 +2406,85 @@ function App() {
 														{updateAvailable && showUpdateIndicator && (
 															<div className="update-dot" />
 														)}
-												</div>
+													</div>
 
-													{/* Right: album art on a retained music session, otherwise status widgets */}
+													{/* Artwork and waveform share the right side of the activity. */}
 													<div className="side-content right">
-														{showCompactMusicIcons &&
-														(settingsAlbumArtEnabled || showMusicOnStatusHover) ? (
-															<AnimatePresence mode="wait">
-																<motion.div
-																	key="album-art"
-																	className="album-art-transition-wrapper"
-																	initial={{ opacity: 0, scale: 0.8 }}
-																	animate={{ opacity: 1, scale: 1 }}
-																	exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
-																	transition={{ duration: 0.12 }}
-																>
+														{showCompactMusicIcons ? (
+															<>
+																{(settingsAlbumArtEnabled || showMusicOnStatusHover) && (
+																	<AnimatePresence mode="wait">
+																		<motion.div
+																			key="album-art"
+																			className="album-art-transition-wrapper"
+																			initial={{ opacity: 0, scale: 0.8 }}
+																			animate={{ opacity: 1, scale: 1 }}
+																			exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
+																			transition={{ duration: 0.12 }}
+																		>
+																			<button
+																				className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
+																				aria-label="Open music"
+																				onClick={(e) => {
+																					e.stopPropagation();
+																					openNotch("music");
+																				}}
+																				onContextMenu={(e) => {
+																					e.preventDefault();
+																					e.stopPropagation();
+																					skipPrevious();
+																				}}
+																			>
+																				<div className="album-art-inner">
+																					<AnimatePresence mode="wait" initial={false}>
+																						{settingsAlbumArtEnabled && albumArtUrl ? (
+																							<motion.img
+																								key={albumArtUrl}
+																								src={albumArtUrl}
+																								alt="Art"
+																								draggable={false}
+																								initial={{ rotateY: 90, opacity: 0 }}
+																								animate={{ rotateY: 0, opacity: 1 }}
+																								exit={{ rotateY: -90, opacity: 0 }}
+																								transition={{ duration: 0.25, ease: "easeInOut" }}
+																								style={{
+																									width: "100%",
+																									height: "100%",
+																									objectFit: "cover"
+																								}}
+																							/>
+																						) : (
+																							<motion.div
+																								key="compact-placeholder"
+																								className="album-art-placeholder"
+																								initial={{ rotateY: 90, opacity: 0 }}
+																								animate={{ rotateY: 0, opacity: 1 }}
+																								exit={{ rotateY: -90, opacity: 0 }}
+																								transition={{ duration: 0.25, ease: "easeInOut" }}
+																							>
+																								<MusicNoteIcon className="music-placeholder-svg-small" />
+																							</motion.div>
+																						)}
+																					</AnimatePresence>
+																				</div>
+																			</button>
+																		</motion.div>
+																	</AnimatePresence>
+																)}
+																{settingsVisualizerEnabled && (
 																	<button
-																		className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
+																		type="button"
+																		className="compact-audio-visualizer"
 																		aria-label="Open music"
 																		onClick={(e) => {
 																			e.stopPropagation();
 																			openNotch("music");
 																		}}
-																		onContextMenu={(e) => {
-																			e.preventDefault();
-																			e.stopPropagation();
-																			skipPrevious();
-																		}}
 																	>
-																		<div className="album-art-inner">
-																			<AnimatePresence mode="wait" initial={false}>
-																				{settingsAlbumArtEnabled && albumArtUrl ? (
-																					<motion.img
-																						key={albumArtUrl}
-																						src={albumArtUrl}
-																						alt="Art"
-																						draggable={false}
-																						initial={{ rotateY: 90, opacity: 0 }}
-																						animate={{ rotateY: 0, opacity: 1 }}
-																						exit={{ rotateY: -90, opacity: 0 }}
-																						transition={{ duration: 0.25, ease: "easeInOut" }}
-																						style={{
-																							width: "100%",
-																							height: "100%",
-																							objectFit: "cover"
-																						}}
-																					/>
-																				) : (
-																					<motion.div
-																						key="compact-placeholder"
-																						className="album-art-placeholder"
-																						initial={{ rotateY: 90, opacity: 0 }}
-																						animate={{ rotateY: 0, opacity: 1 }}
-																						exit={{ rotateY: -90, opacity: 0 }}
-																						transition={{ duration: 0.25, ease: "easeInOut" }}
-																					>
-																						<MusicNoteIcon className="music-placeholder-svg-small" />
-																					</motion.div>
-																				)}
-																			</AnimatePresence>
-																		</div>
+																		<Visualizer isPlaying={isPlaying} />
 																	</button>
-																</motion.div>
-															</AnimatePresence>
+																)}
+															</>
 														) : !showCompactMusicIcons &&
 														  isHovered &&
 														  statusWidgets.right.length > 0 ? (
@@ -2611,7 +2603,12 @@ function App() {
 
 							{/* Calendar */}
 							{activeView === "devices" && (
-													<motion.div className="peripheral-content" onClick={(e) => e.stopPropagation()} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+								<motion.div
+									className="peripheral-content"
+									onClick={(e) => e.stopPropagation()}
+									initial={{ opacity: 0 }}
+									animate={{ opacity: 1 }}
+								>
 									<IslandPeripherals
 										devices={peripherals.devices}
 										error={peripherals.error}

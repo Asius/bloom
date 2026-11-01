@@ -35,15 +35,19 @@ export const Visualizer = memo(function Visualizer({
 
 	return (
 		<div
-			className="visualizer-horizontal"
-			style={{ height: `${height}px`, width: `${bars * 6}px` }}
+			className="visualizer-horizontal visualizer-organic"
+			style={{ height: `${height}px`, width: `${bars * 7}px` }}
+			aria-hidden="true"
 		>
 			{audioData.map((value, i) => (
 				<motion.div
 					key={i}
 					className="bar-horizontal"
+					style={{
+						height: `${height * (0.4 + 0.6 * (1 - Math.abs((2 * i) / Math.max(1, bars - 1) - 1)))}px`
+					}}
 					animate={{
-						scaleY: isPlaying ? Math.max(0.2, value) : 0.1,
+						scaleY: isPlaying ? Math.max(0.7, Math.min(1, value)) : 0.45,
 						opacity: isPlaying ? 0.95 : 0.5
 					}}
 					transition={{
