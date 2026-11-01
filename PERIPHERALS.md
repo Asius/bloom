@@ -1,6 +1,6 @@
 # Dispositivos inalámbricos
 
-El panel se abre con las flechas de la isla y muestra las lecturas disponibles. La ausencia de datos se expresa como «Estado no disponible» o «—»: la presencia de un receptor por sí sola no demuestra que un periférico esté encendido. Los ejemplos de las imágenes no son una lista de dispositivos predefinidos.
+El panel se abre con las flechas de la isla y muestra las lecturas disponibles en indicadores circulares. El punto del icono refleja el estado confirmado y los lectores de pantalla reciben también la descripción textual. La ausencia de datos se expresa como «Estado no disponible» o «—»: la presencia de un receptor por sí sola no demuestra que un periférico esté encendido. Los ejemplos de las imágenes no son una lista de dispositivos predefinidos. El avatar reacciona a los avisos de conexión, desconexión y batería.
 
 Con Logitech G HUB abierto, Bloom consulta su servicio local de solo lectura para descubrir dispositivos inalámbricos, estado y batería. Esta interfaz no es pública ni estable: puede cambiar con G HUB y no se garantiza compatibilidad con todos los modelos. Si no está disponible, se intenta la lectura HID de los receptores concretos G PRO Wireless y G613 cuando están presentes. Windows aporta los dispositivos Bluetooth emparejados y conectados cuyas propiedades están disponibles. Para Razer Barracuda X (receptor 1532:0550) se conserva el proveedor específico: su porcentaje es una estimación de voltaje y puede ser desconocido durante la carga. Otros receptores no están garantizados.
 

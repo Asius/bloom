@@ -35,6 +35,7 @@ function simulateIPC(version) {
 		events = new Map();
 	let counter = 0;
 	let mockGoogleConnected = false;
+	let mockMouseConnected = false;
 	const values = {
 		"bloom-first-run": "done",
 		"bloom-app-version": version,
@@ -66,11 +67,11 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
-			if (cmd === "ghub_batteries") return null;
+			if (cmd === "ghub_batteries") return query.get("notice") === "1" ? [{ id: "ghub-test", name: "Pro Wireless Mouse", kind: "mouse", connected: mockMouseConnected, percent: mockMouseConnected ? 82 : null, approximate: false, charging: false }] : null;
 			if (cmd === "peripheral_batteries") {
 				if (query.get("battery") === "low") await new Promise((resolve) => setTimeout(resolve, 3000));
 				return { bluetoothAvailable: true, devices: [
-				{ id: "mouse", name: "Logitech G PRO Wireless", kind: "mouse", connected: true, percent: 82, approximate: false, charging: false },
+				...(query.get("notice") === "1" ? [] : [{ id: "mouse", name: "Logitech G PRO Wireless", kind: "mouse", connected: true, percent: 82, approximate: false, charging: false }]),
 				{ id: "keyboard", name: "Logitech G613", kind: "keyboard", connected: true, percent: 64, approximate: true, charging: false },
 				{ id: "headphones", name: "Razer Barracuda X", kind: "headphones", connected: true, percent: query.get("battery") === "low" ? 15 : 70, approximate: true, charging: null },
 				...(query.get("bluetooth") === "example" ? [{ id: "bluetooth-example", name: "Dispositivo Bluetooth", kind: "other", connected: true, percent: null, approximate: false, charging: null }] : [])
@@ -139,6 +140,7 @@ function simulateIPC(version) {
 			seek_enabled: false
 		};
 		for (const [label, action] of [
+			["Toggle device", () => { mockMouseConnected = !mockMouseConnected; }],
 			["Play music", () => dispatch("media-update", { ...media, playback_type: "music", position_updated_at: Date.now() })],
 			["Play video", () => dispatch("media-update", { ...media, playback_type: "video", position_updated_at: Date.now() })],
 			[

@@ -1,7 +1,7 @@
 .bloom-avatar {
-	width: 28px;
-	height: 28px;
-	flex: 0 0 28px;
+	width: 34px;
+	height: 34px;
+	flex: 0 0 34px;
 	padding: 1px;
 	border: 0;
 	border-radius: 8px;
@@ -38,6 +38,15 @@
 	stroke: currentColor;
 	stroke-width: 3.4;
 	stroke-linecap: round;
+}
+.avatar-reaction-mouth {
+	fill: none;
+	stroke: var(--bloom-bg-solid, #242424);
+	stroke-width: 2.5;
+	stroke-linecap: round;
+}
+.light-mode .avatar-reaction-mouth {
+	stroke: #f3f3f3;
 }
 .avatar-highlight {
 	fill: var(--bloom-text, white);

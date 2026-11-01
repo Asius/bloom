@@ -186,7 +186,7 @@ const TitleMarquee = ({ title }: { title: string }) => {
 function App() {
 	const scales = useIslandScales();
 	const scale = effectiveScale(scales);
-	const notchHeaderHeight = 36;
+	const notchHeaderHeight = 48;
 	useBloomFontScale(scales.font);
 	useEffect(() => {
 		return initTheme();
@@ -1816,19 +1816,19 @@ function App() {
 			return Math.min(350 + Math.max(0, scales.font - 1) * 90, window.innerWidth / scale - 48);
 		}
 		if (activeView === "command-center") return 350;
-		if (peripherals.notice && !isOpen) return 320;
+		if (peripherals.notice && !isOpen) return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (showMusicOnStatusHover) {
 			return 206 + (settingsVisualizerEnabled ? 30 : 0);
 		}
 		if (bloomMode === "status" && isHovered) {
 			const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
-			return Math.max(Math.min(200 + totalWidgets * 50, 380) - clock24hTrim, statusFitWidth);
+			return Math.max(Math.min(220 + totalWidgets * 50, 400) - clock24hTrim, statusFitWidth);
 		}
 		if (activeView === "music") return mediaLayout === "compact" ? 300 : 340;
 		if (showUpdatePulse && !isHovered) return 200;
 
-		// Reserve the avatar's 28px plus its 8px gap without shrinking clock/media.
-		let w = 200 - clock24hTrim;
+		// Reserve the larger avatar and its separator alongside the clock/media.
+		let w = 220 - clock24hTrim;
 		if (isMusicMode) {
 			if (settingsVisualizerEnabled && isPlaying) w += 30;
 			if (settingsAlbumArtEnabled) w += 30;
@@ -1859,7 +1859,7 @@ function App() {
 		if (activeView === "command-center") return 190 + headerExtra;
 		if (activeView === "devices") {
 			return Math.min(
-				240 + Math.max(0, peripherals.devices.length - 3) * 47 * scales.font +
+				270 + Math.max(0, peripherals.devices.length - 3) * 56 * scales.font +
 					Math.max(0, scales.font - 1) * 85 + headerExtra,
 				460,
 				window.innerHeight / scale - 24
@@ -2308,6 +2308,7 @@ function App() {
 												<PeripheralNoticeView
 													key="peripheral-notice"
 													notice={peripherals.notice}
+													time={time}
 													onDismiss={peripherals.dismiss}
 													onOpen={() => {
 														peripherals.dismiss();
@@ -2610,7 +2611,7 @@ function App() {
 
 							{/* Calendar */}
 							{activeView === "devices" && (
-								<motion.div onClick={(e) => e.stopPropagation()} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+													<motion.div className="peripheral-content" onClick={(e) => e.stopPropagation()} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
 									<IslandPeripherals
 										devices={peripherals.devices}
 										error={peripherals.error}

@@ -5,11 +5,13 @@ import "./BloomAvatar.css";
 export function BloomAvatar({
 	active,
 	playing,
-	mediaType
+	mediaType,
+	reaction
 }: {
 	active: boolean;
 	playing: boolean;
 	mediaType?: "music" | "video" | "unknown";
+	reaction?: "connected" | "disconnected" | "low" | "empty" | "full";
 }) {
 	const [hovered, setHovered] = useState(false);
 	const [focused, setFocused] = useState(false);
@@ -33,7 +35,11 @@ export function BloomAvatar({
 		const timer = window.setTimeout(() => setGreeting(0), 900);
 		return () => window.clearTimeout(timer);
 	}, [greeting]);
-	const state = greeting
+	const state = reaction === "connected" || reaction === "full"
+		? "greeting"
+		: reaction === "disconnected" || reaction === "low" || reaction === "empty"
+			? "attentive"
+		: greeting
 		? "greeting"
 		: curious
 			? "curious"
@@ -49,6 +55,7 @@ export function BloomAvatar({
 			type="button"
 			className="bloom-avatar"
 			data-state={state}
+			data-reaction={reaction}
 			data-active={active}
 			tabIndex={active ? 0 : -1}
 			aria-label="Saludar a Bloom"
@@ -86,6 +93,9 @@ export function BloomAvatar({
 						</>
 					)}
 				</g>
+				{reaction && (reaction === "disconnected" || reaction === "low" || reaction === "empty") && (
+					<path className="avatar-reaction-mouth" d="M29 42 Q32 39 35 42" />
+				)}
 			</svg>
 		</button>
 	);

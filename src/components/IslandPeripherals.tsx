@@ -2,14 +2,17 @@ import { Bluetooth, Headphones, Keyboard, Mouse } from "lucide-react";
 import { X } from "lucide-react";
 import type { PeripheralNotice, PeripheralReading } from "../peripheralState";
 import { BloomAvatar } from "./BloomAvatar";
+import type { CSSProperties } from "react";
 import "./IslandPeripherals.css";
 
 export function PeripheralNoticeView({
 	notice,
+	time,
 	onOpen,
 	onDismiss
 }: {
 	notice: PeripheralNotice;
+	time: string;
 	onOpen: () => void;
 	onDismiss: () => void;
 }) {
@@ -33,7 +36,7 @@ export function PeripheralNoticeView({
 				onOpen();
 			}}
 		>
-			<BloomAvatar active={false} playing={false} />
+			<div className="peripheral-notice-avatar"><BloomAvatar active playing={false} reaction={notice.kind} /></div>
 			<div className="peripheral-notice-text">
 				<strong>
 					{notice.kind === "full"
@@ -55,11 +58,12 @@ export function PeripheralNoticeView({
 					{level}
 				</span>
 			</div>
+			<time className="peripheral-notice-clock">{time}</time>
 			<div
-				className={`peripheral-notice-indicator${notice.kind === "low" || notice.kind === "empty" ? " is-low" : ""}`}
+				className={`peripheral-notice-indicator is-${notice.kind}`}
 				aria-hidden="true"
 			>
-				<Icon size={13} />
+				<Icon size={16} />
 			</div>
 			<button
 				type="button"
@@ -121,23 +125,19 @@ export function IslandPeripherals({
 							? "Estado no disponible"
 							: "Conectado";
 				if (device.connected && device.charging) detail = "Cargando";
-				const level =
-					device.percent === null ? "—" : `${device.approximate ? "≈" : ""}${device.percent}%`;
+				const percent = device.connected !== true || device.percent === null || !Number.isFinite(device.percent) ? null : Math.max(0, Math.min(100, device.percent));
+				const level = percent === null ? "—" : `${device.approximate ? "≈" : ""}${percent}%`;
+				const chargeClass = percent === null ? "is-unknown" : percent < 20 ? "is-low" : "is-normal";
 				return (
-					<div className="peripheral-row" key={device.id}>
+					<div className="peripheral-row" key={device.id} aria-label={`${device.name}: ${detail}, batería ${level}`}>
 						<div className="peripheral-icon">
 							<Icon size={20} aria-hidden="true" />
+							<i className={`peripheral-status ${device.connected === true ? "is-connected" : device.connected === false ? "is-disconnected" : "is-unknown"}`} aria-hidden="true" />
 						</div>
 						<div className="peripheral-details">
 							<strong>{device.name}</strong>
-							<span>
-								<i
-									className={`peripheral-status${device.connected === true ? " is-connected" : ""}`}
-									aria-hidden="true"
-								/>
-								{detail} · {level}
-							</span>
 						</div>
+						<div className={`peripheral-charge ${chargeClass}`} style={{ "--charge": `${percent ?? 0}%` } as CSSProperties} aria-hidden="true"><span>{level}</span></div>
 					</div>
 				);
 			})}

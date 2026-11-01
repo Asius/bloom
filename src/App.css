@@ -173,6 +173,18 @@ img {
 	align-items: center;
 	gap: 8px;
 }
+.time-center > .bloom-avatar {
+	margin-right: 10px;
+}
+.time-center::before {
+	content: "";
+	position: absolute;
+	left: 41px;
+	height: 26px;
+	width: 1px;
+	background: color-mix(in srgb, currentColor 20%, transparent);
+	pointer-events: none;
+}
 
 /* Shelf: OS file drag hovering over the notch (see onDragDropEvent in App.tsx) */
 .bloom.drag-hover {
