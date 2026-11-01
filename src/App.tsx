@@ -1785,6 +1785,10 @@ function App() {
 		!isOpen &&
 		((musicActivity && (settingsAlbumArtEnabled || settingsVisualizerEnabled)) ||
 			showMusicOnStatusHover);
+	const simpleCompact =
+		!isOpen &&
+		!showCompactMusicIcons &&
+		!(isHovered && (statusWidgets.left.length > 0 || statusWidgets.right.length > 0));
 
 	// The 24-hour clock is ~16px narrower than the 12-hour one.
 	const clock24hTrim = timeFormat24h ? 16 : 0;
@@ -2316,7 +2320,7 @@ function App() {
 											) : (
 												<motion.div
 													key="standard-view"
-													className={`main-row-inner${showCompactMusicIcons ? " has-compact-media" : ""}`}
+													className={`main-row-inner${showCompactMusicIcons ? " has-compact-media" : ""}${simpleCompact ? " simple-compact" : ""}`}
 													initial={{ opacity: 0 }}
 													animate={{ opacity: 1 }}
 													exit={{ opacity: 0 }}

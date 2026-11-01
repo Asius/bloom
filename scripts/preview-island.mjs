@@ -36,6 +36,7 @@ function simulateIPC(version) {
 	let counter = 0;
 	let mockGoogleConnected = false;
 	let mockMouseConnected = false;
+	let mockDesktopIdle = false;
 	const values = {
 		"bloom-first-run": "done",
 		"bloom-app-version": version,
@@ -67,6 +68,7 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "desktop_idle") return mockDesktopIdle;
 			if (cmd === "ghub_batteries") return query.get("notice") === "1" ? [{ id: "ghub-test", name: "Pro Wireless Mouse", kind: "mouse", connected: mockMouseConnected, percent: mockMouseConnected ? 82 : null, approximate: false, charging: false }] : null;
 			if (cmd === "peripheral_batteries") {
 				if (query.get("battery") === "low") await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -140,6 +142,8 @@ function simulateIPC(version) {
 			seek_enabled: false
 		};
 		for (const [label, action] of [
+			["Desktop idle", () => { mockDesktopIdle = true; }],
+			["Desktop active", () => { mockDesktopIdle = false; }],
 			["Toggle device", () => { mockMouseConnected = !mockMouseConnected; }],
 			["Play music", () => dispatch("media-update", { ...media, playback_type: "music", position_updated_at: Date.now() })],
 			["Play video", () => dispatch("media-update", { ...media, playback_type: "video", position_updated_at: Date.now() })],

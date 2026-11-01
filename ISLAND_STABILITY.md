@@ -26,6 +26,10 @@ Abrir `http://127.0.0.1:4321/?theme=light`. Los botones inferiores simulan event
 
 La comprobación de navegador usa IPC simulado. El propietario debe repetir la secuencia con su reproductor real, actualizar desde 3.11.0 y comprobar Smart/Peek, capturas y suspensión; no declarar completada esa validación por las pruebas puras o por publicar.
 
+## Reposo del avatar y espacio compacto
+
+Por petición del propietario, el avatar entra en descanso después de 30 segundos sin entrada en la sesión de Windows, no solo por falta de interacción con el propio avatar. La lectura nativa consulta el estado agregado de inactividad mientras el avatar visible puede descansar; no captura teclas, posiciones ni aplicaciones, y un error deja al avatar despierto. Cuando hay reproducción o una reacción activa, estas mantienen sus estados propios. La vista simulada permite alternar «Desktop idle» y «Desktop active» sin controlar el escritorio real. La prueba instalada de movimiento, teclado, vuelta del reposo y escala sigue a cargo del propietario.
+
 ## Distribución
 
 Un solo instalador NSIS de Windows x64. La firma .sig y latest.json son necesarios para el actualizador; ZIP/TAR de fuentes los genera GitHub. Las versiones antiguas y sus MSI se mantienen como historial. No se compilan instaladores de otros sistemas ni MSI en las nuevas entregas.

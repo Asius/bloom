@@ -89,6 +89,23 @@ img {
 .main-row-inner.has-compact-media .side-content.right {
 	flex: 0 0 auto;
 	margin-left: 14px;
+	gap: 14px;
+}
+.main-row-inner.simple-compact .side-content {
+	flex: 0 0 0;
+}
+.main-row-inner.simple-compact .time-center,
+.main-row-inner.has-compact-media .time-center {
+	flex: 1;
+	justify-content: space-between;
+}
+.main-row-inner.simple-compact .time-center > .bloom-avatar,
+.main-row-inner.has-compact-media .time-center > .bloom-avatar {
+	margin-right: 0;
+}
+.main-row-inner.simple-compact .time-center::before,
+.main-row-inner.has-compact-media .time-center::before {
+	left: calc(50% - 13px);
 }
 
 .power-pulse-content {

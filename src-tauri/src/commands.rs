@@ -8,6 +8,32 @@ use tauri::{AppHandle, Emitter, Manager, Window};
 use windows::core::Interface;
 const MAX_SETTINGS_IMPORT_BYTES: u64 = 1024 * 1024;
 
+// Only the session's idle status is exposed; no keys, pointer coordinates,
+// application names or input history leave Windows or get recorded.
+#[tauri::command]
+pub fn desktop_idle() -> Result<bool, String> {
+    use windows::Win32::System::SystemInformation::GetTickCount;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+
+    let mut input = LASTINPUTINFO {
+        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        if !GetLastInputInfo(&mut input).as_bool() {
+            return Err("No se pudo consultar la inactividad de Windows".to_string());
+        }
+        Ok(desktop_idle_from_ticks(GetTickCount(), input.dwTime))
+    }
+}
+
+fn desktop_idle_from_ticks(now: u32, last_input: u32) -> bool {
+    let elapsed = now.wrapping_sub(last_input);
+    // Input timestamps can be non-monotonic; uncertain values must not put
+    // the avatar to sleep. wrapping_sub still handles a normal tick rollover.
+    (30_000..=i32::MAX as u32).contains(&elapsed)
+}
+
 /// Documentation only. No OAuth client, personal calendar or token is read.
 #[tauri::command]
 pub fn open_calendar_setup_guide() -> Result<(), String> {
@@ -1459,6 +1485,19 @@ pub async fn set_notch_hovered(app: AppHandle, hovered: bool) {
 #[tauri::command]
 pub async fn set_notch_visible(visible: bool) {
     NOTCH_IS_VISIBLE.store(visible, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod desktop_idle_tests {
+    use super::desktop_idle_from_ticks;
+
+    #[test]
+    fn requires_thirty_seconds_and_handles_tick_rollover() {
+        assert!(!desktop_idle_from_ticks(59_999, 30_000));
+        assert!(desktop_idle_from_ticks(60_000, 30_000));
+        assert!(desktop_idle_from_ticks(10_000, u32::MAX - 25_000));
+        assert!(!desktop_idle_from_ticks(100, 200));
+    }
 }
 
 #[cfg(test)]

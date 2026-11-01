@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import "./BloomAvatar.css";
 
-/** Local reactions only: no global pointer listener, network or background loop. */
+/** Local reactions and the current Windows session's coarse idle status. */
 export function BloomAvatar({
 	active,
 	playing,
@@ -26,30 +27,46 @@ export function BloomAvatar({
 			return;
 		}
 		setAsleep(false);
-		if (curious || playing) return;
-		const timer = window.setTimeout(() => setAsleep(true), 30000);
-		return () => window.clearTimeout(timer);
-	}, [active, curious, playing, greeting]);
+		if (curious || playing || reaction) return;
+		let cancelled = false;
+		let timer: number | undefined;
+		const check = async () => {
+			try {
+				const idle = await invoke<boolean>("desktop_idle");
+				if (!cancelled) setAsleep(idle === true);
+			} catch {
+				if (!cancelled) setAsleep(false);
+			} finally {
+				if (!cancelled) timer = window.setTimeout(check, 1000);
+			}
+		};
+		void check();
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	}, [active, curious, playing, greeting, reaction]);
 	useEffect(() => {
 		if (!greeting) return;
 		const timer = window.setTimeout(() => setGreeting(0), 900);
 		return () => window.clearTimeout(timer);
 	}, [greeting]);
-	const state = reaction === "connected" || reaction === "full"
-		? "greeting"
-		: reaction === "disconnected" || reaction === "low" || reaction === "empty"
-			? "attentive"
-		: greeting
-		? "greeting"
-		: curious
-			? "curious"
-			: asleep
-				? "sleep"
-				: playing
-					? mediaType === "music"
-						? "music"
-						: "attentive"
-					: "idle";
+	const state =
+		reaction === "connected" || reaction === "full"
+			? "greeting"
+			: reaction === "disconnected" || reaction === "low" || reaction === "empty"
+				? "attentive"
+				: greeting
+					? "greeting"
+					: curious
+						? "curious"
+						: asleep
+							? "sleep"
+							: playing
+								? mediaType === "music"
+									? "music"
+									: "attentive"
+								: "idle";
 	return (
 		<button
 			type="button"
@@ -93,9 +110,10 @@ export function BloomAvatar({
 						</>
 					)}
 				</g>
-				{reaction && (reaction === "disconnected" || reaction === "low" || reaction === "empty") && (
-					<path className="avatar-reaction-mouth" d="M29 42 Q32 39 35 42" />
-				)}
+				{reaction &&
+					(reaction === "disconnected" || reaction === "low" || reaction === "empty") && (
+						<path className="avatar-reaction-mouth" d="M29 42 Q32 39 35 42" />
+					)}
 			</svg>
 		</button>
 	);
