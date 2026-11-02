@@ -9,6 +9,7 @@ Una isla interactiva para Windows que complementa el escritorio. La barra de tar
 - Reproducción multimedia, visualizador y controles.
 - Volumen y mezclador por aplicación.
 - Vista de periféricos inalámbricos y avisos de batería baja; la compatibilidad con modelos concretos requiere prueba instalada. [Detalles](PERIPHERALS.md).
+- Panel experimental de notificaciones de Windows con activación explícita y avisos breves, sujeto a permisos y a prueba instalada. [Detalles](NOTIFICACIONES.md).
 - Espacio para archivos/texto arrastrados.
 - Modos Fixed/Smart/Peek, temas claro/oscuro y escala de texto independiente.
 - Actualización firmada desde [Asius/bloom](https://github.com/Asius/bloom/releases/latest).
@@ -20,7 +21,7 @@ a la isla, con navegación de teclado y selección animada. Los festivos funcion
 sin conexión; las conmemoraciones se distinguen de los descansos nacionales.
 Google Calendar permite consultar en la agenda los eventos del calendario
 principal después de autorizar la lectura mediante el navegador y un cliente
-Desktop propio; la autorización se protege con DPAPI. No hay notificaciones.
+Desktop propio; la autorización se protege con DPAPI. El calendario no crea recordatorios.
 La consulta con una cuenta real en la aplicación instalada queda pendiente de
 prueba. [Guía](GOOGLE_CALENDAR.md). [Licencia](THIRD_PARTY_NOTICES.md).
 

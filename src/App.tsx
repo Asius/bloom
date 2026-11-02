@@ -4,6 +4,8 @@ import { Visualizer } from "./components/Visualizer";
 import { BloomAvatar } from "./components/BloomAvatar";
 import { IslandCalendar } from "./components/IslandCalendar";
 import { IslandPeripherals, PeripheralNoticeView } from "./components/IslandPeripherals";
+import { IslandNotifications, NotificationNotice } from "./components/IslandNotifications";
+import { useNotifications } from "./hooks/useNotifications";
 import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
@@ -68,8 +70,10 @@ import { createRegionSender, measureElements, notchPillBox, type RegionRect } fr
  *   Dragging files onto the notch also opens the shelf. Wheel/swipe switches
  *   between tool panels, including when a live activity occupies the pill.
  */
-type NotchPanel = "calendar" | "command-center" | "devices";
-const NOTCH_PANELS: readonly NotchPanel[] = ["calendar", "command-center", "devices"];
+type NotchPanel = "calendar" | "command-center" | "devices" | "notifications";
+const NOTCH_PANELS: readonly NotchPanel[] = [
+	"calendar", "command-center", "devices", "notifications"
+];
 const asNotchPanel = (value: unknown): NotchPanel | null =>
 	NOTCH_PANELS.includes(value as NotchPanel) ? (value as NotchPanel) : null;
 
@@ -358,14 +362,17 @@ function App() {
 		windowLabel === "main" && systemSettingsReady,
 		isReady && !waitForStartupSplash
 	);
+	const notifications = useNotifications(windowLabel === "main" && systemSettingsReady);
 	const notificationActive =
-		isReady && !waitForStartupSplash && !!(peripherals.notice || showUpdatePulse);
+		isReady &&
+		!waitForStartupSplash &&
+		!!(peripherals.notice || showUpdatePulse || notifications.notice);
 	const effectiveVisible = isVisible || notificationActive;
 	useEffect(() => {
 		if (windowLabel === "main" && notificationActive) {
 			invoke("raise_notch_for_notification").catch(console.error);
 		}
-	}, [windowLabel, notificationActive, peripherals.notice, showUpdatePulse]);
+	}, [windowLabel, notificationActive, peripherals.notice, showUpdatePulse, notifications.notice]);
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
 	const systemSyncQueue = useRef<Promise<void>>(Promise.resolve());
@@ -1075,6 +1082,7 @@ function App() {
 			prev === "command-center" ||
 			prev === "calendar" ||
 			prev === "devices" ||
+			prev === "notifications" ||
 			prev === "status" ||
 			prev === "shelf"
 				? restingModeRef.current
@@ -1804,7 +1812,8 @@ function App() {
 	// The 24-hour clock is ~16px narrower than the 12-hour one.
 	const clock24hTrim = timeFormat24h ? 16 : 0;
 	const clockScaleExtra = Math.max(0, scales.font - 1) * 50;
-	const compactWidth = 196 - clock24hTrim + clockScaleExtra;
+	const showNotificationDot = !isOpen && notifications.status === "allowed" && notifications.items.length > 0;
+	const compactWidth = 196 - clock24hTrim + clockScaleExtra + (showNotificationDot ? 24 : 0);
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
@@ -1815,10 +1824,14 @@ function App() {
 		if (activeView === "devices") {
 			return Math.min(350 + Math.max(0, scales.font - 1) * 90, window.innerWidth / scale - 48);
 		}
+		if (activeView === "notifications")
+			return Math.min(430 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (activeView === "command-center") return 350;
 		if (notificationActive && peripherals.notice)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (notificationActive && showUpdatePulse) return 200;
+		if (notificationActive && notifications.notice)
+			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (showCompactMusicIcons) {
 			const artVisible = settingsAlbumArtEnabled || showMusicOnStatusHover;
 			return (
@@ -1870,6 +1883,12 @@ function App() {
 				460,
 				window.innerHeight / scale - 24
 			);
+		}
+		if (activeView === "notifications") {
+			const contentHeight = notifications.status === "allowed" && notifications.items.length > 0
+				? notchHeaderHeight + Math.min(notifications.items.length, 3) * 64 + 22
+				: 250 + headerExtra;
+			return Math.min(contentHeight + Math.max(0, scales.font - 1) * 80, window.innerHeight / scale - 24);
 		}
 		if (activeView === "collapsed") return notchHeaderHeight;
 		if (activeView === "music") {
@@ -2036,7 +2055,20 @@ function App() {
 						>
 							{/* One view owns the panel area; only its entrance is animated. */}
 
-							{activeView === "music" ? (
+							{activeView === "notifications" ? (
+								<IslandNotifications
+									status={notifications.status}
+									items={notifications.items}
+									time={time}
+									timeFormat24h={timeFormat24h}
+									requestAccess={notifications.requestAccess}
+									setActive={notifications.setActive}
+									preferenceError={notifications.preferenceError}
+									preferenceBusy={notifications.preferenceBusy}
+									previous={() => cyclePanel(-1)}
+									next={() => cyclePanel(1)}
+								/>
+							) : activeView === "music" ? (
 								<motion.div
 									key="expanded-music"
 									className="expanded-music-container"
@@ -2334,6 +2366,15 @@ function App() {
 														Update Available
 													</span>
 												</motion.div>
+											) : notificationActive && notifications.notice ? (
+												<NotificationNotice
+													notice={notifications.notice}
+													time={time}
+													open={() => {
+														notifications.dismiss();
+														openNotch("notifications");
+													}}
+												/>
 											) : (
 												<motion.div
 													key="standard-view"
@@ -2362,7 +2403,7 @@ function App() {
 													</div>
 
 													{/* Center - Time (always visible) */}
-													<div className="time-center" ref={timeCenterRef}>
+													<div className={`time-center${showNotificationDot ? " has-notification-dot" : ""}`} ref={timeCenterRef}>
 														<BloomAvatar
 															active={effectiveVisible && !isHidden && isExpanded}
 															playing={isPlaying}
@@ -2426,6 +2467,16 @@ function App() {
 														</AnimatePresence>
 														{updateAvailable && showUpdateIndicator && (
 															<div className="update-dot" />
+														)}
+														{showNotificationDot && (
+															<button
+																className="notification-dot"
+																aria-label="Abrir notificaciones"
+																onClick={(event) => {
+																	event.stopPropagation();
+																	openNotch("notifications");
+																}}
+															/>
 														)}
 													</div>
 

@@ -5,7 +5,7 @@ import { sameMediaInfo, type MediaInfo } from "../src/mediaInfo";
 describe("exclusive island views", () => {
 	const enabled = { calendarEnabled: true, musicEnabled: true, hasMedia: true };
 	test("closing during a panel or activity switch always returns to a single collapsed view", () => {
-		for (const mode of ["music", "calendar", "command-center", "status", "shelf", "devices"] as IslandMode[]) {
+		for (const mode of ["music", "calendar", "command-center", "status", "shelf", "devices", "notifications"] as IslandMode[]) {
 			expect(islandView({ ...enabled, mode, open: false })).toBe("collapsed");
 		}
 	});
@@ -39,7 +39,7 @@ describe("exclusive island views", () => {
 		);
 	});
 	test("a notice temporarily owns the view, then restores the open panel", () => {
-		for (const mode of ["music", "calendar", "command-center", "shelf", "devices"] as IslandMode[]) {
+		for (const mode of ["music", "calendar", "command-center", "shelf", "devices", "notifications"] as IslandMode[]) {
 			expect(islandView({ ...enabled, mode, open: true, notificationActive: true })).toBe("collapsed");
 			expect(islandView({ ...enabled, mode, open: true, notificationActive: false })).toBe(mode);
 		}

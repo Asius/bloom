@@ -6,6 +6,7 @@ mod google_auth;
 mod google_events;
 mod island_settings;
 mod legacy_taskbar;
+mod notifications;
 mod peripherals;
 mod services;
 mod shelf;
@@ -88,6 +89,9 @@ fn main() {
             google_events::google_calendar_events,
             peripherals::peripheral_batteries,
             ghub::ghub_batteries,
+            notifications::notification_snapshot,
+            notifications::request_notification_access,
+            notifications::open_notification_privacy_settings,
             open_calendar_setup_guide,
             setup_shelf_drop,
             shelf_thumbnail,

@@ -38,6 +38,13 @@ function simulateIPC(version) {
 	let mockMouseConnected = false;
 	let mockDesktopIdle = false;
 	let mockRaises = 0;
+	const requestedNotifications = query.get("notifications") || "unavailable";
+	let mockNotificationStatus = ["items", "empty"].includes(requestedNotifications) ? "allowed" : requestedNotifications;
+	let mockNotificationId = 3;
+	let mockWindowsNotices = requestedNotifications === "items" ? [
+		{ id: 1, app: "Correo", title: "Mensaje nuevo", body: "Ejemplo de notificación", createdMs: Date.now() },
+		{ id: 2, app: "Música", title: "Reproducción iniciada", body: "", createdMs: Date.now() - 120000 }
+	] : [];
 	window.__bloomPreview = { raises: () => mockRaises };
 	const values = {
 		"bloom-first-run": "done",
@@ -50,7 +57,8 @@ function simulateIPC(version) {
 		"bloom-theme-mode": query.get("theme") || "light",
 		"bloom-media-layout": query.get("layout") || "classic",
 		"bloom-notch-remember-panel": "false",
-		"bloom-notch-default-panel": "command-center",
+		"bloom-notch-default-panel": query.has("notifications") ? "notifications" : "command-center",
+		"bloom-notifications-enabled": query.has("notifications") ? "true" : "false",
 		"bloom-status-widgets": JSON.stringify({ left: [], right: [] })
 	};
 	// Fixture data belongs only to this localhost origin, never Tauri's origin.
@@ -71,6 +79,9 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "notification_snapshot") {
+				return { status: mockNotificationStatus, items: mockNotificationStatus === "allowed" ? mockWindowsNotices : [] };
+			}
 			if (cmd === "raise_notch_for_notification") { mockRaises++; return; }
 			if (cmd === "desktop_idle") return mockDesktopIdle;
 			if (cmd === "ghub_batteries") return query.get("notice") === "1" ? [{ id: "ghub-test", name: "Pro Wireless Mouse", kind: "mouse", connected: mockMouseConnected, percent: mockMouseConnected ? 82 : null, approximate: false, charging: false }] : null;
@@ -134,6 +145,9 @@ function simulateIPC(version) {
 		}
 	};
 	document.addEventListener("DOMContentLoaded", () => {
+		if (query.has("notifications")) {
+			setTimeout(() => document.querySelector(".bloom")?.click(), 2500);
+		}
 		document.body.style.background = query.get("theme") === "dark" ? "#282b31" : "#c7cbd1";
 		const toolbar = document.createElement("div");
 		toolbar.style = "position:fixed;bottom:35px;left:10px;z-index:999999;display:flex;gap:8px";
@@ -147,6 +161,10 @@ function simulateIPC(version) {
 			seek_enabled: false
 		};
 		for (const [label, action] of [
+			["Add test notice", () => { mockWindowsNotices = [{ id: mockNotificationId++, app: "Mensajería", title: "Aviso de prueba", body: "", createdMs: Date.now() }, ...mockWindowsNotices]; }],
+			["Revoke test access", () => { mockNotificationStatus = "denied"; }],
+			["Restore test access", () => { mockNotificationStatus = "allowed"; }],
+			["External disable", () => { values["bloom-notifications-enabled"] = "false"; dispatch("settings-external-changed", { key: "bloom-notifications-enabled", value: "false" }); }],
 			["Simulate overlap", () => dispatch("notch-overlap", true)],
 			["Simulate fullscreen", () => dispatch("visibility-change", false)],
 			["Restore visibility", () => { dispatch("notch-overlap", false); dispatch("visibility-change", true); }],
