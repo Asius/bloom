@@ -1294,6 +1294,7 @@ function App() {
 		if (
 			target.closest(".calendar-content") ||
 			target.closest(".shelf-content") ||
+			target.closest(".peripheral-panel") ||
 			target.closest(".qp-list")
 		) {
 			return;
@@ -1863,7 +1864,7 @@ function App() {
 			return Math.min(
 				270 +
 					Math.max(0, peripherals.devices.length - 3) * 56 * scales.font +
-					Math.max(0, scales.font - 1) * 85 +
+					Math.max(0, scales.font - 1) * 175 +
 					headerExtra,
 				460,
 				window.innerHeight / scale - 24

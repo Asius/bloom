@@ -80,6 +80,7 @@ function simulateIPC(version) {
 				...(query.get("notice") === "1" ? [] : [{ id: "mouse", name: "Logitech G PRO Wireless", kind: "mouse", connected: true, percent: 82, approximate: false, charging: false }]),
 				{ id: "keyboard", name: "Logitech G613", kind: "keyboard", connected: true, percent: 64, approximate: true, charging: false },
 				{ id: "headphones", name: "Razer Barracuda X", kind: "headphones", connected: true, percent: query.get("battery") === "low" ? 15 : 70, approximate: true, charging: null },
+				...Array.from({ length: query.get("devices") === "many" ? 5 : 0 }, (_, i) => ({ id: `extra-${i}`, name: `Periférico de prueba ${i + 1}`, kind: "other", connected: true, percent: 50, approximate: false, charging: false })),
 				...(query.get("bluetooth") === "example" ? [{ id: "bluetooth-example", name: "Dispositivo Bluetooth", kind: "other", connected: true, percent: null, approximate: false, charging: null }] : [])
 			] };
 			}

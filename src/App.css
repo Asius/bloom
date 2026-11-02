@@ -307,11 +307,11 @@ img {
 }
 
 .panel-arrow.prev {
-	right: calc(100% + 4px);
+	right: calc(100% + 8px);
 }
 
 .panel-arrow.next {
-	left: calc(100% + 4px);
+	left: calc(100% + 8px);
 }
 
 .time-flip-container {
@@ -343,7 +343,7 @@ img {
 	line-height: 1;
 	color: var(--bloom-text, white);
 	backface-visibility: hidden;
-	position: absolute;
+	position: relative;
 	transition: color 0.2s ease;
 }
 
@@ -543,8 +543,8 @@ img {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%);
-	color: rgba(255, 255, 255, 0.85);
+	background: color-mix(in srgb, var(--bloom-text, white) 10%, transparent);
+	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.85));
 }
 
 .music-placeholder-svg-small {
@@ -559,16 +559,16 @@ img {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
-	color: rgba(255, 255, 255, 0.65);
+	background: color-mix(in srgb, var(--bloom-text, white) 8%, transparent);
+	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.65));
 	transition:
 		background 0.25s ease,
 		color 0.25s ease;
 }
 
 .premium-album-art:hover .art-placeholder-mini {
-	background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
-	color: rgba(255, 255, 255, 0.9);
+	background: color-mix(in srgb, var(--bloom-text, white) 14%, transparent);
+	color: var(--bloom-text, white);
 }
 
 .music-placeholder-svg {
@@ -1562,8 +1562,8 @@ img {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: rgba(255, 255, 255, 0.08);
-	color: rgba(255, 255, 255, 0.4);
+	background: color-mix(in srgb, var(--bloom-text, white) 8%, transparent);
+	color: var(--bloom-text-muted, rgba(255, 255, 255, 0.6));
 }
 
 /* Track info */

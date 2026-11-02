@@ -93,7 +93,7 @@ export function IslandPeripherals({
 	refresh: () => void;
 }) {
 	return (
-		<section className="peripheral-panel" aria-label="Dispositivos inalámbricos">
+		<section className="peripheral-panel" aria-label="Dispositivos inalámbricos" tabIndex={0}>
 			<div className="peripheral-heading">
 				<h2>Dispositivos</h2>
 				<button type="button" onClick={refresh} disabled={loading}>
