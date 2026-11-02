@@ -257,9 +257,17 @@ pub async fn remove_notifications(app: tauri::AppHandle, ids: Vec<u32>) -> Resul
 pub async fn clear_notifications(app: tauri::AppHandle) -> Result<(), String> {
     opted_in(&app)?;
     run_notification_action(move || {
-        management_listener()?
-            .ClearNotifications()
-            .map_err(|_| "error".to_string())
+        let listener = management_listener()?;
+        let notifications = listener
+            .GetNotificationsAsync(NotificationKinds::Toast)
+            .and_then(|operation| operation.get())
+            .map_err(|_| "error".to_string())?;
+        for notification in notifications {
+            listener
+                .RemoveNotification(notification.Id().map_err(|_| "error".to_string())?)
+                .map_err(|_| "error".to_string())?;
+        }
+        Ok(())
     })
     .await
 }

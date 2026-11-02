@@ -1,0 +1,133 @@
+.github-panel {
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	padding: 0 18px 14px;
+	box-sizing: border-box;
+	color: var(--bloom-text, white);
+}
+.github-header {
+	height: var(--notch-header-height, 48px);
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	border-bottom: 1px solid rgba(150, 150, 150, 0.3);
+}
+.github-header h2 {
+	flex: 1;
+	font-size: calc(15px * var(--bloom-font-scale, 1));
+	margin: 0;
+}
+.github-header time {
+	font-size: 11px;
+	opacity: 0.65;
+	white-space: nowrap;
+}
+.github-panel button {
+	color: inherit;
+	cursor: pointer;
+	background: transparent;
+	border: 0;
+	border-radius: 7px;
+}
+.github-panel button:hover {
+	background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.github-panel button:focus-visible,
+.github-panel input:focus-visible {
+	outline: 2px solid currentColor;
+}
+.github-content {
+	overflow: auto;
+	min-height: 0;
+	padding: 10px 2px;
+	font-size: calc(12px * var(--bloom-font-scale, 1));
+}
+.github-repository label {
+	display: block;
+	opacity: 0.7;
+	margin-bottom: 5px;
+}
+.github-repository > div {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+.github-repository input {
+	flex: 1;
+	min-width: 0;
+	color: inherit;
+	background: color-mix(in srgb, currentColor 8%, transparent);
+	border: 1px solid rgba(150, 150, 150, 0.4);
+	border-radius: 7px;
+	padding: 6px;
+}
+.github-repository button {
+	padding: 6px;
+}
+.github-run {
+	border-bottom: 1px solid rgba(150, 150, 150, 0.2);
+}
+.github-run > button {
+	width: 100%;
+	display: flex;
+	gap: 10px;
+	align-items: center;
+	text-align: left;
+	padding: 12px 5px;
+}
+.github-run strong {
+	min-width: 65px;
+}
+.github-run small {
+	margin-left: auto;
+	opacity: 0.65;
+}
+.github-state {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: #b7b7b7;
+}
+.github-state.success {
+	background: #65d37c;
+}
+.github-state.failure {
+	background: #fa7878;
+}
+.github-jobs {
+	padding: 5px 10px 10px 24px;
+	white-space: normal;
+	line-height: 1.5;
+}
+.github-jobs div div {
+	opacity: 0.7;
+	padding-left: 12px;
+}
+.github-foot {
+	opacity: 0.65;
+	white-space: normal;
+}
+.github-error {
+	color: #ffaaa7;
+	white-space: normal;
+}
+
+.github-activity {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	cursor: pointer;
+}
+
+.github-activity:focus-visible {
+	outline: 2px solid currentColor;
+	border-radius: 5px;
+}

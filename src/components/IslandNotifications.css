@@ -158,6 +158,30 @@
 	white-space: nowrap;
 }
 
+.notification-card-actions {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.notification-card-actions button {
+	width: 28px;
+	height: 28px;
+	display: grid;
+	place-items: center;
+	border: 0;
+	border-radius: 8px;
+	color: inherit;
+	background: transparent;
+	cursor: pointer;
+	opacity: 0.72;
+}
+
+.notification-card-actions button:hover {
+	background: color-mix(in srgb, var(--bloom-text, white) 12%, transparent);
+	opacity: 1;
+}
+
 .notification-group-more-wrap {
 	position: relative;
 	flex: 0 0 auto;

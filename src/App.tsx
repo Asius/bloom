@@ -5,6 +5,7 @@ import { BloomAvatar } from "./components/BloomAvatar";
 import { IslandCalendar } from "./components/IslandCalendar";
 import { IslandPeripherals, PeripheralNoticeView } from "./components/IslandPeripherals";
 import { IslandNotifications, NotificationNotice } from "./components/IslandNotifications";
+import { IslandGithub } from "./components/IslandGithub";
 import { useNotifications } from "./hooks/useNotifications";
 import { groupNotifications } from "./notificationState";
 import { normalizeStatusWidgets } from "./statusWidgets";
@@ -47,6 +48,7 @@ import { useTrailingThrottle } from "./hooks/useTrailingThrottle";
 import { usePeripherals } from "./hooks/usePeripherals";
 import { useWeather } from "./hooks/useWeather";
 import {
+	GithubIcon,
 	HeadphonesIcon,
 	MusicNoteIcon,
 	PauseIcon,
@@ -71,9 +73,9 @@ import { createRegionSender, measureElements, notchPillBox, type RegionRect } fr
  *   Dragging files onto the notch also opens the shelf. Wheel/swipe switches
  *   between tool panels, including when a live activity occupies the pill.
  */
-type NotchPanel = "calendar" | "command-center" | "devices" | "notifications";
+type NotchPanel = "calendar" | "command-center" | "devices" | "notifications" | "github";
 const NOTCH_PANELS: readonly NotchPanel[] = [
-	"calendar", "command-center", "devices", "notifications"
+	"calendar", "command-center", "devices", "notifications", "github"
 ];
 const asNotchPanel = (value: unknown): NotchPanel | null =>
 	NOTCH_PANELS.includes(value as NotchPanel) ? (value as NotchPanel) : null;
@@ -364,6 +366,23 @@ function App() {
 		isReady && !waitForStartupSplash
 	);
 	const notifications = useNotifications(windowLabel === "main" && systemSettingsReady);
+	const [githubPublishing, setGithubPublishing] = useState(false);
+	useEffect(() => {
+		if (windowLabel !== "main" || !systemSettingsReady || isOpen) return;
+		let cancelled = false;
+		const refresh = async () => {
+			try {
+				const settings = await invoke<Record<string, string>>("load_settings");
+				const repository = settings["bloom-github-repository"] || "Asius/bloom";
+				const result = await invoke<{ runs: { name: string; status: string }[] }>("github_monitor_snapshot", { repository });
+				const release = result.runs.find(run => run.name.toLowerCase() === "release");
+				if (!cancelled) setGithubPublishing(!!release && release.status !== "completed");
+			} catch { if (!cancelled) setGithubPublishing(false); }
+		};
+		void refresh();
+		const timer = setInterval(() => void refresh(), 120000);
+		return () => { cancelled = true; clearInterval(timer); };
+	}, [windowLabel, systemSettingsReady, isOpen]);
 	const notificationGroups = useMemo(() => groupNotifications(notifications.items), [notifications.items]);
 	const notificationActive =
 		isReady &&
@@ -1087,6 +1106,7 @@ function App() {
 			prev === "calendar" ||
 			prev === "devices" ||
 			prev === "notifications" ||
+			prev === "github" ||
 			prev === "status" ||
 			prev === "shelf"
 				? restingModeRef.current
@@ -1808,9 +1828,11 @@ function App() {
 		!isOpen &&
 		((musicActivity && (settingsAlbumArtEnabled || settingsVisualizerEnabled)) ||
 			showMusicOnStatusHover);
+	const showGithubActivity = !isOpen && githubPublishing && !showCompactMusicIcons && !notificationActive;
 	const simpleCompact =
 		!isOpen &&
 		!showCompactMusicIcons &&
+		!showGithubActivity &&
 		!(isHovered && (statusWidgets.left.length > 0 || statusWidgets.right.length > 0));
 
 	// The 24-hour clock is ~16px narrower than the 12-hour one.
@@ -1832,12 +1854,14 @@ function App() {
 		}
 		if (activeView === "notifications")
 			return Math.min(500 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
+		if (activeView === "github") return Math.min(500 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (activeView === "command-center") return 350;
 		if (notificationActive && peripherals.notice)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (notificationActive && showUpdatePulse) return 200;
 		if (notificationActive && notifications.notice)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
+		if (showGithubActivity) return Math.min(compactWidth + 130, window.innerWidth / scale - 48);
 		if (showCompactMusicIcons) {
 			const artVisible = settingsAlbumArtEnabled || showMusicOnStatusHover;
 			return (
@@ -1893,10 +1917,11 @@ function App() {
 		if (activeView === "notifications") {
 			const contentHeight =
 				notifications.status === "allowed" && notificationGroups.length > 0
-					? notchHeaderHeight + Math.min(notificationGroups.length, 3) * 108 + 22
+					? notchHeaderHeight + notificationGroups.reduce((height, group) => height + 108 + Math.max(0, group.items.length - 1) * 35, 0) + 22
 					: 250 + headerExtra;
 			return Math.min(contentHeight + Math.max(0, scales.font - 1) * 80, window.innerHeight / scale - 24);
 		}
+		if (activeView === "github") return Math.min(380 + headerExtra + Math.max(0, scales.font - 1) * 100, window.innerHeight / scale - 24);
 		if (activeView === "collapsed") return notchHeaderHeight;
 		if (activeView === "music") {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
@@ -1930,7 +1955,7 @@ function App() {
 		? 34
 		: isExpanded && effectiveVisible && !isHidden
 			? getDynamicWidth()
-			: showNotificationToast && effectiveVisible && !isHidden
+			: (showNotificationToast || showGithubActivity) && effectiveVisible && !isHidden
 				? getDynamicWidth()
 				: isImpacted
 					? 39.1
@@ -2064,7 +2089,9 @@ function App() {
 						>
 							{/* One view owns the panel area; only its entrance is animated. */}
 
-							{activeView === "notifications" ? (
+							{activeView === "github" ? (
+								<IslandGithub time={time} previous={() => cyclePanel(-1)} next={() => cyclePanel(1)} />
+							) : activeView === "notifications" ? (
 								<IslandNotifications
 									status={notifications.status}
 									items={notifications.items}
@@ -2382,7 +2409,7 @@ function App() {
 											) : (
 												<motion.div
 													key="standard-view"
-													className={`main-row-inner${showCompactMusicIcons ? " has-compact-media" : ""}${simpleCompact ? " simple-compact" : ""}`}
+															className={`main-row-inner${showCompactMusicIcons || showGithubActivity ? " has-compact-media" : ""}${simpleCompact ? " simple-compact" : ""}`}
 													initial={{ opacity: 0 }}
 													animate={{ opacity: 1 }}
 													exit={{ opacity: 0 }}
@@ -2567,7 +2594,9 @@ function App() {
 																	</button>
 																)}
 															</>
-														) : !showCompactMusicIcons &&
+																			) : showGithubActivity ? (
+																				<button className="github-activity" onClick={(e) => { e.stopPropagation(); openNotch("github"); }} aria-label="Ver publicación en GitHub"><GithubIcon size={17} /><span>Publicando</span></button>
+																			) : !showCompactMusicIcons &&
 														  isHovered &&
 														  statusWidgets.right.length > 0 ? (
 															<motion.div

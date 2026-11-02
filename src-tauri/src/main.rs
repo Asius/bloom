@@ -2,6 +2,7 @@
 mod commands;
 mod diagnostics;
 mod ghub;
+mod github_monitor;
 mod google_auth;
 mod google_events;
 mod island_settings;
@@ -89,6 +90,9 @@ fn main() {
             google_events::google_calendar_events,
             peripherals::peripheral_batteries,
             ghub::ghub_batteries,
+            github_monitor::github_monitor_snapshot,
+            github_monitor::github_monitor_jobs,
+            github_monitor::github_monitor_open,
             notifications::notification_snapshot,
             notifications::request_notification_access,
             notifications::open_notification_privacy_settings,

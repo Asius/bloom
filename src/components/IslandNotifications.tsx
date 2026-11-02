@@ -7,7 +7,6 @@ import {
 	ChevronRight,
 	ChevronUp,
 	ExternalLink,
-	MoreHorizontal,
 	Settings,
 	Trash2,
 	X
@@ -51,21 +50,15 @@ export function IslandNotifications({
 }) {
 	const groups = useMemo(() => groupNotifications(items), [items]);
 	const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
-	const [openMenu, setOpenMenu] = useState<string | null>(null);
 	return (
 		<section
 			className="notifications-panel"
 			aria-label="Notificaciones"
 			onClick={(event) => {
-				if (
-					event.target instanceof Element &&
-					!event.target.closest(".notification-group-more-wrap")
-				)
-					setOpenMenu(null);
 				event.stopPropagation();
 			}}
 			onKeyDown={(event) => {
-				if (event.key === "Escape") setOpenMenu(null);
+				if (event.key === "Escape") (event.target as HTMLElement).blur();
 			}}
 		>
 			<header className="notifications-header">
@@ -128,54 +121,17 @@ export function IslandNotifications({
 									</span>
 									<strong>{group.app}</strong>
 									<time>{formatTime(latest.createdMs, timeFormat24h)}</time>
-									<div className="notification-group-more-wrap">
-										<button
-											className="notification-group-more"
-											type="button"
-											aria-label={`Más opciones: ${label}`}
-											aria-expanded={openMenu === group.key}
-											onClick={() =>
-												setOpenMenu((current) => (current === group.key ? null : group.key))
-											}
-										>
-											<MoreHorizontal size={18} />
+								<div className="notification-card-actions">
+									{latest.appId && (
+										<button type="button" aria-label="Abrir aplicación" title="Abrir aplicación" onClick={() => openApp(latest.id)}>
+											<ExternalLink size={15} />
 										</button>
-										{openMenu === group.key && (
-											<div className="notification-group-menu" role="menu">
-												{latest.appId && (
-													<button
-														role="menuitem"
-														onClick={() => {
-															openApp(latest.id);
-															setOpenMenu(null);
-														}}
-													>
-														<ExternalLink size={14} /> Abrir aplicación
-													</button>
-												)}
-												<button
-													role="menuitem"
-													onClick={() => {
-														removeNotifications([latest.id]);
-														setOpenMenu(null);
-													}}
-												>
-													<Trash2 size={14} /> Quitar notificación
-												</button>
-												{count > 1 && (
-													<button
-														role="menuitem"
-														onClick={() => {
-															removeNotifications(group.items.map((item) => item.id));
-															setOpenMenu(null);
-														}}
-													>
-														<Trash2 size={14} /> Quitar grupo completo
-													</button>
-												)}
-											</div>
-										)}
-									</div>
+									)}
+									<button type="button" aria-label="Quitar notificación" title="Quitar notificación" onClick={() => removeNotifications([latest.id])}>
+										<Trash2 size={15} />
+									</button>
+									{count > 1 && <button type="button" aria-label="Quitar grupo completo" title="Quitar grupo" onClick={() => removeNotifications(group.items.map((item) => item.id))}><X size={15} /></button>}
+								</div>
 								</div>
 								<button
 									className="notification-group-summary"

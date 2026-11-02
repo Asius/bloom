@@ -5,7 +5,16 @@ import { sameMediaInfo, type MediaInfo } from "../src/mediaInfo";
 describe("exclusive island views", () => {
 	const enabled = { calendarEnabled: true, musicEnabled: true, hasMedia: true };
 	test("closing during a panel or activity switch always returns to a single collapsed view", () => {
-		for (const mode of ["music", "calendar", "command-center", "status", "shelf", "devices", "notifications"] as IslandMode[]) {
+		for (const mode of [
+			"music",
+			"calendar",
+			"command-center",
+			"status",
+			"shelf",
+			"devices",
+			"notifications",
+			"github"
+		] as IslandMode[]) {
 			expect(islandView({ ...enabled, mode, open: false })).toBe("collapsed");
 		}
 	});
@@ -39,8 +48,18 @@ describe("exclusive island views", () => {
 		);
 	});
 	test("a notice temporarily owns the view, then restores the open panel", () => {
-		for (const mode of ["music", "calendar", "command-center", "shelf", "devices", "notifications"] as IslandMode[]) {
-			expect(islandView({ ...enabled, mode, open: true, notificationActive: true })).toBe("collapsed");
+		for (const mode of [
+			"music",
+			"calendar",
+			"command-center",
+			"shelf",
+			"devices",
+			"notifications",
+			"github"
+		] as IslandMode[]) {
+			expect(islandView({ ...enabled, mode, open: true, notificationActive: true })).toBe(
+				"collapsed"
+			);
 			expect(islandView({ ...enabled, mode, open: true, notificationActive: false })).toBe(mode);
 		}
 	});
@@ -61,5 +80,7 @@ test("media capability and clock updates are not dropped as duplicate titles", (
 	expect(sameMediaInfo(previous, { ...previous, seek_enabled: true })).toBe(false);
 	expect(sameMediaInfo(previous, { ...previous, position_updated_at: 11000 })).toBe(false);
 	expect(sameMediaInfo(previous, { ...previous, has_media: false })).toBe(false);
-	expect(sameMediaInfo({ ...previous, playback_type: "music" }, { ...previous, playback_type: "video" })).toBe(false);
+	expect(
+		sameMediaInfo({ ...previous, playback_type: "music" }, { ...previous, playback_type: "video" })
+	).toBe(false);
 });
