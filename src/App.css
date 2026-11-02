@@ -982,7 +982,8 @@ img {
 	padding: 12px 14px 12px 14px;
 	display: flex;
 	flex-direction: column;
-	justify-content: space-between;
+	justify-content: center;
+	gap: 20px;
 	align-items: center;
 	color: var(--bloom-text, white);
 	border-radius: 0 0 var(--bloom-edge-radius) var(--bloom-edge-radius);
@@ -1231,6 +1232,21 @@ img {
 	box-sizing: border-box;
 }
 
+.cc-controls-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	width: 100%;
+}
+
+.cc-controls-row .cc-pill-tile {
+	flex: 0 1 150px;
+	min-width: 0;
+	height: max(44px, calc(44px + (var(--bloom-font-scale, 1) - 1) * 12px));
+	text-align: left;
+}
+
 .cc-pill-tile:hover {
 	background: var(--bloom-border, rgba(255, 255, 255, 0.08));
 	transform: translateY(-0.5px);
@@ -1337,16 +1353,16 @@ img {
 /* Circular Actions Row */
 .cc-circular-actions-row {
 	display: flex;
-	justify-content: center;
-	gap: 16px;
+	justify-content: flex-end;
+	gap: 12px;
 	align-items: center;
-	width: 100%;
-	padding: 0 4px;
+	flex: none;
 }
 
 .cc-circular-btn {
 	width: 40px;
 	height: 40px;
+	flex: none;
 	border-radius: 50%;
 	background: var(--bloom-group-bg, rgba(255, 255, 255, 0.04));
 	border: 1px solid var(--bloom-border, rgba(255, 255, 255, 0.02));
@@ -1468,6 +1484,11 @@ img {
 	cursor: pointer;
 	z-index: 4;
 	margin: 0;
+}
+
+.cc-classic-slider-track:focus-within {
+	outline: 2px solid var(--bloom-accent, #0067c0);
+	outline-offset: 4px;
 }
 
 /* Light Mode overrides for Notch App components */
@@ -1850,8 +1871,4 @@ img {
 .calendar-content {
 	padding: 16px 22px;
 	color: var(--bloom-text, white);
-}
-/* The retained mode control occupies the existing controls row. */
-.cc-pills-island {
-	grid-template-columns: 1fr;
 }

@@ -1859,7 +1859,8 @@ function App() {
 			if (shelfItems.length === 0) return 130 + headerExtra;
 			return (shelfOverflowing ? 190 : 176) + headerExtra;
 		}
-		if (activeView === "command-center") return 190 + headerExtra;
+		if (activeView === "command-center")
+			return 148 + headerExtra + Math.max(0, scales.font - 1) * 12;
 		if (activeView === "devices") {
 			return Math.min(
 				270 +
@@ -2539,53 +2540,55 @@ function App() {
 
 									transition={{ type: "spring", stiffness: 400, damping: 30 }}
 								>
-									{/* Pills Grid */}
-									<div className="cc-pills-grid cc-pills-island">
+									{/* Mode and actions share one row; spare space remains available. */}
+									<div className="cc-controls-row">
 										{/* Notch Mode Pill */}
 										<button
 											type="button"
-											className={`cc-pill-tile ${notchMode === "fixed" ? "active" : ""}`}
+											className="cc-pill-tile"
 											onClick={toggleNotchModeSetting}
-											title="Cycle notch mode: Fixed / Smart / Peek"
+											title="Cambiar modo de isla: Fijo, Smart y Peek"
 										>
 											<div className="cc-pill-icon-wrapper">
 												<NotchIcon />
 											</div>
 											<div className="cc-pill-info">
-												<span className="cc-pill-title">Notch Mode</span>
+												<span className="cc-pill-title">Modo de isla</span>
 												<span className="cc-pill-status">
 													{notchMode === "fixed"
-														? "Fixed"
+														? "Fijo"
 														: notchMode === "smart"
 															? "Smart"
 															: "Peek"}
 												</span>
 											</div>
 										</button>
-									</div>
-
-									{/* Circular Actions Row */}
-									<div className="cc-circular-actions-row">
-										<button
-											className="cc-circular-btn"
-											onClick={(e) => {
-												e.stopPropagation();
-												openSettingsWindow();
-											}}
-											title="Bloom Settings"
-										>
-											<SettingsIcon />
-										</button>
-										<button
-											className="cc-circular-btn"
-											onClick={(e) => {
-												e.stopPropagation();
-												invoke("restart_bloom");
-											}}
-											title="Restart Bloom"
-										>
-											<ReloadIcon />
-										</button>
+										<div className="cc-circular-actions-row">
+											<button
+												type="button"
+												className="cc-circular-btn"
+												onClick={(e) => {
+													e.stopPropagation();
+													openSettingsWindow();
+												}}
+												title="Ajustes de Bloom"
+												aria-label="Ajustes de Bloom"
+											>
+												<SettingsIcon />
+											</button>
+											<button
+												type="button"
+												className="cc-circular-btn"
+												onClick={(e) => {
+													e.stopPropagation();
+													invoke("restart_bloom");
+												}}
+												title="Reiniciar Bloom"
+												aria-label="Reiniciar Bloom"
+											>
+												<ReloadIcon />
+											</button>
+										</div>
 									</div>
 
 									{/* Classic Sliders Area */}
@@ -2594,10 +2597,11 @@ function App() {
 										<div className="cc-classic-slider-row">
 											<div className="cc-classic-slider-label">
 												<VolumeLowIcon style={{ opacity: 0.5 }} />
-												<span>Volume</span>
+												<span>Volumen</span>
 											</div>
 											<div className="cc-classic-slider-track">
 												<input
+													aria-label="Volumen"
 													type="range"
 													min="0"
 													max="1"
