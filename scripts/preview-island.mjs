@@ -41,11 +41,20 @@ function simulateIPC(version) {
 	const requestedNotifications = query.get("notifications") || "unavailable";
 	let mockNotificationStatus = ["items", "empty"].includes(requestedNotifications) ? "allowed" : requestedNotifications;
 	let mockNotificationId = 3;
+	const mockNoticeNow = Date.now();
 	let mockWindowsNotices = requestedNotifications === "items" ? [
-		{ id: 1, app: "Correo", title: "Mensaje nuevo", body: "Ejemplo de notificación", createdMs: Date.now() },
-		{ id: 2, app: "Música", title: "Reproducción iniciada", body: "", createdMs: Date.now() - 120000 }
+		{ id: 1, app: "Slack", appId: "com.slack.Slack", title: "Saúl Rodríguez", body: "ando caminando jaja", createdMs: mockNoticeNow },
+		{ id: 2, app: "Slack", appId: "com.slack.Slack", title: "Saúl Rodríguez", body: "en un rato voy a ver el archivo", createdMs: mockNoticeNow - 30000 },
+		{ id: 3, app: "Slack", appId: "com.slack.Slack", title: "Saúl Rodríguez", body: "hm ni idea", createdMs: mockNoticeNow - 60000 },
+		{ id: 4, app: "Correo", title: "Mensaje nuevo", body: "Ejemplo de notificación", createdMs: mockNoticeNow - 120000 }
 	] : [];
-	window.__bloomPreview = { raises: () => mockRaises };
+	window.__bloomPreview = {
+		raises: () => mockRaises,
+		pushNotification: (notice) => {
+			mockWindowsNotices = [{ ...notice, id: mockNotificationId++, createdMs: Date.now() }, ...mockWindowsNotices];
+			mockNotificationStatus = "allowed";
+		}
+	};
 	const values = {
 		"bloom-first-run": "done",
 		"bloom-app-version": version,
@@ -82,6 +91,13 @@ function simulateIPC(version) {
 			if (cmd === "notification_snapshot") {
 				return { status: mockNotificationStatus, items: mockNotificationStatus === "allowed" ? mockWindowsNotices : [] };
 			}
+			if (cmd === "remove_notifications") {
+				const removed = new Set(args.ids || []);
+				mockWindowsNotices = mockWindowsNotices.filter((notice) => !removed.has(notice.id));
+				return;
+			}
+			if (cmd === "clear_notifications") { mockWindowsNotices = []; return; }
+			if (cmd === "open_notification_app") return;
 			if (cmd === "raise_notch_for_notification") { mockRaises++; return; }
 			if (cmd === "desktop_idle") return mockDesktopIdle;
 			if (cmd === "ghub_batteries") return query.get("notice") === "1" ? [{ id: "ghub-test", name: "Pro Wireless Mouse", kind: "mouse", connected: mockMouseConnected, percent: mockMouseConnected ? 82 : null, approximate: false, charging: false }] : null;

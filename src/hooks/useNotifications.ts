@@ -9,6 +9,7 @@ export type WindowsNotice = {
 	title: string;
 	body: string;
 	createdMs: number;
+	appId?: string | null;
 };
 export type NotificationStatus =
 	| "loading"
@@ -30,12 +31,14 @@ export function useNotifications(enabled: boolean) {
 		message: string;
 		retryValue: boolean;
 	} | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<WindowsNotice | null>(null);
-	const ids = useRef<Set<number> | null>(null);
+	const ids = useRef<Map<number, string> | null>(null);
 	const busy = useRef(false);
 	const saving = useRef(false);
 	const active = useRef(false);
 	const generation = useRef(0);
+	const mutationRevision = useRef(0);
 	const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const dismiss = useCallback(() => {
 		if (dismissTimer.current) clearTimeout(dismissTimer.current);
@@ -62,9 +65,15 @@ export function useNotifications(enabled: boolean) {
 		if (busy.current || !active.current) return;
 		busy.current = true;
 		const current = generation.current;
+		const mutationAtStart = mutationRevision.current;
 		try {
 			const next = await invoke<NotificationSnapshot>("notification_snapshot");
-			if (!active.current || current !== generation.current) return;
+			if (
+				!active.current ||
+				current !== generation.current ||
+				mutationAtStart !== mutationRevision.current
+			)
+				return;
 			const reconciled = reconcileNotifications(ids.current, next);
 			ids.current = reconciled.ids;
 			if (next.status === "allowed") {
@@ -81,7 +90,12 @@ export function useNotifications(enabled: boolean) {
 			}
 			setSnapshot(reconciled.snapshot);
 		} catch {
-			if (!active.current || current !== generation.current) return;
+			if (
+				!active.current ||
+				current !== generation.current ||
+				mutationAtStart !== mutationRevision.current
+			)
+				return;
 			ids.current = null;
 			dismiss();
 			setSnapshot({ status: "error", items: [] });
@@ -172,6 +186,45 @@ export function useNotifications(enabled: boolean) {
 		}
 		await refresh();
 	}, [refresh]);
+	const removeNotifications = useCallback(async (notificationIds: number[]) => {
+		if (notificationIds.length === 0) return;
+		mutationRevision.current++;
+		try {
+			await invoke("remove_notifications", { ids: notificationIds });
+			const removed = new Set(notificationIds);
+			ids.current = ids.current
+				? new Map([...ids.current].filter(([id]) => !removed.has(id)))
+				: null;
+			setSnapshot((current) => ({
+				...current,
+				items: current.items.filter((item) => !removed.has(item.id))
+			}));
+			setNotice((current) => (current && removed.has(current.id) ? null : current));
+			setActionError(null);
+		} catch {
+			setActionError("No se pudo quitar la notificación de Windows.");
+		}
+	}, []);
+	const clearAll = useCallback(async () => {
+		mutationRevision.current++;
+		try {
+			await invoke("clear_notifications");
+			ids.current = new Map();
+			setSnapshot((current) => ({ ...current, items: [] }));
+			dismiss();
+			setActionError(null);
+		} catch {
+			setActionError("No se pudieron borrar las notificaciones de Windows.");
+		}
+	}, [dismiss]);
+	const openApp = useCallback(async (notificationId: number) => {
+		try {
+			await invoke("open_notification_app", { id: notificationId });
+			setActionError(null);
+		} catch {
+			setActionError("Windows no pudo abrir esta aplicación desde la notificación.");
+		}
+	}, []);
 	return {
 		...snapshot,
 		notice,
@@ -180,6 +233,10 @@ export function useNotifications(enabled: boolean) {
 		requestAccess,
 		preferenceError,
 		preferenceBusy,
-		setActive
+		setActive,
+		removeNotifications,
+		clearAll,
+		openApp,
+		actionError
 	};
 }

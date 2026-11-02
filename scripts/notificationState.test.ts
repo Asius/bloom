@@ -14,12 +14,14 @@ const allowed = (...items: WindowsNotice[]): NotificationSnapshot => ({ status: 
 test("la lectura inicial no presenta avisos anteriores como nuevos", () => {
 	const initial = reconcileNotifications(null, allowed(item(1)));
 	expect(initial.arrival).toBeNull();
-	expect(reconcileNotifications(initial.ids, allowed(item(2), item(1))).arrival?.id).toBe(2);
-	expect(reconcileNotifications(new Set([1, 2]), allowed(item(2), item(1))).arrival).toBeNull();
+	const updated = reconcileNotifications(initial.ids, allowed(item(2), item(1)));
+	expect(updated.arrival?.id).toBe(2);
+	expect(reconcileNotifications(updated.ids, allowed(item(2), item(1))).arrival).toBeNull();
 });
 
 test("revocar el permiso elimina datos anteriores y restablece la primera lectura", () => {
-	const revoked = reconcileNotifications(new Set([1]), { status: "denied", items: [item(1)] });
+	const initial = reconcileNotifications(null, allowed(item(1)));
+	const revoked = reconcileNotifications(initial.ids, { status: "denied", items: [item(1)] });
 	expect(revoked.snapshot.items).toEqual([]);
 	expect(revoked.ids).toBeNull();
 	expect(reconcileNotifications(revoked.ids, allowed(item(2))).arrival).toBeNull();

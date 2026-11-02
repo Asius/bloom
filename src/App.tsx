@@ -6,6 +6,7 @@ import { IslandCalendar } from "./components/IslandCalendar";
 import { IslandPeripherals, PeripheralNoticeView } from "./components/IslandPeripherals";
 import { IslandNotifications, NotificationNotice } from "./components/IslandNotifications";
 import { useNotifications } from "./hooks/useNotifications";
+import { groupNotifications } from "./notificationState";
 import { normalizeStatusWidgets } from "./statusWidgets";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { getVersion } from "@tauri-apps/api/app";
@@ -363,10 +364,13 @@ function App() {
 		isReady && !waitForStartupSplash
 	);
 	const notifications = useNotifications(windowLabel === "main" && systemSettingsReady);
+	const notificationGroups = useMemo(() => groupNotifications(notifications.items), [notifications.items]);
 	const notificationActive =
 		isReady &&
 		!waitForStartupSplash &&
 		!!(peripherals.notice || showUpdatePulse || notifications.notice);
+	const showNotificationToast =
+		!isExpanded && !!notifications.notice && !peripherals.notice && !showUpdatePulse;
 	const effectiveVisible = isVisible || notificationActive;
 	useEffect(() => {
 		if (windowLabel === "main" && notificationActive) {
@@ -1813,10 +1817,12 @@ function App() {
 	const clock24hTrim = timeFormat24h ? 16 : 0;
 	const clockScaleExtra = Math.max(0, scales.font - 1) * 50;
 	const showNotificationDot = !isOpen && notifications.status === "allowed" && notifications.items.length > 0;
-	const compactWidth = 196 - clock24hTrim + clockScaleExtra + (showNotificationDot ? 24 : 0);
+	const compactWidth = 196 - clock24hTrim + clockScaleExtra;
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
+		if (showNotificationToast)
+			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (isCalendarMode) {
 			return Math.min(620 + Math.max(0, scales.font - 1) * 140, window.innerWidth / scale - 48);
 		}
@@ -1825,7 +1831,7 @@ function App() {
 			return Math.min(350 + Math.max(0, scales.font - 1) * 90, window.innerWidth / scale - 48);
 		}
 		if (activeView === "notifications")
-			return Math.min(430 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
+			return Math.min(500 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (activeView === "command-center") return 350;
 		if (notificationActive && peripherals.notice)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
@@ -1855,7 +1861,7 @@ function App() {
 
 	const getDynamicHeight = () => {
 		if (!isExpanded || !effectiveVisible || isHidden) {
-			return isImpacted ? 28.9 : notchHeaderHeight;
+			return (isImpacted ? 28.9 : notchHeaderHeight) + (showNotificationToast ? 90 : 0);
 		}
 		// Six stable calendar rows; browsing months never changes the region.
 		const headerExtra = notchHeaderHeight - 36;
@@ -1885,9 +1891,10 @@ function App() {
 			);
 		}
 		if (activeView === "notifications") {
-			const contentHeight = notifications.status === "allowed" && notifications.items.length > 0
-				? notchHeaderHeight + Math.min(notifications.items.length, 3) * 64 + 22
-				: 250 + headerExtra;
+			const contentHeight =
+				notifications.status === "allowed" && notificationGroups.length > 0
+					? notchHeaderHeight + Math.min(notificationGroups.length, 3) * 108 + 22
+					: 250 + headerExtra;
 			return Math.min(contentHeight + Math.max(0, scales.font - 1) * 80, window.innerHeight / scale - 24);
 		}
 		if (activeView === "collapsed") return notchHeaderHeight;
@@ -1923,9 +1930,11 @@ function App() {
 		? 34
 		: isExpanded && effectiveVisible && !isHidden
 			? getDynamicWidth()
-			: isImpacted
-				? 39.1
-				: 30.6;
+			: showNotificationToast && effectiveVisible && !isHidden
+				? getDynamicWidth()
+				: isImpacted
+					? 39.1
+					: 30.6;
 	const pillTargetHeight = !isReady ? 34 : getDynamicHeight();
 	// Shadow and the edge flares beside the pill.
 	pillTargetRef.current = notchPillBox(
@@ -2065,6 +2074,10 @@ function App() {
 									setActive={notifications.setActive}
 									preferenceError={notifications.preferenceError}
 									preferenceBusy={notifications.preferenceBusy}
+									actionError={notifications.actionError}
+									removeNotifications={notifications.removeNotifications}
+									clearAll={notifications.clearAll}
+									openApp={notifications.openApp}
 									previous={() => cyclePanel(-1)}
 									next={() => cyclePanel(1)}
 								/>
@@ -2366,15 +2379,6 @@ function App() {
 														Update Available
 													</span>
 												</motion.div>
-											) : notificationActive && notifications.notice ? (
-												<NotificationNotice
-													notice={notifications.notice}
-													time={time}
-													open={() => {
-														notifications.dismiss();
-														openNotch("notifications");
-													}}
-												/>
 											) : (
 												<motion.div
 													key="standard-view"
@@ -2403,12 +2407,28 @@ function App() {
 													</div>
 
 													{/* Center - Time (always visible) */}
-													<div className={`time-center${showNotificationDot ? " has-notification-dot" : ""}`} ref={timeCenterRef}>
-														<BloomAvatar
-															active={effectiveVisible && !isHidden && isExpanded}
-															playing={isPlaying}
-															mediaType={mediaInfo.playback_type}
-														/>
+													<div
+														className={`time-center${showNotificationDot ? " has-notification-dot" : ""}`}
+														ref={timeCenterRef}
+													>
+														<div className="avatar-notification-anchor">
+															<BloomAvatar
+																active={effectiveVisible && !isHidden && isExpanded}
+																playing={isPlaying}
+																mediaType={mediaInfo.playback_type}
+															/>
+															{showNotificationDot && (
+																<button
+																	className="notification-dot"
+																	aria-label="Abrir notificaciones"
+																	title="Notificaciones nuevas"
+																	onClick={(event) => {
+																		event.stopPropagation();
+																		openNotch("notifications");
+																	}}
+																/>
+															)}
+														</div>
 														<AnimatePresence>
 															{showPanelArrows && (
 																<motion.button
@@ -2467,16 +2487,6 @@ function App() {
 														</AnimatePresence>
 														{updateAvailable && showUpdateIndicator && (
 															<div className="update-dot" />
-														)}
-														{showNotificationDot && (
-															<button
-																className="notification-dot"
-																aria-label="Abrir notificaciones"
-																onClick={(event) => {
-																	event.stopPropagation();
-																	openNotch("notifications");
-																}}
-															/>
 														)}
 													</div>
 
@@ -2577,6 +2587,19 @@ function App() {
 											)}
 										</AnimatePresence>
 									</div>
+									<AnimatePresence>
+										{showNotificationToast && notifications.notice && (
+											<NotificationNotice
+												notice={notifications.notice}
+												timeFormat24h={timeFormat24h}
+												open={() => {
+													notifications.dismiss();
+													openNotch("notifications");
+												}}
+												dismiss={notifications.dismiss}
+											/>
+										)}
+									</AnimatePresence>
 								</motion.div>
 							)}
 
