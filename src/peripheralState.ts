@@ -15,6 +15,10 @@ export type PeripheralNotice =
 	| { kind: "connected" | "disconnected"; device: PeripheralReading }
 	| { kind: "low" | "empty" | "full"; device: PeripheralReading };
 
+export function peripheralNoticeDuration(notice: PeripheralNotice): number {
+	return notice.kind === "connected" || notice.kind === "disconnected" ? 7_500 : 10_000;
+}
+
 export interface PeripheralSnapshot {
 	devices: PeripheralReading[];
 	bluetoothAvailable: boolean;

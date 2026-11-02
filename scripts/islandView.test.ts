@@ -38,6 +38,12 @@ describe("exclusive island views", () => {
 			"command-center"
 		);
 	});
+	test("a notice temporarily owns the view, then restores the open panel", () => {
+		for (const mode of ["music", "calendar", "command-center", "shelf", "devices"] as IslandMode[]) {
+			expect(islandView({ ...enabled, mode, open: true, notificationActive: true })).toBe("collapsed");
+			expect(islandView({ ...enabled, mode, open: true, notificationActive: false })).toBe(mode);
+		}
+	});
 });
 
 test("media capability and clock updates are not dropped as duplicate titles", () => {

@@ -1487,6 +1487,11 @@ pub async fn set_notch_visible(visible: bool) {
     NOTCH_IS_VISIBLE.store(visible, Ordering::Relaxed);
 }
 
+#[tauri::command]
+pub fn raise_notch_for_notification(app: AppHandle) -> Result<(), String> {
+    crate::services::raise_island_for_notification(&app)
+}
+
 #[cfg(test)]
 mod desktop_idle_tests {
     use super::desktop_idle_from_ticks;

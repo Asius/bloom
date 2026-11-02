@@ -2,12 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import {
 	peripheralNotices,
+	peripheralNoticeDuration,
 	type PeripheralNotice,
 	type PeripheralReading,
 	type PeripheralSnapshot
 } from "../peripheralState";
 
-export function usePeripherals(enabled: boolean) {
+export function usePeripherals(enabled: boolean, canPresent = true) {
 	const [devices, setDevices] = useState<PeripheralReading[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [notice, setNotice] = useState<PeripheralNotice | null>(null);
@@ -109,10 +110,13 @@ export function usePeripherals(enabled: boolean) {
 		};
 	}, [enabled]);
 	useEffect(() => {
-		if (!notice) return;
-		const timer = setTimeout(() => setNotice(pending.current.shift() ?? null), 10_000);
+		if (!notice || !canPresent) return;
+		const timer = setTimeout(
+			() => setNotice(pending.current.shift() ?? null),
+			peripheralNoticeDuration(notice)
+		);
 		return () => clearTimeout(timer);
-	}, [notice]);
+	}, [notice, canPresent]);
 	return {
 		devices,
 		error,

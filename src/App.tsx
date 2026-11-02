@@ -354,11 +354,18 @@ function App() {
 	};
 	const [systemSettingsReady, setSystemSettingsReady] = useState(false);
 	const [waitForStartupSplash, setWaitForStartupSplash] = useState(false);
-	const peripherals = usePeripherals(windowLabel === "main" && systemSettingsReady);
+	const peripherals = usePeripherals(
+		windowLabel === "main" && systemSettingsReady,
+		isReady && !waitForStartupSplash
+	);
+	const notificationActive =
+		isReady && !waitForStartupSplash && !!(peripherals.notice || showUpdatePulse);
+	const effectiveVisible = isVisible || notificationActive;
 	useEffect(() => {
-		if (peripherals.notice && isReady && isVisible && !isOpen && !waitForStartupSplash)
-			triggerEventPeek(10000);
-	}, [peripherals.notice, isReady, isVisible, isOpen, waitForStartupSplash, triggerEventPeek]);
+		if (windowLabel === "main" && notificationActive) {
+			invoke("raise_notch_for_notification").catch(console.error);
+		}
+	}, [windowLabel, notificationActive, peripherals.notice, showUpdatePulse]);
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
 	const systemSyncQueue = useRef<Promise<void>>(Promise.resolve());
@@ -366,6 +373,7 @@ function App() {
 
 	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
 	const isHidden =
+		!notificationActive &&
 		!startupAnimating &&
 		((notchMode === "smart" &&
 			isOverlapped &&
@@ -394,9 +402,9 @@ function App() {
 	// in its footprint.
 	useEffect(() => {
 		if (windowLabel === "main") {
-			invoke("set_notch_visible", { visible: isVisible && !isHidden }).catch(() => {});
+			invoke("set_notch_visible", { visible: effectiveVisible && !isHidden }).catch(() => {});
 		}
-	}, [isVisible, isHidden, windowLabel]);
+	}, [effectiveVisible, isHidden, windowLabel]);
 
 	useEffect(() => {
 		const updateRect = () => {
@@ -1335,7 +1343,8 @@ function App() {
 		settingsMusicModeEnabled && settingsMusicCompactNotch && mediaInfo.has_media && isPlaying;
 	const collapsedMode = musicActivity ? "music" : "status";
 
-	const showShelfBubble = shelfItems.length > 0 && !isOpen && isVisible && !isHidden;
+	const showShelfBubble =
+		shelfItems.length > 0 && !isOpen && effectiveVisible && !isHidden && !notificationActive;
 	restingModeRef.current = collapsedMode;
 	bloomModeRef.current = bloomMode;
 
@@ -1771,7 +1780,8 @@ function App() {
 		mode: bloomMode,
 		calendarEnabled: settingsCalendarEnabled,
 		musicEnabled: settingsMusicModeEnabled,
-		hasMedia: mediaInfo.has_media
+		hasMedia: mediaInfo.has_media,
+		notificationActive
 	});
 
 	// A retained paused session (or a disabled compact activity) stays accessible on hover.
@@ -1792,6 +1802,8 @@ function App() {
 
 	// The 24-hour clock is ~16px narrower than the 12-hour one.
 	const clock24hTrim = timeFormat24h ? 16 : 0;
+	const clockScaleExtra = Math.max(0, scales.font - 1) * 50;
+	const compactWidth = 196 - clock24hTrim + clockScaleExtra;
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
@@ -1803,29 +1815,32 @@ function App() {
 			return Math.min(350 + Math.max(0, scales.font - 1) * 90, window.innerWidth / scale - 48);
 		}
 		if (activeView === "command-center") return 350;
-		if (peripherals.notice && !isOpen)
+		if (notificationActive && peripherals.notice)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
+		if (notificationActive && showUpdatePulse) return 200;
 		if (showCompactMusicIcons) {
+			const artVisible = settingsAlbumArtEnabled || showMusicOnStatusHover;
 			return (
-				196 -
-				clock24hTrim +
-				(settingsAlbumArtEnabled || showMusicOnStatusHover ? 42 : 0) +
-				(settingsVisualizerEnabled ? 43 : 0)
+				compactWidth +
+				14 +
+				(artVisible ? 30 : 0) +
+				(settingsVisualizerEnabled ? 39 : 0) +
+				(artVisible && settingsVisualizerEnabled ? 14 : 0)
 			);
 		}
 		if (bloomMode === "status" && isHovered) {
 			const totalWidgets = statusWidgets.left.length + statusWidgets.right.length;
-			return Math.max(Math.min(196 + totalWidgets * 50, 400) - clock24hTrim, statusFitWidth);
+			return Math.max(Math.min(compactWidth + totalWidgets * 50, 400), statusFitWidth);
 		}
 		if (activeView === "music") return mediaLayout === "compact" ? 300 : 340;
 		if (showUpdatePulse && !isHovered) return 200;
 
 		// Reserve the larger avatar and its separator alongside the clock/media.
-		return 196 - clock24hTrim;
+		return compactWidth;
 	};
 
 	const getDynamicHeight = () => {
-		if (!isExpanded || !isVisible || isHidden) {
+		if (!isExpanded || !effectiveVisible || isHidden) {
 			return isImpacted ? 28.9 : notchHeaderHeight;
 		}
 		// Six stable calendar rows; browsing months never changes the region.
@@ -1882,10 +1897,10 @@ function App() {
 	// The pill's target geometry: the animation springs toward it, and the
 	// window region below is cut from it, so the region is already at the
 	// final size while the pill animates.
-	const pillTargetY = !isReady ? 250 : isVisible ? (isHidden ? -100 : 0) : -150;
+	const pillTargetY = !isReady ? 250 : effectiveVisible ? (isHidden ? -100 : 0) : -150;
 	const pillTargetWidth = !isReady
 		? 34
-		: isExpanded && isVisible && !isHidden
+		: isExpanded && effectiveVisible && !isHidden
 			? getDynamicWidth()
 			: isImpacted
 				? 39.1
@@ -1964,15 +1979,15 @@ function App() {
 						y: pillTargetY,
 						width: pillTargetWidth,
 						height: pillTargetHeight,
-						opacity: isVisible ? 1 : 0,
+						opacity: effectiveVisible ? 1 : 0,
 						scaleX: 1,
 						scaleY: 1,
 						borderTopLeftRadius: isImpacted ? 0 : 18,
 						borderTopRightRadius: isImpacted ? 0 : 18,
 						borderBottomLeftRadius: isCalendarMode ? 28 : 18,
 						borderBottomRightRadius: isCalendarMode ? 28 : 18,
-						filter: isVisible ? "blur(0px)" : "blur(8px)",
-						pointerEvents: isVisible ? "auto" : "none"
+						filter: effectiveVisible ? "blur(0px)" : "blur(8px)",
+						pointerEvents: effectiveVisible ? "auto" : "none"
 					}}
 					onClick={(e) => {
 						e.stopPropagation();
@@ -2293,7 +2308,7 @@ function App() {
 								>
 									<div className="main-row">
 										<AnimatePresence mode="wait">
-											{peripherals.notice && !isOpen ? (
+											{notificationActive && peripherals.notice ? (
 												<PeripheralNoticeView
 													key="peripheral-notice"
 													notice={peripherals.notice}
@@ -2304,7 +2319,7 @@ function App() {
 														openNotch("devices");
 													}}
 												/>
-											) : showUpdatePulse && !isHovered ? (
+											) : notificationActive && showUpdatePulse ? (
 												<motion.div
 													key="update-pulse-view"
 													initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
@@ -2347,7 +2362,7 @@ function App() {
 													{/* Center - Time (always visible) */}
 													<div className="time-center" ref={timeCenterRef}>
 														<BloomAvatar
-															active={isVisible && !isHidden && isExpanded}
+															active={effectiveVisible && !isHidden && isExpanded}
 															playing={isPlaying}
 															mediaType={mediaInfo.playback_type}
 														/>

@@ -97,6 +97,7 @@ fn main() {
             update_notch_rect,
             set_notch_hovered,
             set_notch_visible,
+            raise_notch_for_notification,
             desktop_idle,
             window_region::set_window_region,
             set_window_height,

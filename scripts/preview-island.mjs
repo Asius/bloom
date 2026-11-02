@@ -37,11 +37,14 @@ function simulateIPC(version) {
 	let mockGoogleConnected = false;
 	let mockMouseConnected = false;
 	let mockDesktopIdle = false;
+	let mockRaises = 0;
+	window.__bloomPreview = { raises: () => mockRaises };
 	const values = {
 		"bloom-first-run": "done",
 		"bloom-app-version": version,
 		"bloom-weather-enabled": "false",
-		"bloom-notch-mode": "fixed",
+		"bloom-notch-mode": query.get("mode") || "fixed",
+		"bloom-time-format-24h": query.get("clock") === "24" ? "true" : "false",
 		"bloom-notch-scale": query.get("scale") || "1",
 		"bloom-font-scale": query.get("font") || "1",
 		"bloom-theme-mode": query.get("theme") || "light",
@@ -68,6 +71,7 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "raise_notch_for_notification") { mockRaises++; return; }
 			if (cmd === "desktop_idle") return mockDesktopIdle;
 			if (cmd === "ghub_batteries") return query.get("notice") === "1" ? [{ id: "ghub-test", name: "Pro Wireless Mouse", kind: "mouse", connected: mockMouseConnected, percent: mockMouseConnected ? 82 : null, approximate: false, charging: false }] : null;
 			if (cmd === "peripheral_batteries") {
@@ -142,6 +146,10 @@ function simulateIPC(version) {
 			seek_enabled: false
 		};
 		for (const [label, action] of [
+			["Simulate overlap", () => dispatch("notch-overlap", true)],
+			["Simulate fullscreen", () => dispatch("visibility-change", false)],
+			["Restore visibility", () => { dispatch("notch-overlap", false); dispatch("visibility-change", true); }],
+			["Update notice", () => dispatch("update-available", { available: true })],
 			["Desktop idle", () => { mockDesktopIdle = true; }],
 			["Desktop active", () => { mockDesktopIdle = false; }],
 			["Toggle device", () => { mockMouseConnected = !mockMouseConnected; }],

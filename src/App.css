@@ -97,7 +97,10 @@ img {
 .main-row-inner.simple-compact .time-center,
 .main-row-inner.has-compact-media .time-center {
 	flex: 1;
-	justify-content: space-between;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	justify-items: center;
+	gap: 0;
 }
 .main-row-inner.simple-compact .time-center > .bloom-avatar,
 .main-row-inner.has-compact-media .time-center > .bloom-avatar {
@@ -105,7 +108,7 @@ img {
 }
 .main-row-inner.simple-compact .time-center::before,
 .main-row-inner.has-compact-media .time-center::before {
-	left: calc(50% - 13px);
+	left: 50%;
 }
 
 .power-pulse-content {

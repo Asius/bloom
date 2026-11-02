@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { peripheralNotices, type PeripheralReading } from "../src/peripheralState";
+import { peripheralNotices, peripheralNoticeDuration, type PeripheralReading } from "../src/peripheralState";
 const device = (
 	percent: number | null,
 	connected: boolean | null = true,
@@ -14,6 +14,14 @@ const device = (
 	approximate: false
 });
 describe("peripheral transitions", () => {
+	test("connection notices last 7.5 seconds while battery notices retain 10 seconds", () => {
+		for (const kind of ["connected", "disconnected"] as const) {
+			expect(peripheralNoticeDuration({ kind, device: device(60) })).toBe(7_500);
+		}
+		for (const kind of ["low", "empty", "full"] as const) {
+			expect(peripheralNoticeDuration({ kind, device: device(10) })).toBe(10_000);
+		}
+	});
 	test("startup and unchanged battery never display unsolicited alerts", () => {
 		expect(peripheralNotices(null, [device(15)])).toEqual([]);
 		expect(peripheralNotices([device(15)], [device(15)])).toEqual([]);

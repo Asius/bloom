@@ -8,14 +8,17 @@ export function islandView({
 	mode,
 	calendarEnabled,
 	musicEnabled,
-	hasMedia
+	hasMedia,
+	notificationActive = false
 }: {
 	open: boolean;
 	mode: IslandMode;
 	calendarEnabled: boolean;
 	musicEnabled: boolean;
 	hasMedia: boolean;
+	notificationActive?: boolean;
 }): IslandView {
+	if (notificationActive) return "collapsed";
 	if (!open) return "collapsed";
 	if (mode === "shelf") return "shelf";
 	if (mode === "devices") return "devices";

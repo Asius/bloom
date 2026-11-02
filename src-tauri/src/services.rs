@@ -781,6 +781,20 @@ static MH_CACHED_MON_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 static MH_CACHED_MON_SIZE: Mutex<Option<(u32, u32)>> = Mutex::new(None);
 static CAPTURE_UI_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+/// Raise an existing island without taking focus. Capture selection keeps its
+/// priority so the user's snipping overlay can receive input uninterrupted.
+pub fn raise_island_for_notification(app: &AppHandle) -> Result<(), String> {
+    if CAPTURE_UI_ACTIVE.load(Ordering::Relaxed) || SHUTTING_DOWN.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "La isla no está disponible".to_string())?;
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    re_assert_topmost(hwnd);
+    Ok(())
+}
+
 fn is_primary_monitor(flags: u32) -> bool {
     const PRIMARY_MONITOR_FLAG: u32 = 1;
     flags & PRIMARY_MONITOR_FLAG != 0
