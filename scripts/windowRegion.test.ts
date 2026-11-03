@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	clipToWindow,
+	interactionBounds,
 	createRegionSender,
 	nextRegion,
 	notchPillBox,
@@ -11,6 +12,22 @@ import {
 const empty: RegionState = { key: "", current: [], held: [] };
 
 describe("window region", () => {
+	test("hover grows immediately to a tall panel and keeps the visible box during shrink", () => {
+		const collapsed = { x: 600, y: 0, width: 200, height: 44 };
+		const expanded = { x: 400, y: 0, width: 640, height: 700 };
+		// The pointer at y=650 belongs to the panel even before content/animation settles.
+		expect(interactionBounds([collapsed, expanded])).toEqual(expanded);
+		expect(interactionBounds([expanded, collapsed])).toEqual(expanded);
+		// Window CSS pixels already include island zoom; DPI must not be applied twice.
+		expect(interactionBounds([{ x: 0.5, y: 10.2, width: 640.1, height: 875.2 }])).toEqual({
+			x: 0,
+			y: 10,
+			width: 641,
+			height: 876
+		});
+		expect(interactionBounds([])).toBeNull();
+	});
+
 	test("pads and clips rectangles to whole pixels inside the window", () => {
 		expect(padRect({ x: 10, y: 10, width: 20, height: 20 }, 5)).toEqual({
 			x: 5,

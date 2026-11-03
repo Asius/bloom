@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	getGithubDeviceFlowState,
+	resetGithubDeviceFlow,
 	startGithubDeviceFlow,
 	subscribeGithubDeviceFlow
 } from "../githubDeviceFlow";
@@ -110,6 +111,8 @@ export function IslandGithub({
 	const [verification, setVerification] = useState<ReleaseVerification | null>(null);
 	const [verificationError, setVerificationError] = useState("");
 	const [verifying, setVerifying] = useState(false);
+	const repositoryGeneration = useRef(0);
+	const handledAuthorization = useRef(deviceFlow.completedAt);
 	const generation = useRef(0);
 	const jobGeneration = useRef(0);
 	const reloadAccount = useCallback(async () => {
@@ -118,15 +121,16 @@ export function IslandGithub({
 		return current;
 	}, []);
 	const loadRepositories = useCallback(async () => {
+		const request = ++repositoryGeneration.current;
 		setAuthBusy(true);
 		setRepoError("");
 		try {
 			const repos = await invoke<RepoChoice[]>("github_repositories");
-			setRepoChoices(repos);
+			if (request === repositoryGeneration.current) setRepoChoices(repos);
 		} catch (e) {
-			setRepoError(String(e));
+			if (request === repositoryGeneration.current) setRepoError(String(e));
 		} finally {
-			setAuthBusy(false);
+			if (request === repositoryGeneration.current) setAuthBusy(false);
 		}
 	}, []);
 	useEffect(() => {
@@ -176,11 +180,17 @@ export function IslandGithub({
 
 	useEffect(() => subscribeGithubDeviceFlow(setDeviceFlow), []);
 	useEffect(() => {
-		if (!deviceFlow.completedAt) return;
+		if (!deviceFlow.completedAt || deviceFlow.completedAt <= handledAuthorization.current) return;
+		handledAuthorization.current = deviceFlow.completedAt;
 		setAuthMessage(`Sesión iniciada como ${deviceFlow.login}.`);
 		void reloadAccount();
-		void loadRepositories();
-	}, [deviceFlow.completedAt, deviceFlow.login, loadRepositories, reloadAccount]);
+	}, [deviceFlow.completedAt, deviceFlow.login, reloadAccount]);
+	useEffect(
+		() => () => {
+			repositoryGeneration.current++;
+		},
+		[]
+	);
 	useEffect(() => {
 		if (account.connected) void loadRepositories();
 	}, [account.connected, loadRepositories]);
@@ -240,11 +250,14 @@ export function IslandGithub({
 		}
 	};
 	const disconnect = async () => {
+		repositoryGeneration.current++;
 		setAuthBusy(true);
 		try {
 			await invoke("github_disconnect");
+			resetGithubDeviceFlow();
 			setAccount({ connected: false, login: null, selected: [] });
 			setRepoChoices([]);
+			setRepoError("");
 			setSource("public");
 			setAuthMessage("La cuenta y sus tokens protegidos se quitaron de este equipo.");
 		} catch (e) {
@@ -622,16 +635,17 @@ export function IslandGithub({
 									<Check size={15} /> Usar repositorio
 								</button>
 							)}
-							{accountView && (editing || !repoChoices.some((repo) => repo.private)) && (
-								<button
-									className="github-install-app"
-									onClick={() =>
-										void openUrl("https://github.com/apps/bloom-florecer/installations/new")
-									}
-								>
-									Autorizar repositorios de Bloom <ExternalLink size={14} />
-								</button>
-							)}
+							{accountView &&
+								(editing || (privacy && !repoChoices.some((repo) => repo.private))) && (
+									<button
+										className="github-install-app"
+										onClick={() =>
+											void openUrl("https://github.com/apps/bloom-florecer/installations/new")
+										}
+									>
+										Autorizar repositorios de Bloom <ExternalLink size={14} />
+									</button>
+								)}
 						</div>
 					)}
 

@@ -6,6 +6,20 @@ export interface RegionRect {
 	height: number;
 }
 
+/** One hit box for the visible pill, its expansion target and activity bubbles.
+ * Keeping the target and actual box avoids losing hover while either grows.
+ * Coordinates remain in window CSS pixels; only the backend applies DPI.
+ */
+export function interactionBounds(rects: RegionRect[]): RegionRect | null {
+	const visible = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+	if (!visible.length) return null;
+	const left = Math.floor(Math.min(...visible.map((rect) => rect.x)));
+	const top = Math.floor(Math.min(...visible.map((rect) => rect.y)));
+	const right = Math.ceil(Math.max(...visible.map((rect) => rect.x + rect.width)));
+	const bottom = Math.ceil(Math.max(...visible.map((rect) => rect.y + rect.height)));
+	return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
 /** An earlier region kept until an animation away from it has settled. */
 export interface HeldRegion {
 	rects: RegionRect[];

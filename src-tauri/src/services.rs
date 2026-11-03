@@ -1311,8 +1311,11 @@ fn update_main_interaction(
                 };
                 let rx = win_pos.x + (r.x as f64 * scale) as i32 - pad_x - hyst;
                 let rw = (r.width as f64 * scale) as i32 + (pad_x * 2) + (hyst * 2);
-                let ry_top = win_pos.y;
-                let ry_bottom = win_pos.y + (r.height as f64 * scale) as i32 + pad_y_bottom + hyst;
+                let ry_top = win_pos.y + (r.y as f64 * scale).floor() as i32;
+                let ry_bottom = win_pos.y
+                    + ((r.y + r.height) as f64 * scale).ceil() as i32
+                    + pad_y_bottom
+                    + hyst;
 
                 let in_notch_rect = cursor.x >= rx
                     && cursor.x <= (rx + rw)
@@ -1604,7 +1607,7 @@ pub fn register_appbar(window: tauri::WebviewWindow) {
         let hwnd = window.hwnd().unwrap();
         let scale = monitor.scale_factor();
         let bloom_scale = crate::utils::get_notch_scale(window.app_handle());
-        let ph = ((480.0 * bloom_scale) * scale) as i32;
+        let ph = m_size.height as i32;
         let pr = ((48.0 * bloom_scale) * scale) as i32;
 
         unsafe {

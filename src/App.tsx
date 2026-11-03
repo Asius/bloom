@@ -70,7 +70,13 @@ import {
 import { initTheme } from "./theme";
 import { effectiveScale } from "./scales";
 import type { UpdateCheckResult } from "./updater";
-import { createRegionSender, measureElements, notchPillBox, type RegionRect } from "./windowRegion";
+import {
+	createRegionSender,
+	interactionBounds,
+	measureElements,
+	notchPillBox,
+	type RegionRect
+} from "./windowRegion";
 
 /**
  * The notch has two kinds of content:
@@ -400,7 +406,9 @@ function App() {
 	useEffect(() => {
 		if (windowLabel !== "main" || !systemSettingsReady) return;
 		let cancelled = false;
+		let refreshGeneration = 0;
 		const refresh = async () => {
+			const request = ++refreshGeneration;
 			try {
 				const settings = await invoke<Record<string, string>>("load_settings");
 				const repository = settings["bloom-github-repository"] || "Asius/bloom";
@@ -414,7 +422,7 @@ function App() {
 						html_url: string;
 					}[];
 				}>("github_monitor_snapshot", { repository });
-				if (cancelled) return;
+				if (cancelled || request !== refreshGeneration) return;
 				const prior = githubSeenRuns.current;
 				if (prior?.repository === repository) {
 					const notice = githubRunTransitionNotice(repository, prior.runs, result.runs);
@@ -428,7 +436,7 @@ function App() {
 				};
 				setGithubActivity(currentGitHubActivity(repository, result.runs));
 			} catch {
-				if (!cancelled) setGithubActivity(null);
+				if (!cancelled && request === refreshGeneration) setGithubActivity(null);
 			}
 		};
 		let unlisten: (() => void) | null = null;
@@ -523,18 +531,16 @@ function App() {
 				const rects = [bloomRef.current, shelfBubbleRef.current]
 					.filter((el): el is NonNullable<typeof el> => el !== null)
 					.map((el) => el.getBoundingClientRect());
-				const left = Math.min(...rects.map((r) => r.left));
-				const top = Math.min(...rects.map((r) => r.top));
-				const right = Math.max(...rects.map((r) => r.right));
-				const bottom = Math.max(...rects.map((r) => r.bottom));
-				invoke("update_notch_rect", {
-					rect: {
-						x: Math.round(left),
-						y: Math.round(top),
-						width: Math.round(right - left),
-						height: Math.round(bottom - top)
-					}
-				}).catch(() => {});
+				const hitBox = interactionBounds([
+					...rects.map((rect) => ({
+						x: rect.left,
+						y: rect.top,
+						width: rect.width,
+						height: rect.height
+					})),
+					...(pillTargetRef.current ? [pillTargetRef.current] : [])
+				]);
+				if (hitBox) invoke("update_notch_rect", { rect: hitBox }).catch(() => {});
 				// Bubbles finishing their entrance land here too.
 				updateNotchRegion();
 			}
@@ -2082,8 +2088,8 @@ function App() {
 	// Clip the notch window to what it draws (see window_region.rs): outside
 	// these rectangles the window takes no clicks, whatever its click-through
 	// state. Sent after every render, but only when the region changes.
-	useEffect(() => {
-		if (windowLabel === "main") updateNotchRegion();
+	useLayoutEffect(() => {
+		if (windowLabel === "main") reportNotchRect.current();
 	});
 
 	return (

@@ -70,7 +70,7 @@ export function githubRunTransitionNotice(
 					repository,
 					workflow: run.name,
 					title: "Publicación completada",
-					body: `${repository} · ${run.name}`,
+					body: run.name,
 					url: run.html_url,
 					priority: "success"
 				},

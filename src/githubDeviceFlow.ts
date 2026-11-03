@@ -28,6 +28,13 @@ function publish(next: GithubDeviceFlowState) {
 	for (const subscriber of subscribers) subscriber(state);
 }
 
+export function resetGithubDeviceFlow() {
+	generation++;
+	if (timer) clearTimeout(timer);
+	timer = null;
+	publish(emptyState);
+}
+
 export function getGithubDeviceFlowState() {
 	return state;
 }
