@@ -191,6 +191,90 @@
 .github-verification > span {
 	color: var(--bloom-text-muted);
 }
+.github-verification button {
+	margin-left: auto;
+	padding: 6px 9px;
+	border: 1px solid var(--bloom-border);
+	white-space: nowrap;
+}
+.github-auth-card {
+	margin-top: 12px;
+	padding: 10px;
+	border: 1px solid var(--bloom-border);
+	border-radius: 10px;
+	background: color-mix(in srgb, currentColor 4%, transparent);
+}
+.github-auth-heading,
+.github-repo-list-heading,
+.github-repo-choice {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.github-auth-heading button,
+.github-repo-list-heading button,
+.github-repo-choice button,
+.github-save-repos,
+.github-install-app {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border: 1px solid var(--bloom-border) !important;
+}
+.github-repo-list-heading {
+	margin-top: 10px;
+	font-size: 11px;
+}
+.github-device-code {
+	margin: 10px 0 4px;
+	font-size: 14px;
+}
+.github-device-code strong {
+	font-size: 18px;
+	letter-spacing: 2px;
+}
+.github-auth-message {
+	margin: 7px 0;
+	color: var(--bloom-text-muted);
+	white-space: normal;
+}
+.github-repo-choices {
+	max-height: 180px;
+	overflow: auto;
+	margin: 8px 0;
+	border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+	border-radius: 7px;
+}
+.github-repo-choice {
+	min-height: 34px;
+	padding: 3px 6px;
+	border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+.github-repo-choice label {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	flex: 1;
+}
+.github-repo-choice label span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.github-repo-choice input {
+	accent-color: #7ee05a;
+}
+.github-save-repos {
+	width: 100%;
+}
+.github-install-app {
+	margin-top: 8px;
+	font-size: 11px;
+}
 .github-jobs {
 	overflow-wrap: anywhere;
 	white-space: normal;

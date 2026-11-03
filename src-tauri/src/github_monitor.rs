@@ -1,4 +1,4 @@
-//! Read-only GitHub Actions snapshots for a user-selected public repository.
+//! Read-only GitHub Actions snapshots for selected public or authorized repositories.
 use serde::Serialize;
 use serde_json::Value;
 
@@ -19,19 +19,27 @@ fn valid_part(value: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn github_monitor_snapshot(repository: String) -> Result<Snapshot, String> {
+pub async fn github_monitor_snapshot(
+    app: tauri::AppHandle,
+    repository: String,
+) -> Result<Snapshot, String> {
     let parts: Vec<_> = repository.split('/').collect();
     if parts.len() != 2 || !parts.iter().all(|part| valid_part(part)) {
         return Err("Introduce un repositorio con el formato propietario/nombre.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let token = crate::github_auth::access_token_for_selected_repository(&app, &repository)?;
         let client = crate::google_auth::secure_http_client()?;
-        let response = client
+        let mut request = client
             .get(format!(
                 "https://api.github.com/repos/{repository}/actions/runs?per_page=50"
             ))
             .header("User-Agent", "Bloom-desktop")
-            .header("Accept", "application/vnd.github+json")
+            .header("Accept", "application/vnd.github+json");
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let response = request
             .send()
             .map_err(|_| "No se pudo conectar con GitHub.".to_string())?;
         if !response.status().is_success() {
@@ -55,19 +63,28 @@ pub async fn github_monitor_snapshot(repository: String) -> Result<Snapshot, Str
 }
 
 #[tauri::command]
-pub async fn github_monitor_jobs(repository: String, run_id: u64) -> Result<Value, String> {
+pub async fn github_monitor_jobs(
+    app: tauri::AppHandle,
+    repository: String,
+    run_id: u64,
+) -> Result<Value, String> {
     let parts: Vec<_> = repository.split('/').collect();
     if parts.len() != 2 || !parts.iter().all(|part| valid_part(part)) || run_id == 0 {
         return Err("Repositorio o ejecución no válidos.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let token = crate::github_auth::access_token_for_selected_repository(&app, &repository)?;
         let client = crate::google_auth::secure_http_client()?;
-        let response = client
+        let mut request = client
             .get(format!(
                 "https://api.github.com/repos/{repository}/actions/runs/{run_id}/jobs?per_page=100"
             ))
             .header("User-Agent", "Bloom-desktop")
-            .header("Accept", "application/vnd.github+json")
+            .header("Accept", "application/vnd.github+json");
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let response = request
             .send()
             .map_err(|_| "No se pudo conectar con GitHub.".to_string())?;
         if !response.status().is_success() {

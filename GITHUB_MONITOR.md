@@ -1,18 +1,17 @@
 # Seguimiento de GitHub
 
-El panel consulta, en modo de lectura, las últimas 50 ejecuciones de un repositorio público seleccionado mediante `propietario/repositorio`. Al abrir una fila consulta los trabajos y pasos de esa ejecución. Cada fila muestra su propio SHA: CI, CodeQL y Release pueden pertenecer a revisiones distintas. La consulta se actualiza cada dos minutos; el indicador compacto muestra una ejecución Release en curso. GitHub puede limitar las consultas sin autenticación. Los datos anteriores se indican como tales ante un error de red. La verificación de canal, descarga y firma aún no está integrada y figura como no comprobada.
+El panel consulta ejecuciones de Actions, trabajos y pasos de hasta 50 repositorios elegidos. Si el repositorio está autorizado por la instalación de Bloom, las consultas usan el token de usuario; si no, las consultas públicas siguen disponibles sin iniciar sesión. GitHub limita el acceso a los permisos de Bloom, la cuenta y los repositorios habilitados en la instalación.
 
-La conexión a una cuenta aún no está implementada. Para habilitarla hará falta identificar o registrar una GitHub App propia de Bloom, habilitar Device Flow, definir permisos de lectura mínimos para repositorios y Actions, instalarla en los repositorios elegidos e integrar el almacenamiento del token cifrado con DPAPI. El identificador de cliente de una GitHub App no es un token; no se deben pegar tokens ni secretos en chats, configuración del proyecto, commits o informes. La conexión que usa Codex para GitHub es independiente y no se transfiere a Bloom.
+## Conectar y elegir repositorios
 
-Fuentes: [GitHub App y Device Flow](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app), [ejecuciones](https://docs.github.com/en/rest/actions/workflow-runs) y [trabajos](https://docs.github.com/en/rest/actions/workflow-jobs).
+En GitHub, la App **Bloom Florecer** usa Device Flow con su Client ID público. Bloom solicita solo `offline_access`, el único scope admitido por GitHub Apps; las capacidades reales las determinan los permisos de la App. Los códigos del dispositivo permanecen en memoria, los tokens no pasan a React ni a IPC y el acceso/renovación se guardan cifrados con DPAPI para el usuario actual de Windows. Los access tokens vencen y se renuevan con rotación del refresh token. Desconectar elimina el archivo local protegido; para revocar también en GitHub, hay que hacerlo desde los ajustes de aplicaciones autorizadas.
 
+La lista se obtiene desde las instalaciones autorizadas de esa GitHub App y sus repositorios accesibles para el usuario. El backend valida la selección contra esa lista antes de guardarla. GitHub solo permite instalar esta App en la cuenta **Asius**, según la decisión del propietario; el propietario aún debe completar la autorización de instalación desde su cuenta GitHub antes de que aparezcan repositorios privados. Bloom no necesita la clave privada de la App para el Device Flow de usuario.
 
-## Registro confirmado — 2 de noviembre de 2026
+## Canal y firma
 
-Se registró **Bloom Florecer** en la cuenta Asius: https://github.com/settings/apps/bloom-florecer.
-- App ID público: `5588585`.
-- Client ID público: `Iv23ctoA6xuYRnqst4Nd` (no es un secreto).
-- Device Flow activado, Actions y Metadata de solo lectura, webhook desactivado.
-- Instalación limitada a Asius por decisión expresa del propietario; otras cuentas no pueden instalarla todavía.
-- GitHub mostró registro exitoso y solicita generar una clave privada antes de instalar la App. No se generaron claves privadas ni secretos.
-- El flujo Device Flow, su almacenamiento DPAPI y la selección de repositorios autorizados siguen pendientes de implementación. Registrar la App no conecta la cuenta en Bloom.
+«Comprobar» fuerza una consulta del canal updater `latest`, obtiene el instalador Windows x64 publicado y le pide al verificador updater de Tauri que valide su firma Minisign con la clave pública configurada. La operación descarga el instalador completo, lo verifica en memoria y lo descarta; no lo ejecuta ni instala. La interfaz indica verificado solo cuando termina esa comprobación criptográfica. Si latest no está disponible, la plataforma no coincide o la firma falla, se muestra el error.
+
+La comprobación no instala ni confirma el estado de firma Authenticode de Windows; valida la firma Minisign usada por el actualizador Bloom. La publicación todavía debe comprobarse con CI, CodeQL, Release y artefactos de la versión exacta.
+
+Fuentes: [Device Flow de GitHub Apps](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app), [permisos de la cuenta e instalaciones](https://docs.github.com/en/rest/apps/installations), [renovación de tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens) y [verificación del artefacto Tauri updater](https://docs.rs/tauri-plugin-updater/2.12.0/tauri_plugin_updater/struct.Update.html#method.download).

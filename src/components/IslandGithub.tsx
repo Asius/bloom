@@ -1,6 +1,18 @@
 import { GithubIcon } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, Circle, ExternalLink, LoaderCircle, RefreshCw, Settings2, X } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+	Check,
+	Circle,
+	ExternalLink,
+	LoaderCircle,
+	LogIn,
+	LogOut,
+	RefreshCw,
+	Settings2,
+	ShieldCheck,
+	X
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelHeader } from "./PanelHeader";
 import "./IslandGithub.css";
@@ -22,6 +34,14 @@ type Job = {
 	steps?: { name: string; status: string; conclusion: string | null }[];
 };
 type Snapshot = { repository: string; runs: Run[] };
+type RepoChoice = { id: number; fullName: string; private: boolean; selected: boolean };
+type GithubAccount = { connected: boolean; login: string | null; selected: RepoChoice[] };
+type ReleaseVerification = {
+	version: string;
+	verified: boolean;
+	bytes: number;
+	detail: string;
+};
 function state(status: string, conclusion: string | null): string {
 	if (status !== "completed") return status === "queued" ? "En cola" : "En curso";
 	return (
@@ -49,9 +69,41 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 	const [jobs, setJobs] = useState<Job[]>([]);
 	const [jobError, setJobError] = useState("");
 	const [jobsLoaded, setJobsLoaded] = useState(false);
+	const [account, setAccount] = useState<GithubAccount>({
+		connected: false,
+		login: null,
+		selected: []
+	});
+	const [repoChoices, setRepoChoices] = useState<RepoChoice[]>([]);
+	const [authBusy, setAuthBusy] = useState(false);
+	const [authMessage, setAuthMessage] = useState("");
+	const [deviceCode, setDeviceCode] = useState("");
+	const [verification, setVerification] = useState<ReleaseVerification | null>(null);
+	const [verificationError, setVerificationError] = useState("");
+	const [verifying, setVerifying] = useState(false);
 	const generation = useRef(0);
 	const jobGeneration = useRef(0);
+	const authGeneration = useRef(0);
+	const authTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const reloadAccount = useCallback(async () => {
+		const current = await invoke<GithubAccount>("github_auth_status");
+		setAccount(current);
+		return current;
+	}, []);
+	const loadRepositories = useCallback(async () => {
+		setAuthBusy(true);
+		setAuthMessage("");
+		try {
+			const repos = await invoke<RepoChoice[]>("github_repositories");
+			setRepoChoices(repos);
+		} catch (e) {
+			setAuthMessage(String(e));
+		} finally {
+			setAuthBusy(false);
+		}
+	}, []);
 	useEffect(() => {
+		void reloadAccount().catch(() => {});
 		void invoke<Record<string, string>>("load_settings")
 			.then((s) => {
 				const v = s["bloom-github-repository"];
@@ -61,7 +113,97 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 				}
 			})
 			.catch(() => {});
-	}, []);
+	}, [reloadAccount]);
+	useEffect(
+		() => () => {
+			authGeneration.current++;
+			if (authTimer.current) clearTimeout(authTimer.current);
+		},
+		[]
+	);
+	const beginLogin = async () => {
+		setAuthBusy(true);
+		setAuthMessage("");
+		try {
+			const start = await invoke<{ userCode: string; expiresIn: number; interval: number }>(
+				"github_device_start"
+			);
+			setDeviceCode(start.userCode);
+			setAuthMessage(
+				"Introduce el código en GitHub. Bloom comprobará la autorización automáticamente."
+			);
+			const request = ++authGeneration.current;
+			let wait = Math.max(5, start.interval) * 1000;
+			const poll = async () => {
+				if (request !== authGeneration.current) return;
+				try {
+					const result = await invoke<{ state: string; waitSeconds?: number; login?: string }>(
+						"github_device_poll"
+					);
+					if (result.state === "connected") {
+						setDeviceCode("");
+						setAuthMessage(`Sesión iniciada como ${result.login}.`);
+						await reloadAccount();
+						await loadRepositories();
+						return;
+					}
+					if (result.state === "slow_down") wait += 5000;
+					if (result.waitSeconds) wait = Math.max(wait, result.waitSeconds * 1000);
+					authTimer.current = setTimeout(() => void poll(), wait);
+				} catch (e) {
+					setDeviceCode("");
+					setAuthMessage(String(e));
+					void reloadAccount();
+				}
+			};
+			authTimer.current = setTimeout(() => void poll(), wait);
+		} catch (e) {
+			setAuthMessage(String(e));
+		} finally {
+			setAuthBusy(false);
+		}
+	};
+	const saveRepositories = async () => {
+		const selectedRepos = repoChoices.filter((repo) => repo.selected);
+		setAuthBusy(true);
+		try {
+			await invoke("github_select_repositories", { repositories: selectedRepos });
+			await reloadAccount();
+			setAuthMessage(`${selectedRepos.length} repositorio(s) guardado(s) en este dispositivo.`);
+		} catch (e) {
+			setAuthMessage(String(e));
+		} finally {
+			setAuthBusy(false);
+		}
+	};
+	const disconnect = async () => {
+		setAuthBusy(true);
+		try {
+			authGeneration.current++;
+			if (authTimer.current) clearTimeout(authTimer.current);
+			await invoke("github_disconnect");
+			setAccount({ connected: false, login: null, selected: [] });
+			setRepoChoices([]);
+			setDeviceCode("");
+			setAuthMessage("La cuenta y sus tokens protegidos se quitaron de este equipo.");
+		} catch (e) {
+			setAuthMessage(String(e));
+		} finally {
+			setAuthBusy(false);
+		}
+	};
+	const verifyRelease = async () => {
+		setVerifying(true);
+		setVerification(null);
+		setVerificationError("");
+		try {
+			setVerification(await invoke<ReleaseVerification>("github_release_verification"));
+		} catch (e) {
+			setVerificationError(String(e));
+		} finally {
+			setVerifying(false);
+		}
+	};
 	const refresh = useCallback(async () => {
 		const request = ++generation.current;
 		try {
@@ -173,7 +315,7 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 			<div className="github-content">
 				{editing && (
 					<div className="github-repository">
-						<label htmlFor="github-repository">Repositorio público</label>
+						<label htmlFor="github-repository">Repositorio público o autorizado</label>
 						<div>
 							<input
 								id="github-repository"
@@ -198,6 +340,102 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 							>
 								<ExternalLink size={15} />
 							</button>
+						</div>
+						<div className="github-auth-card">
+							<div className="github-auth-heading">
+								<strong>
+									{account.connected ? `Conectado como ${account.login}` : "Cuenta GitHub"}
+								</strong>
+								{account.connected ? (
+									<button
+										disabled={authBusy}
+										onClick={() => void disconnect()}
+										title="Desconectar GitHub"
+									>
+										<LogOut size={15} /> Desconectar
+									</button>
+								) : (
+									<button disabled={authBusy || !!deviceCode} onClick={() => void beginLogin()}>
+										<LogIn size={15} /> Iniciar sesión
+									</button>
+								)}
+							</div>
+							{deviceCode && (
+								<p className="github-device-code">
+									Código: <strong>{deviceCode}</strong>
+								</p>
+							)}
+							{authMessage && (
+								<p className="github-auth-message" role="status">
+									{authMessage}
+								</p>
+							)}
+							{account.connected && (
+								<>
+									<div className="github-repo-list-heading">
+										<strong>Repositorios permitidos por la instalación de Bloom</strong>
+										<button disabled={authBusy} onClick={() => void loadRepositories()}>
+											<RefreshCw size={14} /> Cargar
+										</button>
+									</div>
+									{!authBusy && repoChoices.length === 0 && (
+										<button
+											className="github-install-app"
+											onClick={() =>
+												void openUrl("https://github.com/apps/bloom-florecer/installations/new")
+											}
+										>
+											Autorizar instalación de Bloom en Asius <ExternalLink size={14} />
+										</button>
+									)}
+									{repoChoices.length > 0 && (
+										<div className="github-repo-choices">
+											{repoChoices.map((repo) => (
+												<div className="github-repo-choice" key={repo.id}>
+													<label>
+														<input
+															type="checkbox"
+															checked={repo.selected}
+															onChange={(event) =>
+																setRepoChoices((items) =>
+																	items.map((item) =>
+																		item.id === repo.id
+																			? { ...item, selected: event.target.checked }
+																			: item
+																	)
+																)
+															}
+														/>
+														<span>
+															{repo.fullName}
+															{repo.private ? " · Privado" : " · Público"}
+														</span>
+													</label>
+													<button
+														title="Mostrar en el panel"
+														onClick={() => {
+															setInput(repo.fullName);
+															setRepository(repo.fullName);
+															setEditing(false);
+														}}
+													>
+														Usar
+													</button>
+												</div>
+											))}
+										</div>
+									)}
+									{repoChoices.length > 0 && (
+										<button
+											className="github-save-repos"
+											disabled={authBusy}
+											onClick={() => void saveRepositories()}
+										>
+											Guardar repositorios seguidos
+										</button>
+									)}
+								</>
+							)}
 						</div>
 					</div>
 				)}
@@ -259,25 +497,38 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 							</div>
 						))}
 				<div className="github-verification">
-					<Circle size={21} />
+					{verification?.verified ? <ShieldCheck size={21} /> : <Circle size={21} />}
 					<strong>Canal y firma</strong>
-					<span>Sin comprobar</span>
+					<span>
+						{verification?.verified ? `Verificada · ${verification.version}` : "Sin comprobar"}
+					</span>
+					<button
+						disabled={verifying}
+						onClick={() => void verifyRelease()}
+						title="Verificar firma del instalador latest"
+					>
+						{verifying ? <LoaderCircle className="github-spin" size={16} /> : "Comprobar"}
+					</button>
 				</div>
+				{verification?.verified && (
+					<p className="github-foot">
+						{verification.detail} ({Math.ceil(verification.bytes / 1_048_576)} MB).
+					</p>
+				)}
+				{verificationError && (
+					<p className="github-error" role="alert">
+						{verificationError}
+					</p>
+				)}
 				{names.length > 3 && (
 					<button className="github-other" onClick={() => setShowOther((v) => !v)}>
 						{showOther ? "Ocultar otras ejecuciones" : "Otras ejecuciones"}
 					</button>
 				)}
 				<p className="github-foot">
-					Consulta pública
+					{account.connected ? `Consulta autenticada · ${account.login}` : "Consulta pública"}
 					{updated && ` · Actualizado ${new Date(updated).toLocaleTimeString()}`}
 				</p>
-				{editing && (
-					<p className="github-foot">
-						Cuenta GitHub: conexión pendiente de configurar. Los repositorios privados aún no están
-						disponibles.
-					</p>
-				)}
 			</div>
 		</section>
 	);

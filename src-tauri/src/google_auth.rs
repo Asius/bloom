@@ -89,7 +89,7 @@ fn client_from_json(data: &[u8]) -> Result<Client, String> {
     Ok(config.installed)
 }
 
-fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect_data(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows::Win32::{
         Foundation::{LocalFree, HLOCAL},
         Security::Cryptography::{CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB},
@@ -116,7 +116,7 @@ fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
-fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect_data(data: &[u8]) -> Result<Vec<u8>, String> {
     use windows::Win32::{
         Foundation::{LocalFree, HLOCAL},
         Security::Cryptography::{
@@ -155,7 +155,7 @@ pub(crate) fn load_stored(app: &AppHandle) -> Result<Stored, String> {
     if encrypted.len() > 65536 {
         return Err("La conexión guardada es inválida".into());
     }
-    serde_json::from_slice(&unprotect(&encrypted)?)
+    serde_json::from_slice(&unprotect_data(&encrypted)?)
         .map_err(|_| "La conexión guardada es inválida".into())
 }
 
@@ -324,7 +324,7 @@ fn authorize(app: AppHandle, window: Window) -> Result<bool, String> {
         .refresh_token
         .filter(|s| !s.is_empty())
         .ok_or("Google no entregó autorización para mantener la conexión")?;
-    let encrypted = protect(
+    let encrypted = protect_data(
         &serde_json::to_vec(&Stored {
             client,
             refresh_token,
@@ -379,7 +379,7 @@ pub fn google_calendar_connected(app: AppHandle, window: Window) -> Result<bool,
     if encrypted.len() > 65536 {
         return Err("La conexión guardada es inválida".into());
     }
-    let plaintext = unprotect(&encrypted)?;
+    let plaintext = unprotect_data(&encrypted)?;
     let stored: Stored =
         serde_json::from_slice(&plaintext).map_err(|_| "La conexión guardada es inválida")?;
     Ok(!stored.refresh_token.is_empty())
@@ -450,15 +450,15 @@ mod tests {
     }
     #[test]
     fn windows_protection_round_trip() {
-        let protected = protect(b"example token").unwrap();
+        let protected = protect_data(b"example token").unwrap();
         assert!(!protected
             .windows(13)
             .any(|window| window == b"example token"));
-        assert_eq!(unprotect(&protected).unwrap(), b"example token");
+        assert_eq!(unprotect_data(&protected).unwrap(), b"example token");
         let mut damaged = protected;
         let last = damaged.len() - 1;
         damaged[last] ^= 0xff;
-        assert!(unprotect(&damaged).is_err());
+        assert!(unprotect_data(&damaged).is_err());
     }
     #[test]
     fn secure_http_client_initializes() {

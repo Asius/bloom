@@ -2,6 +2,7 @@
 mod commands;
 mod diagnostics;
 mod ghub;
+mod github_auth;
 mod github_monitor;
 mod google_auth;
 mod google_events;
@@ -93,6 +94,13 @@ fn main() {
             github_monitor::github_monitor_snapshot,
             github_monitor::github_monitor_jobs,
             github_monitor::github_monitor_open,
+            github_auth::github_auth_status,
+            github_auth::github_device_start,
+            github_auth::github_device_poll,
+            github_auth::github_repositories,
+            github_auth::github_select_repositories,
+            github_auth::github_disconnect,
+            github_auth::github_release_verification,
             notifications::notification_snapshot,
             notifications::request_notification_access,
             notifications::open_notification_privacy_settings,
