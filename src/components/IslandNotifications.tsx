@@ -121,17 +121,36 @@ export function IslandNotifications({
 									</span>
 									<strong>{group.app}</strong>
 									<time>{formatTime(latest.createdMs, timeFormat24h)}</time>
-								<div className="notification-card-actions">
-									{latest.appId && (
-										<button type="button" aria-label="Abrir aplicación" title="Abrir aplicación" onClick={() => openApp(latest.id)}>
-											<ExternalLink size={15} />
+									<div className="notification-card-actions">
+										{latest.appId && (
+											<button
+												type="button"
+												aria-label="Abrir aplicación"
+												title="Abrir aplicación"
+												onClick={() => openApp(latest.id)}
+											>
+												<ExternalLink size={15} />
+											</button>
+										)}
+										<button
+											type="button"
+											aria-label="Quitar notificación"
+											title="Quitar notificación"
+											onClick={() => removeNotifications([latest.id])}
+										>
+											<Trash2 size={15} />
 										</button>
-									)}
-									<button type="button" aria-label="Quitar notificación" title="Quitar notificación" onClick={() => removeNotifications([latest.id])}>
-										<Trash2 size={15} />
-									</button>
-									{count > 1 && <button type="button" aria-label="Quitar grupo completo" title="Quitar grupo" onClick={() => removeNotifications(group.items.map((item) => item.id))}><X size={15} /></button>}
-								</div>
+										{count > 1 && (
+											<button
+												type="button"
+												aria-label="Quitar grupo completo"
+												title="Quitar grupo"
+												onClick={() => removeNotifications(group.items.map((item) => item.id))}
+											>
+												<X size={15} />
+											</button>
+										)}
+									</div>
 								</div>
 								<button
 									className="notification-group-summary"

@@ -1,6 +1,6 @@
 {
   "name": "bloom",
-  "version": "3.11.17",
+  "version": "3.11.18",
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
