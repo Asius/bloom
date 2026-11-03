@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GithubIcon } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
@@ -19,7 +20,7 @@ import {
 	ShieldCheck,
 	X
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
 	getGithubDeviceFlowState,
 	resetGithubDeviceFlow,
@@ -72,11 +73,13 @@ function state(status: string, conclusion: string | null): string {
 export function IslandGithub({
 	previous,
 	next,
-	onHeightChange
+	onHeightChange,
+	scrollable = false
 }: {
 	previous: () => void;
 	next: () => void;
 	onHeightChange?: (height: number) => void;
+	scrollable?: boolean;
 }) {
 	const [editing, setEditing] = useState(false);
 	const [source, setSource] = useState<"public" | "account">("public");
@@ -139,7 +142,7 @@ export function IslandGithub({
 			.then(([current, settings]) => {
 				if (cancelled) return;
 				const value = settings["bloom-github-repository"];
-				if (value) {
+				if (value !== undefined) {
 					setInput(value);
 					setRepository(value);
 				}
@@ -194,7 +197,7 @@ export function IslandGithub({
 	useEffect(() => {
 		if (account.connected) void loadRepositories();
 	}, [account.connected, loadRepositories]);
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const panel = panelRef.current;
 		const content = contentRef.current;
 		if (!panel || !content || !onHeightChange) return;
@@ -280,6 +283,11 @@ export function IslandGithub({
 	};
 	const refresh = useCallback(async () => {
 		const request = ++generation.current;
+		if (!repository) {
+			setSnapshot(null);
+			setError("");
+			return;
+		}
 		try {
 			const result = await invoke<Snapshot>("github_monitor_snapshot", { repository });
 			if (request !== generation.current) return;
@@ -313,7 +321,7 @@ export function IslandGithub({
 			setError("Elige los repositorios privados desde Mi cuenta.");
 			return;
 		}
-		if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value)) {
+		if (value && !/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value)) {
 			setError("Usa el formato propietario/repositorio.");
 			return;
 		}
@@ -419,7 +427,7 @@ export function IslandGithub({
 					</>
 				}
 			/>
-			<div className="github-content">
+			<div className="github-content" style={{ overflowY: scrollable ? "auto" : "hidden" }}>
 				<div ref={contentRef} className="github-content-inner">
 					<div className="github-source-tabs" aria-label="Origen del repositorio">
 						<button
@@ -588,6 +596,7 @@ export function IslandGithub({
 											<input
 												autoFocus
 												aria-label="Buscar repositorios de tu cuenta"
+												onPointerDown={() => void getCurrentWindow().setFocus()}
 												placeholder="Buscar repositorio…"
 												value={search}
 												onChange={(e) => setSearch(e.target.value)}
@@ -632,7 +641,7 @@ export function IslandGithub({
 							)}
 							{!accountView && input.trim() !== repository && (
 								<button className="github-apply-public" onClick={() => void selectRepository()}>
-									<Check size={15} /> Usar repositorio
+									<Check size={15} /> {input.trim() ? "Usar repositorio" : "Quitar repositorio"}
 								</button>
 							)}
 							{accountView &&

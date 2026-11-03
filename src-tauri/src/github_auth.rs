@@ -172,10 +172,13 @@ pub(crate) fn access_token_for_selected_repository(
         Ok(account) => account,
         Err(_) => return Ok(None),
     };
-    if !account
-        .selected
-        .iter()
-        .any(|selected| selected.private && selected.full_name.eq_ignore_ascii_case(repository))
+    if !repository
+        .split_once('/')
+        .is_some_and(|(owner, _)| owner.eq_ignore_ascii_case(&account.login))
+        && !account
+            .selected
+            .iter()
+            .any(|selected| selected.full_name.eq_ignore_ascii_case(repository))
     {
         return Ok(None);
     }
@@ -249,21 +252,29 @@ fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, S
     // Public repositories belong to the account even before the App is installed.
     // Private repositories above still require the owner's installation grant.
     for page in 1..=10 {
-        let page_repositories: Vec<serde_json::Value> = client
-            .get(format!(
-                "https://api.github.com/users/{}/repos?type=owner&per_page=100&page={page}",
-                account.login
-            ))
-            .header("User-Agent", "Bloom-desktop")
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .map_err(|_| {
-                "No se pudieron consultar los repositorios públicos de la cuenta".to_string()
-            })?
-            .error_for_status()
-            .map_err(|_| "GitHub no permitió consultar los repositorios públicos".to_string())?
-            .json()
-            .map_err(|_| "GitHub devolvió repositorios públicos no válidos".to_string())?;
+        let public_page = (|| -> Result<Vec<serde_json::Value>, String> {
+            client
+                .get(format!(
+                    "https://api.github.com/users/{}/repos?type=owner&per_page=100&page={page}",
+                    account.login
+                ))
+                .bearer_auth(&account.access_token)
+                .header("User-Agent", "Bloom-desktop")
+                .header("Accept", "application/vnd.github+json")
+                .send()
+                .map_err(|_| {
+                    "No se pudieron consultar los repositorios públicos de la cuenta".to_string()
+                })?
+                .error_for_status()
+                .map_err(|_| "GitHub no permitió consultar los repositorios públicos".to_string())?
+                .json()
+                .map_err(|_| "GitHub devolvió repositorios públicos no válidos".to_string())
+        })();
+        let page_repositories = match public_page {
+            Ok(page) => page,
+            Err(_) if !repositories.is_empty() => break,
+            Err(error) => return Err(error),
+        };
         for repo in &page_repositories {
             if let (Some(id), Some(full_name)) = (repo["id"].as_u64(), repo["full_name"].as_str()) {
                 if !repositories.iter().any(|item| item.id == id) {

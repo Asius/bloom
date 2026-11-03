@@ -411,7 +411,12 @@ function App() {
 			const request = ++refreshGeneration;
 			try {
 				const settings = await invoke<Record<string, string>>("load_settings");
-				const repository = settings["bloom-github-repository"] || "Asius/bloom";
+				const repository = settings["bloom-github-repository"] ?? "Asius/bloom";
+				if (!repository) {
+					setGithubActivity(null);
+					githubSeenRuns.current = null;
+					return;
+				}
 				const result = await invoke<{
 					runs: {
 						id: number;
@@ -2130,7 +2135,7 @@ function App() {
 					ref={bloomRef}
 					className={`bloom ${showAnyToast ? "has-notice" : ""} ${isHovered ? "expanded" : ""} ${isImpacted ? "is-impacted" : ""} ${isDragHovering ? "drag-hover" : ""}`}
 					onMouseEnter={() => setIsNotchHovered(true)}
-					onMouseLeave={() => setIsNotchHovered(false)}
+
 					onWheel={handleWheel}
 					initial={{
 						y: 250,
@@ -2167,7 +2172,7 @@ function App() {
 						// Hovering the shelf cancels its post-drop auto-close.
 						if (bloomMode === "shelf") clearShelfCollapse();
 					}}
-					onHoverEnd={releaseNotchHover}
+					onHoverEnd={() => reportNotchRect.current()}
 					style={{ originY: 0 }}
 					transition={{
 						width: { type: "spring", stiffness: 400, damping: 31 },
@@ -2208,6 +2213,7 @@ function App() {
 									previous={() => cyclePanel(-1)}
 									next={() => cyclePanel(1)}
 									onHeightChange={setGithubPanelHeight}
+									scrollable={githubPanelHeight > window.innerHeight / scale - 24}
 								/>
 							) : activeView === "notifications" ? (
 								<IslandNotifications

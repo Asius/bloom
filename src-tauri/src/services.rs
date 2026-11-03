@@ -1297,7 +1297,7 @@ fn update_main_interaction(
     let main_rect_val = MAIN_WINDOW_RECT.lock().ok().and_then(|g| *g);
 
     if let Some((win_pos, _)) = main_rect_val {
-        if let Ok(region) = NOTCH_RECT.try_lock() {
+        if let Ok(region) = NOTCH_RECT.lock() {
             if let Some(r) = *region {
                 let pad_x = (20.0 * scale) as i32;
                 let pad_y_bottom = (5.0 * scale) as i32;
