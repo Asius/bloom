@@ -380,6 +380,7 @@ function App() {
 		isReady && !waitForStartupSplash
 	);
 	const notifications = useNotifications(windowLabel === "main" && systemSettingsReady);
+	const [githubPanelHeight, setGithubPanelHeight] = useState(420);
 	const [githubAuthPending, setGithubAuthPending] = useState(false);
 	const githubAuthPendingRef = useRef(false);
 	githubAuthPendingRef.current = githubAuthPending;
@@ -2027,10 +2028,7 @@ function App() {
 			);
 		}
 		if (activeView === "github")
-			return Math.min(
-				370 + headerExtra + Math.max(0, scales.font - 1) * 100,
-				window.innerHeight / scale - 24
-			);
+			return Math.min(Math.max(320, githubPanelHeight), window.innerHeight / scale - 24);
 		if (activeView === "collapsed") return notchHeaderHeight;
 		if (activeView === "music") {
 			const hasProgressBar = (mediaInfo.duration_ms ?? 0) > 0;
@@ -2199,7 +2197,11 @@ function App() {
 							{/* One view owns the panel area; only its entrance is animated. */}
 
 							{activeView === "github" ? (
-								<IslandGithub previous={() => cyclePanel(-1)} next={() => cyclePanel(1)} />
+								<IslandGithub
+									previous={() => cyclePanel(-1)}
+									next={() => cyclePanel(1)}
+									onHeightChange={setGithubPanelHeight}
+								/>
 							) : activeView === "notifications" ? (
 								<IslandNotifications
 									status={notifications.status}

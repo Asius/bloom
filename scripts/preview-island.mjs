@@ -34,6 +34,11 @@ function simulateIPC(version) {
 	const callbacks = new Map(),
 		events = new Map();
 	let counter = 0;
+	let mockGithubConnected = query.get("github") === "account";
+	const mockGithubRepos = [
+		{ id: 1, fullName: "Asius/bloom", private: false, selected: true },
+		{ id: 2, fullName: "Asius/private-project", private: true, selected: false }
+	];
 	let mockGoogleConnected = false;
 	let mockMouseConnected = false;
 	let mockDesktopIdle = false;
@@ -124,6 +129,23 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "github_auth_status")
+				return {
+					connected: mockGithubConnected,
+					login: mockGithubConnected ? "Asius" : null,
+					selected: mockGithubConnected ? mockGithubRepos.filter((repo) => repo.selected) : []
+				};
+			if (cmd === "github_repositories") return mockGithubRepos;
+			if (cmd === "github_select_repositories") {
+				for (const repo of mockGithubRepos)
+					repo.selected = args.repositories.some((item) => item.id === repo.id);
+				return;
+			}
+			if (cmd === "github_disconnect") {
+				mockGithubConnected = false;
+				return;
+			}
+			if (cmd === "github_monitor_open") return;
 			if (cmd === "github_monitor_snapshot")
 				return {
 					repository: args.repository,

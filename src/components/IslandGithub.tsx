@@ -7,6 +7,8 @@ import {
 	Check,
 	CheckCheck,
 	Circle,
+	ChevronDown,
+	UserRound,
 	Copy,
 	ExternalLink,
 	LoaderCircle,
@@ -66,8 +68,24 @@ function state(status: string, conclusion: string | null): string {
 		)[conclusion || ""] || "Finalizado"
 	);
 }
-export function IslandGithub({ previous, next }: { previous: () => void; next: () => void }) {
+export function IslandGithub({
+	previous,
+	next,
+	onHeightChange
+}: {
+	previous: () => void;
+	next: () => void;
+	onHeightChange?: (height: number) => void;
+}) {
 	const [editing, setEditing] = useState(false);
+	const [source, setSource] = useState<"public" | "account">("public");
+	const [privacy, setPrivacy] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(false);
+	const [search, setSearch] = useState("");
+	const [draftRepo, setDraftRepo] = useState("");
+	const [recentRepos, setRecentRepos] = useState<string[]>(["Asius/bloom"]);
+	const panelRef = useRef<HTMLElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
 	const [showOther, setShowOther] = useState(false);
 	const [repository, setRepository] = useState("Asius/bloom");
 	const [input, setInput] = useState("Asius/bloom");
@@ -111,17 +129,50 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 		}
 	}, []);
 	useEffect(() => {
-		void reloadAccount().catch(() => {});
-		void invoke<Record<string, string>>("load_settings")
-			.then((s) => {
-				const v = s["bloom-github-repository"];
-				if (v) {
-					setInput(v);
-					setRepository(v);
+		let cancelled = false;
+		void Promise.all([reloadAccount(), invoke<Record<string, string>>("load_settings")])
+			.then(([current, settings]) => {
+				if (cancelled) return;
+				const value = settings["bloom-github-repository"];
+				if (value) {
+					setInput(value);
+					setRepository(value);
 				}
+				setSource(
+					settings["bloom-github-source"] === "public"
+						? "public"
+						: current.connected
+							? "account"
+							: "public"
+				);
 			})
 			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
 	}, [reloadAccount]);
+	useEffect(() => {
+		const current = repoChoices.find((repo) => repo.fullName === repository);
+		if (current) setPrivacy(current.private);
+	}, [repository, repoChoices]);
+	const switchSource = (value: "public" | "account") => {
+		setSource(value);
+		setPickerOpen(false);
+		if (
+			value === "public" &&
+			repoChoices.some((repo) => repo.fullName === repository && repo.private)
+		) {
+			setInput("Asius/bloom");
+			setRepository("Asius/bloom");
+			void invoke("save_setting", { key: "bloom-github-repository", value: "Asius/bloom" })
+				.then(() => emit("github-repository-changed", "Asius/bloom"))
+				.catch(() => setError("No se pudo guardar el repositorio público."));
+		}
+		void invoke("save_setting", { key: "bloom-github-source", value }).catch(() =>
+			setError("No se pudo guardar la vista de repositorios.")
+		);
+	};
+
 	useEffect(() => subscribeGithubDeviceFlow(setDeviceFlow), []);
 	useEffect(() => {
 		if (!deviceFlow.completedAt) return;
@@ -129,6 +180,23 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 		void reloadAccount();
 		void loadRepositories();
 	}, [deviceFlow.completedAt, deviceFlow.login, loadRepositories, reloadAccount]);
+	useEffect(() => {
+		if (account.connected) void loadRepositories();
+	}, [account.connected, loadRepositories]);
+	useEffect(() => {
+		const panel = panelRef.current;
+		const content = contentRef.current;
+		if (!panel || !content || !onHeightChange) return;
+		const measure = () => {
+			const header = panel.querySelector("header");
+			onHeightChange(content.offsetHeight + (header?.offsetHeight ?? 48) + 30);
+		};
+		const observer = new ResizeObserver(measure);
+		observer.observe(content);
+		if (panel.firstElementChild) observer.observe(panel.firstElementChild);
+		measure();
+		return () => observer.disconnect();
+	}, [onHeightChange]);
 	const beginLogin = async () => {
 		setAuthBusy(true);
 		setAuthMessage("");
@@ -145,19 +213,6 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 			setAuthMessage("No se pudo copiar el código. Puedes seleccionarlo y copiarlo manualmente.");
 		}
 	};
-	const saveRepositories = async () => {
-		const selectedRepos = repoChoices.filter((repo) => repo.selected);
-		setAuthBusy(true);
-		try {
-			await invoke("github_select_repositories", { repositories: selectedRepos });
-			await reloadAccount();
-			setAuthMessage(`${selectedRepos.length} repositorio(s) guardado(s) en este dispositivo.`);
-		} catch (e) {
-			setAuthMessage(String(e));
-		} finally {
-			setAuthBusy(false);
-		}
-	};
 	const useAccountRepository = async (repository: RepoChoice) => {
 		const selection = repoChoices.filter((item) => item.selected || item.id === repository.id);
 		setAuthBusy(true);
@@ -169,8 +224,12 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 			});
 			setInput(repository.fullName);
 			setRepository(repository.fullName);
+			setDraftRepo("");
+			setRepoChoices((repos) =>
+				repos.map((repo) => ({ ...repo, selected: selection.some((item) => item.id === repo.id) }))
+			);
 			await emit("github-repository-changed", repository.fullName);
-			setEditing(false);
+			setPickerOpen(false);
 			setError("");
 			await reloadAccount();
 		} catch (reason) {
@@ -185,6 +244,7 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 			await invoke("github_disconnect");
 			setAccount({ connected: false, login: null, selected: [] });
 			setRepoChoices([]);
+			setSource("public");
 			setAuthMessage("La cuenta y sus tokens protegidos se quitaron de este equipo.");
 		} catch (e) {
 			setAuthMessage(String(e));
@@ -231,6 +291,14 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 	}, [refresh]);
 	const selectRepository = async () => {
 		const value = input.trim();
+		if (
+			repoChoices.some(
+				(repo) => repo.fullName.toLowerCase() === value.toLowerCase() && repo.private
+			)
+		) {
+			setError("Elige los repositorios privados desde Mi cuenta.");
+			return;
+		}
 		if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(value)) {
 			setError("Usa el formato propietario/repositorio.");
 			return;
@@ -238,8 +306,9 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 		try {
 			await invoke("save_setting", { key: "bloom-github-repository", value });
 			setRepository(value);
+			setRecentRepos((repos) => [...new Set([value, ...repos])].slice(0, 8));
 			await emit("github-repository-changed", value);
-			setEditing(false);
+			setPickerOpen(false);
 			setError("");
 		} catch {
 			setError("No se pudo guardar el repositorio.");
@@ -278,81 +347,95 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 		name,
 		run: snapshot?.runs.find((r) => r.name.toLowerCase() === name.toLowerCase())
 	}));
+	const accountView = source === "account";
+	const choices = repoChoices.filter(
+		(repo) => repo.private === privacy && repo.fullName.toLowerCase().includes(search.toLowerCase())
+	);
+	const selectedChoice = repoChoices.find((repo) => repo.fullName === (draftRepo || repository));
+	const openRepository = () =>
+		void invoke("github_monitor_open", {
+			repository: accountView ? (selectedChoice?.fullName ?? repository) : input.trim()
+		}).catch((reason) => setError(String(reason)));
 	return (
 		<section
+			ref={panelRef}
 			className="github-panel"
 			aria-label="Seguimiento de GitHub"
 			onClick={(e) => e.stopPropagation()}
 		>
 			<PanelHeader
-				title={`GitHub · ${repository.toLowerCase() === "asius/bloom" ? "Bloom" : repository.split("/")[1]}`}
+				title={
+					accountView && account.connected
+						? `GitHub · ${account.login}`
+						: `GitHub · ${repository.toLowerCase() === "asius/bloom" ? "Bloom" : repository.split("/")[1]}`
+				}
 				icon={<GithubIcon size={25} />}
-				subtitle={repository}
+				subtitle={accountView && account.connected ? "● Cuenta conectada" : repository}
 				previous={previous}
 				next={next}
 				actions={
 					<>
 						<button
-							title="Cambiar repositorio"
-							aria-label="Cambiar repositorio"
+							title="Opciones de GitHub"
+							aria-label="Opciones de GitHub"
+							aria-expanded={editing}
 							onClick={() => setEditing((v) => !v)}
 						>
 							<Settings2 size={16} />
 						</button>
-						<button title="Actualizar" aria-label="Actualizar" onClick={() => void refresh()}>
-							<RefreshCw size={16} />
-						</button>
 						<button
-							className="github-open"
-							onClick={() =>
-								void invoke("github_monitor_open", { repository }).catch((e) => setError(String(e)))
-							}
+							title="Actualizar"
+							aria-label="Actualizar"
+							onClick={() => {
+								void refresh();
+								if (account.connected) void loadRepositories();
+							}}
 						>
-							Abrir en GitHub <ExternalLink size={15} />
+							<RefreshCw size={16} />
 						</button>
 					</>
 				}
 			/>
 			<div className="github-content">
-				{editing && (
-					<div className="github-repository">
-						<label htmlFor="github-repository">Repositorio público</label>
-						<div>
-							<input
-								id="github-repository"
-								value={input}
-								onChange={(e) => setInput(e.target.value)}
-								onKeyDown={(e) => {
-									if (e.key === "Enter") void selectRepository();
-								}}
-							/>
-							<button onClick={() => void selectRepository()}>Seleccionar</button>
-							<button title="Actualizar" aria-label="Actualizar" onClick={() => void refresh()}>
-								<RefreshCw size={15} />
-							</button>
-							<button
-								title="Abrir en GitHub"
-								aria-label="Abrir en GitHub"
-								onClick={() =>
-									void invoke("github_monitor_open", { repository }).catch((e) =>
-										setError(String(e))
-									)
-								}
-							>
-								<ExternalLink size={15} />
-							</button>
-						</div>
+				<div ref={contentRef} className="github-content-inner">
+					<div className="github-source-tabs" aria-label="Origen del repositorio">
+						<button
+							disabled={deviceFlow.pending}
+							aria-pressed={!accountView}
+							onClick={() => {
+								switchSource("public");
+							}}
+						>
+							Repositorio público
+						</button>
+						<button
+							disabled={deviceFlow.pending}
+							aria-pressed={accountView}
+							onClick={() => {
+								switchSource("account");
+							}}
+						>
+							Mi cuenta
+						</button>
+					</div>
+					{accountView && (
 						<div className="github-auth-card">
 							<div className="github-auth-heading">
-								<strong>
-									{account.connected ? `Conectado como ${account.login}` : "Cuenta GitHub"}
-								</strong>
+								<span className="github-user-icon">
+									<UserRound size={23} />
+								</span>
+								<div className="github-auth-identity">
+									<strong>
+										{account.connected ? `Conectado como ${account.login}` : "Cuenta GitHub"}
+									</strong>
+									<span>
+										{account.connected
+											? "Sesión confirmada"
+											: "Conecta tu cuenta para elegir sus repositorios"}
+									</span>
+								</div>
 								{account.connected ? (
-									<button
-										disabled={authBusy}
-										onClick={() => void disconnect()}
-										title="Desconectar GitHub"
-									>
+									<button disabled={authBusy} onClick={() => void disconnect()}>
 										<LogOut size={15} /> Desconectar
 									</button>
 								) : (
@@ -360,7 +443,7 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 										disabled={authBusy || deviceFlow.pending}
 										onClick={() => void beginLogin()}
 									>
-										<LogIn size={15} />{" "}
+										<LogIn size={15} />
 										{deviceFlow.pending ? "Esperando a GitHub" : "Iniciar sesión"}
 									</button>
 								)}
@@ -376,194 +459,258 @@ export function IslandGithub({ previous, next }: { previous: () => void; next: (
 									</button>
 								</div>
 							)}
-							{deviceFlow.message && (
+							{!account.connected && deviceFlow.message && (
 								<p className="github-auth-message" role="status">
 									{deviceFlow.message}
 								</p>
 							)}
 							{deviceFlow.error && (
-								<p
-									className={deviceFlow.pending ? "github-auth-message" : "github-error"}
-									role="status"
-								>
+								<p className="github-error" role="status">
 									{deviceFlow.error}
 								</p>
 							)}
-							{authMessage && (
-								<p className="github-auth-message" role="status">
-									{authMessage}
-								</p>
-							)}
-							{account.connected && (
-								<>
-									<div className="github-repo-list-heading">
-										<strong>Repositorios de tu cuenta · {account.login}</strong>
-										<button disabled={authBusy} onClick={() => void loadRepositories()}>
-											<RefreshCw size={14} /> Cargar
-										</button>
-									</div>
-									{!authBusy && repoChoices.length === 0 && (
-										<button
-											className="github-install-app"
-											onClick={() =>
-												void openUrl("https://github.com/apps/bloom-florecer/installations/new")
-											}
-										>
-											Autorizar instalación de Bloom en Asius <ExternalLink size={14} />
-										</button>
-									)}
-									{repoChoices.length > 0 && (
-										<div className="github-repo-choices">
-											{[
-												{
-													label: "Públicos de tu cuenta",
-													repos: repoChoices.filter((repo) => !repo.private)
-												},
-												{
-													label: "Privados de tu cuenta",
-													repos: repoChoices.filter((repo) => repo.private)
-												}
-											].map(
-												({ label, repos }) =>
-													repos.length > 0 && (
-														<section className="github-repo-group" key={label}>
-															<h4>{label}</h4>
-															{repos.map((repo) => (
-																<div className="github-repo-choice" key={repo.id}>
-																	<label>
-																		<input
-																			type="checkbox"
-																			checked={repo.selected}
-																			onChange={(event) =>
-																				setRepoChoices((items) =>
-																					items.map((item) =>
-																						item.id === repo.id
-																							? { ...item, selected: event.target.checked }
-																							: item
-																					)
-																				)
-																			}
-																		/>
-																		<span>{repo.fullName}</span>
-																	</label>
-																	<button
-																		disabled={authBusy}
-																		title="Mostrar en el panel"
-																		onClick={() => void useAccountRepository(repo)}
-																	>
-																		Usar
-																	</button>
-																</div>
-															))}
-														</section>
-													)
-											)}
-										</div>
-									)}
-									{repoChoices.length > 0 && (
-										<button
-											className="github-save-repos"
-											disabled={authBusy}
-											onClick={() => void saveRepositories()}
-										>
-											Guardar repositorios seguidos
-										</button>
-									)}
-								</>
-							)}
 						</div>
-					</div>
-				)}
-				{error && (
-					<p className="github-error" role="alert">
-						{error}
-						{updated ? " · Mostrando datos anteriores" : ""}
-					</p>
-				)}
-				{!snapshot && !error && <p>Consultando GitHub…</p>}
-				{snapshot &&
-					rows
-						.filter(({ name }) => showOther || ["CI", "CodeQL", "Release"].includes(name))
-						.map(({ name, run }) => (
-							<div className="github-run" key={name}>
-								<button
-									disabled={!run}
-									onClick={() =>
-										run && setSelected((current) => (current === run.id ? null : run.id))
-									}
-									aria-expanded={!!run && selected === run.id}
-								>
-									<span
-										className={`github-state ${run?.conclusion === "success" ? "success" : run?.conclusion === "failure" ? "failure" : ""}`}
+					)}
+					{authMessage && (
+						<p className="github-auth-message" role="status">
+							{authMessage}
+						</p>
+					)}
+					{(!accountView || account.connected) && (
+						<div className="github-repository">
+							<h3>{accountView ? "Repositorios de tu cuenta" : "Repositorio público"}</h3>
+							{accountView && (
+								<div className="github-privacy-tabs" aria-label="Visibilidad de repositorios">
+									<button
+										aria-pressed={!privacy}
+										onClick={() => {
+											setPrivacy(false);
+											setDraftRepo("");
+										}}
 									>
-										{run?.status && run.status !== "completed" ? (
-											<LoaderCircle className="github-spin" size={21} />
-										) : run?.conclusion === "success" ? (
-											<Check size={15} />
-										) : run?.conclusion === "failure" ? (
-											<X size={15} />
-										) : (
-											<Circle size={19} />
-										)}
-									</span>
-									<strong>{name}</strong>
-									<span>{run ? state(run.status, run.conclusion) : "Sin ejecución reciente"}</span>
-									{run && <small>{run.head_sha?.slice(0, 7)}</small>}
+										Públicos
+									</button>
+									<button
+										aria-pressed={privacy}
+										onClick={() => {
+											setPrivacy(true);
+											setDraftRepo("");
+										}}
+									>
+										Privados
+									</button>
+								</div>
+							)}
+							<div className="github-selector-row">
+								<div className="github-selector">
+									{accountView ? (
+										<button
+											className="github-selector-value"
+											aria-label="Elegir repositorio de tu cuenta"
+											aria-expanded={pickerOpen}
+											onClick={() => setPickerOpen((v) => !v)}
+										>
+											{selectedChoice?.private === privacy
+												? selectedChoice.fullName
+												: "Selecciona un repositorio"}
+										</button>
+									) : (
+										<input
+											aria-label="Repositorio público"
+											value={input}
+											onChange={(e) => setInput(e.target.value)}
+											onKeyDown={(e) => {
+												if (e.key === "Enter") void selectRepository();
+											}}
+										/>
+									)}
+									<button
+										className="github-selector-arrow"
+										aria-label="Mostrar repositorios"
+										aria-expanded={pickerOpen}
+										onClick={() => setPickerOpen((v) => !v)}
+									>
+										<ChevronDown size={18} />
+									</button>
+								</div>
+								<button
+									className="github-icon-button"
+									title="Abrir repositorio en GitHub"
+									aria-label="Abrir repositorio en GitHub"
+									onClick={openRepository}
+								>
+									<ExternalLink size={18} />
 								</button>
-								{run && selected === run.id && (
-									<div className="github-jobs">
-										{jobError ||
-											(jobs.length
-												? jobs.map((job) => (
-														<div key={job.id}>
-															<strong>{job.name}</strong> · {state(job.status, job.conclusion)}
-															{job.steps?.map((step, index) => (
-																<div key={index}>
-																	{step.name} · {state(step.status, step.conclusion)}
-																</div>
-															))}
-														</div>
-													))
-												: jobsLoaded
-													? "Sin trabajos disponibles"
-													: "Cargando pasos…")}
-									</div>
+								{accountView && (
+									<button
+										className="github-icon-button"
+										title="Usar repositorio elegido"
+										aria-label="Usar repositorio elegido"
+										disabled={authBusy || !selectedChoice || selectedChoice.private !== privacy}
+										onClick={() => selectedChoice && void useAccountRepository(selectedChoice)}
+									>
+										<Check size={20} />
+									</button>
 								)}
 							</div>
-						))}
-				<div className="github-verification">
-					{verification?.verified ? <ShieldCheck size={21} /> : <Circle size={21} />}
-					<strong>Canal y firma</strong>
-					<span>
-						{verification?.verified ? `Verificada · ${verification.version}` : "Sin comprobar"}
-					</span>
-					<button
-						disabled={verifying}
-						onClick={() => void verifyRelease()}
-						title="Verificar firma del instalador latest"
-					>
-						{verifying ? <LoaderCircle className="github-spin" size={16} /> : "Comprobar"}
-					</button>
-				</div>
-				{verification?.verified && (
+							{pickerOpen && (
+								<div className="github-picker">
+									{accountView ? (
+										<>
+											<input
+												autoFocus
+												aria-label="Buscar repositorios de tu cuenta"
+												placeholder="Buscar repositorio…"
+												value={search}
+												onChange={(e) => setSearch(e.target.value)}
+											/>
+											{choices.map((repo) => (
+												<button
+													key={repo.id}
+													onClick={() => {
+														setDraftRepo(repo.fullName);
+														setPickerOpen(false);
+													}}
+												>
+													<span>{repo.fullName}</span>
+													{(draftRepo || repository) === repo.fullName && <Check size={16} />}
+												</button>
+											))}
+											{!choices.length && (
+												<p>
+													{authBusy
+														? "Cargando repositorios…"
+														: "No hay repositorios en esta categoría."}
+												</p>
+											)}
+										</>
+									) : (
+										recentRepos.map((repo) => (
+											<button
+												key={repo}
+												onClick={() => {
+													setInput(repo);
+													setPickerOpen(false);
+												}}
+											>
+												<span>{repo}</span>
+												{repository === repo && <Check size={16} />}
+											</button>
+										))
+									)}
+								</div>
+							)}
+							{!accountView && input.trim() !== repository && (
+								<button className="github-apply-public" onClick={() => void selectRepository()}>
+									<Check size={15} /> Usar repositorio
+								</button>
+							)}
+							{accountView && (editing || repoChoices.length === 0) && (
+								<button
+									className="github-install-app"
+									onClick={() =>
+										void openUrl("https://github.com/apps/bloom-florecer/installations/new")
+									}
+								>
+									Administrar repositorios autorizados <ExternalLink size={14} />
+								</button>
+							)}
+						</div>
+					)}
+
+					{error && (
+						<p className="github-error" role="alert">
+							{error}
+							{updated ? " · Mostrando datos anteriores" : ""}
+						</p>
+					)}
+					{!snapshot && !error && <p>Consultando GitHub…</p>}
+					{snapshot &&
+						rows
+							.filter(({ name }) => showOther || ["CI", "CodeQL", "Release"].includes(name))
+							.map(({ name, run }) => (
+								<div className="github-run" key={name}>
+									<button
+										disabled={!run}
+										onClick={() =>
+											run && setSelected((current) => (current === run.id ? null : run.id))
+										}
+										aria-expanded={!!run && selected === run.id}
+									>
+										<span
+											className={`github-state ${run?.conclusion === "success" ? "success" : run?.conclusion === "failure" ? "failure" : ""}`}
+										>
+											{run?.status && run.status !== "completed" ? (
+												<LoaderCircle className="github-spin" size={21} />
+											) : run?.conclusion === "success" ? (
+												<Check size={15} />
+											) : run?.conclusion === "failure" ? (
+												<X size={15} />
+											) : (
+												<Circle size={19} />
+											)}
+										</span>
+										<strong>{name}</strong>
+										<span>
+											{run ? state(run.status, run.conclusion) : "Sin ejecución reciente"}
+										</span>
+										{run && <small>{run.head_sha?.slice(0, 7)}</small>}
+									</button>
+									{run && selected === run.id && (
+										<div className="github-jobs">
+											{jobError ||
+												(jobs.length
+													? jobs.map((job) => (
+															<div key={job.id}>
+																<strong>{job.name}</strong> · {state(job.status, job.conclusion)}
+																{job.steps?.map((step, index) => (
+																	<div key={index}>
+																		{step.name} · {state(step.status, step.conclusion)}
+																	</div>
+																))}
+															</div>
+														))
+													: jobsLoaded
+														? "Sin trabajos disponibles"
+														: "Cargando pasos…")}
+										</div>
+									)}
+								</div>
+							))}
+					<div className="github-verification">
+						{verification?.verified ? <ShieldCheck size={21} /> : <Circle size={21} />}
+						<strong>Canal y firma</strong>
+						<span>
+							{verification?.verified ? `Verificada · ${verification.version}` : "Sin comprobar"}
+						</span>
+						<button
+							disabled={verifying}
+							onClick={() => void verifyRelease()}
+							title="Verificar firma del instalador latest"
+						>
+							{verifying ? <LoaderCircle className="github-spin" size={16} /> : "Comprobar"}
+						</button>
+					</div>
+					{verification?.verified && (
+						<p className="github-foot">
+							{verification.detail} ({Math.ceil(verification.bytes / 1_048_576)} MB).
+						</p>
+					)}
+					{verificationError && (
+						<p className="github-error" role="alert">
+							{verificationError}
+						</p>
+					)}
+					{names.length > 3 && (
+						<button className="github-other" onClick={() => setShowOther((v) => !v)}>
+							{showOther ? "Ocultar otras ejecuciones" : "Otras ejecuciones"}
+						</button>
+					)}
 					<p className="github-foot">
-						{verification.detail} ({Math.ceil(verification.bytes / 1_048_576)} MB).
+						{accountView && account.connected ? `Cuenta · ${account.login}` : "Vista pública"}
+						{updated && ` · Actualizado ${new Date(updated).toLocaleTimeString()}`}
 					</p>
-				)}
-				{verificationError && (
-					<p className="github-error" role="alert">
-						{verificationError}
-					</p>
-				)}
-				{names.length > 3 && (
-					<button className="github-other" onClick={() => setShowOther((v) => !v)}>
-						{showOther ? "Ocultar otras ejecuciones" : "Otras ejecuciones"}
-					</button>
-				)}
-				<p className="github-foot">
-					{account.connected ? `Consulta autenticada · ${account.login}` : "Consulta pública"}
-					{updated && ` · Actualizado ${new Date(updated).toLocaleTimeString()}`}
-				</p>
+				</div>
 			</div>
 		</section>
 	);
