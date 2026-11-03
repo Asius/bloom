@@ -5,22 +5,29 @@ import "./appearance.css";
 import "./accessibility.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { reloadIfMirrorWasStale, noteSettingChange, settingsRevision } from "./hooks/settingsMirror";
+import {
+	reloadIfMirrorWasStale,
+	noteSettingChange,
+	settingsRevision
+} from "./hooks/settingsMirror";
 
 let systemTransparency = true;
 let systemAccent: string | null = null;
 let themeRevision = 0;
 let materialFallback = false;
 const syncMaterial = createMaterialSync(
-    enabled => invoke<MaterialStatus>("configure_native_material", { enabled }),
-    status => {
-        document.documentElement.dataset.nativeMaterial = status;
-        const fallback = status === "unavailable";
-        if (materialFallback !== fallback) {
-            materialFallback = fallback;
-            void applyTheme(localStorage.getItem("bloom-theme-mode") || "system", localStorage.getItem("bloom-theme-color") || "#007aff");
-        }
-    }
+	(enabled) => invoke<MaterialStatus>("configure_native_material", { enabled }),
+	(status) => {
+		document.documentElement.dataset.nativeMaterial = status;
+		const fallback = status === "unavailable";
+		if (materialFallback !== fallback) {
+			materialFallback = fallback;
+			void applyTheme(
+				localStorage.getItem("bloom-theme-mode") || "system",
+				localStorage.getItem("bloom-theme-color") || "#007aff"
+			);
+		}
+	}
 );
 
 // Convert a hex color string to rgba with a specified alpha
@@ -159,13 +166,17 @@ export async function applyTheme(
 		brightness = cachedBrightness !== null ? parseFloat(cachedBrightness) : 0.15;
 	}
 
-	const systemOpaque = !systemTransparency || window.matchMedia("(forced-colors: active)").matches || window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
-    const opaque = systemOpaque || materialFallback;
+	const systemOpaque =
+		!systemTransparency ||
+		window.matchMedia("(forced-colors: active)").matches ||
+		window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
+	const opaque = systemOpaque || materialFallback || resolvedMode === "black";
 	root.classList.toggle("bloom-opaque", opaque);
-    void syncMaterial(!systemOpaque);
+	void syncMaterial(!systemOpaque && resolvedMode !== "black");
 	const op = opaque ? 1 : Number.isFinite(opacity) ? Math.max(0.1, Math.min(1, opacity)) : 0.92;
 	const opExpanded = Math.min(1.0, op + 0.05);
 
+	root.classList.toggle("theme-black", resolvedMode === "black");
 	if (resolvedMode === "light") {
 		root.style.setProperty("--bloom-bg", `rgba(243, 243, 243, ${op})`);
 		root.style.setProperty("--bloom-bg-expanded", `rgba(249, 249, 249, ${opExpanded})`);
@@ -261,8 +272,14 @@ export async function applyTheme(
 		}
 	} else {
 		// Neutral Windows-style dark surfaces
-		root.style.setProperty("--bloom-bg", `rgba(32, 32, 32, ${op})`);
-		root.style.setProperty("--bloom-bg-expanded", `rgba(44, 44, 44, ${opExpanded})`);
+		root.style.setProperty(
+			"--bloom-bg",
+			resolvedMode === "black" ? "#090a0b" : `rgba(32, 32, 32, ${op})`
+		);
+		root.style.setProperty(
+			"--bloom-bg-expanded",
+			resolvedMode === "black" ? "#0d0e10" : `rgba(44, 44, 44, ${opExpanded})`
+		);
 		root.style.setProperty("--bloom-text", "#ffffff");
 		root.style.setProperty("--bloom-text-muted", "rgba(255, 255, 255, 0.6)");
 		root.style.setProperty("--bloom-border", "rgba(255, 255, 255, 0.1)");
@@ -275,22 +292,32 @@ export async function applyTheme(
 		root.classList.remove("theme-light", "theme-custom", "theme-adaptive");
 	}
 	root.style.colorScheme = root.classList.contains("light-mode") ? "light" : "dark";
-	root.style.setProperty("--bloom-on-accent", accentForeground(root.style.getPropertyValue("--bloom-accent")));
+	root.style.setProperty(
+		"--bloom-on-accent",
+		accentForeground(root.style.getPropertyValue("--bloom-accent"))
+	);
 }
 
 export function initTheme() {
-    let cancelled = false;
-    let transparencyRevision = 0;
+	let cancelled = false;
+	let transparencyRevision = 0;
 	const refreshSystemTransparency = () => {
-        const request = ++transparencyRevision;
-        void invoke<boolean | null>("get_system_transparency").then(value => {
-            if (!cancelled && request === transparencyRevision && typeof value === "boolean" && value !== systemTransparency) {
-                systemTransparency = value;
-                applyThemeFromStorage();
-            }
-        }).catch(() => {});
-    };
-    const syncMode = localStorage.getItem("bloom-theme-mode") || "system";
+		const request = ++transparencyRevision;
+		void invoke<boolean | null>("get_system_transparency")
+			.then((value) => {
+				if (
+					!cancelled &&
+					request === transparencyRevision &&
+					typeof value === "boolean" &&
+					value !== systemTransparency
+				) {
+					systemTransparency = value;
+					applyThemeFromStorage();
+				}
+			})
+			.catch(() => {});
+	};
+	const syncMode = localStorage.getItem("bloom-theme-mode") || "system";
 	const syncColor = localStorage.getItem("bloom-theme-color") || "#007aff";
 	const syncOpacityVal = localStorage.getItem("bloom-theme-opacity");
 	const syncOpacity = syncOpacityVal !== null ? parseFloat(syncOpacityVal) : 0.92;
@@ -352,37 +379,47 @@ export function initTheme() {
 			const { key, value } = event.payload;
 			if (bloomThemeKeys.includes(key)) {
 				noteSettingChange(key, value);
-			startup.change(key, value);
+				startup.change(key, value);
 			}
 		}
 	);
 
-    const transparencyPromise = listen<boolean | null>("system-transparency-changed", event => {
-        ++transparencyRevision;
-        if (!cancelled && typeof event.payload === "boolean" && event.payload !== systemTransparency) {
-            systemTransparency = event.payload;
-            applyThemeFromStorage();
-        }
-    });
-    // Install both listeners before requesting the initial snapshot.
-    void Promise.all([settingsPromise, externalPromise]).then(async () => {
-        if (cancelled) return;
-        const revision = settingsRevision();
-        const settings = await invoke<Record<string, unknown>>("load_settings");
-        await startup.hydrate(settings, preserved => reloadIfMirrorWasStale(settings, preserved, revision));
-    }).catch(console.error);
+	const transparencyPromise = listen<boolean | null>("system-transparency-changed", (event) => {
+		++transparencyRevision;
+		if (!cancelled && typeof event.payload === "boolean" && event.payload !== systemTransparency) {
+			systemTransparency = event.payload;
+			applyThemeFromStorage();
+		}
+	});
+	// Install both listeners before requesting the initial snapshot.
+	void Promise.all([settingsPromise, externalPromise])
+		.then(async () => {
+			if (cancelled) return;
+			const revision = settingsRevision();
+			const settings = await invoke<Record<string, unknown>>("load_settings");
+			await startup.hydrate(settings, (preserved) =>
+				reloadIfMirrorWasStale(settings, preserved, revision)
+			);
+		})
+		.catch(console.error);
 
-	void invoke<string>("get_system_accent_color").then(color => {
-        if (/^#[0-9a-f]{6}$/i.test(color)) {
-            systemAccent = color;
-            const mode = localStorage.getItem("bloom-theme-mode") || "system";
-            if (["system", "light", "dark"].includes(mode)) applyThemeFromStorage();
-        }
-    }).catch(() => {});
-    refreshSystemTransparency();
-    // Subscribe first, then re-read to cover a change during listener setup.
-    void transparencyPromise.then(() => { if (!cancelled) refreshSystemTransparency(); }).catch(console.error);
-    window.addEventListener("focus", refreshSystemTransparency);
+	void invoke<string>("get_system_accent_color")
+		.then((color) => {
+			if (/^#[0-9a-f]{6}$/i.test(color)) {
+				systemAccent = color;
+				const mode = localStorage.getItem("bloom-theme-mode") || "system";
+				if (["system", "light", "dark"].includes(mode)) applyThemeFromStorage();
+			}
+		})
+		.catch(() => {});
+	refreshSystemTransparency();
+	// Subscribe first, then re-read to cover a change during listener setup.
+	void transparencyPromise
+		.then(() => {
+			if (!cancelled) refreshSystemTransparency();
+		})
+		.catch(console.error);
+	window.addEventListener("focus", refreshSystemTransparency);
 	const colorScheme = window.matchMedia?.("(prefers-color-scheme: light)");
 	const onColorSchemeChange = () => {
 		if ((localStorage.getItem("bloom-theme-mode") || "system") === "system") {
@@ -390,8 +427,11 @@ export function initTheme() {
 		}
 	};
 	colorScheme?.addEventListener("change", onColorSchemeChange);
-    const accessibilityQueries = [window.matchMedia("(forced-colors: active)"), window.matchMedia("(prefers-reduced-transparency: reduce)")];
-    for (const query of accessibilityQueries) query.addEventListener("change", applyThemeFromStorage);
+	const accessibilityQueries = [
+		window.matchMedia("(forced-colors: active)"),
+		window.matchMedia("(prefers-reduced-transparency: reduce)")
+	];
+	for (const query of accessibilityQueries) query.addEventListener("change", applyThemeFromStorage);
 
 	return () => {
 		cancelled = true;
@@ -399,9 +439,10 @@ export function initTheme() {
 		settingsPromise.then((f) => f());
 		accentPromise.then((f) => f());
 		externalPromise.then((f) => f());
-        transparencyPromise.then(f => f());
+		transparencyPromise.then((f) => f());
 		colorScheme?.removeEventListener("change", onColorSchemeChange);
 		window.removeEventListener("focus", refreshSystemTransparency);
-		for (const query of accessibilityQueries) query.removeEventListener("change", applyThemeFromStorage);
+		for (const query of accessibilityQueries)
+			query.removeEventListener("change", applyThemeFromStorage);
 	};
 }

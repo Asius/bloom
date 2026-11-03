@@ -3,8 +3,6 @@ import {
 	Bell,
 	BellOff,
 	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
 	ChevronUp,
 	ExternalLink,
 	Settings,
@@ -14,13 +12,12 @@ import {
 import { useMemo, useState } from "react";
 import { groupNotifications } from "../notificationState";
 import type { NotificationStatus, WindowsNotice } from "../hooks/useNotifications";
-import { BloomAvatar } from "./BloomAvatar";
+import { PanelHeader } from "./PanelHeader";
 import "./IslandNotifications.css";
 
 export function IslandNotifications({
 	status,
 	items,
-	time,
 	timeFormat24h,
 	requestAccess,
 	setActive,
@@ -35,7 +32,6 @@ export function IslandNotifications({
 }: {
 	status: NotificationStatus;
 	items: WindowsNotice[];
-	time: string;
 	timeFormat24h: boolean;
 	requestAccess: () => void;
 	setActive: (value: boolean) => void;
@@ -61,42 +57,37 @@ export function IslandNotifications({
 				if (event.key === "Escape") (event.target as HTMLElement).blur();
 			}}
 		>
-			<header className="notifications-header">
-				<BloomAvatar active playing={false} />
-				<span className="notifications-divider" />
-				<h2>Notificaciones</h2>
-				{status === "allowed" && items.length > 0 && (
-					<button
-						className="notifications-clear-all"
-						onClick={clearAll}
-						aria-label="Borrar todas las notificaciones de Windows"
-						title="Borrar todo"
-					>
-						<Trash2 size={14} />
-						<span>Borrar todo</span>
-					</button>
-				)}
-				{status !== "disabled" && status !== "loading" && (
-					<button
-						className="notifications-pause"
-						disabled={preferenceBusy}
-						onClick={() => setActive(false)}
-						aria-label="Desactivar notificaciones de Bloom"
-						title="Desactivar notificaciones de Bloom"
-					>
-						<BellOff size={15} />
-					</button>
-				)}
-				<div className="notifications-nav">
-					<button onClick={previous} aria-label="Panel anterior">
-						<ChevronLeft size={15} />
-					</button>
-					<button onClick={next} aria-label="Panel siguiente">
-						<ChevronRight size={15} />
-					</button>
-				</div>
-				<time>{time}</time>
-			</header>
+			<PanelHeader
+				title="Notificaciones"
+				previous={previous}
+				next={next}
+				actions={
+					<>
+						{status === "allowed" && items.length > 0 && (
+							<button
+								className="notifications-clear-all"
+								onClick={clearAll}
+								aria-label="Borrar todas las notificaciones de Windows"
+								title="Borrar todo"
+							>
+								<Trash2 size={14} />
+								<span>Borrar todo</span>
+							</button>
+						)}
+						{status !== "disabled" && status !== "loading" && (
+							<button
+								className="notifications-pause"
+								disabled={preferenceBusy}
+								onClick={() => setActive(false)}
+								aria-label="Desactivar notificaciones de Bloom"
+								title="Desactivar notificaciones de Bloom"
+							>
+								<BellOff size={15} />
+							</button>
+						)}
+					</>
+				}
+			/>
 			{actionError && (
 				<p className="notifications-action-error" role="alert">
 					{actionError}
@@ -117,7 +108,7 @@ export function IslandNotifications({
 							<article className="notification-group" key={group.key}>
 								<div className="notification-group-header">
 									<span className="notification-icon">
-										<Bell size={17} aria-hidden="true" />
+										<NoticeIcon notice={latest} />
 									</span>
 									<strong>{group.app}</strong>
 									<time>{formatTime(latest.createdMs, timeFormat24h)}</time>
@@ -279,7 +270,7 @@ export function NotificationNotice({
 	return (
 		<div className="notification-toast" role="status" aria-live="polite">
 			<span className="notification-icon">
-				<Bell size={18} aria-hidden="true" />
+				<NoticeIcon notice={notice} />
 			</span>
 			<button
 				className="notification-toast-content"
@@ -289,8 +280,7 @@ export function NotificationNotice({
 				}}
 				aria-label={`Abrir notificaciones: ${notice.app}`}
 			>
-				<strong>{notice.app || "Aplicación"}</strong>
-				<span className="notification-toast-title">{notice.title || "Notificación"}</span>
+				<strong>{notice.title || notice.app || "Notificación"}</strong>
 				{notice.body && <span className="notification-toast-body">{notice.body}</span>}
 			</button>
 			<time>{formatTime(notice.createdMs, timeFormat24h)}</time>
@@ -316,4 +306,13 @@ function formatTime(timestamp: number, timeFormat24h: boolean): string {
 		minute: "2-digit",
 		hour12: !timeFormat24h
 	});
+}
+
+function NoticeIcon({ notice }: { notice: WindowsNotice }) {
+	const [failed, setFailed] = useState(false);
+	return notice.icon && !failed ? (
+		<img src={notice.icon} alt="" onError={() => setFailed(true)} />
+	) : (
+		<Bell size={20} aria-hidden="true" />
+	);
 }

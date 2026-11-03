@@ -10,6 +10,7 @@ export type WindowsNotice = {
 	body: string;
 	createdMs: number;
 	appId?: string | null;
+	icon?: string | null;
 };
 export type NotificationStatus =
 	| "loading"

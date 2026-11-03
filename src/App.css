@@ -1872,3 +1872,22 @@ img {
 	padding: 16px 22px;
 	color: var(--bloom-text, white);
 }
+
+.bloom.has-notice > .edge-surface {
+	bottom: auto;
+	height: var(--notch-header-height, 48px);
+}
+.theme-black .bloom {
+	--notch-bg: #090a0b;
+}
+.theme-black .bloom.expanded {
+	--notch-bg: #0d0e10;
+}
+[data-island-view] > div > .panel-header {
+	padding: 0 6px;
+}
+
+.expanded-music-container {
+	flex: 1;
+	min-height: 0;
+}

@@ -21,6 +21,7 @@ pub struct NotificationItem {
     title: String,
     body: String,
     created_ms: i64,
+    icon: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -49,9 +50,18 @@ fn item(value: UserNotification) -> windows::core::Result<NotificationItem> {
         .map(|name| name.to_string())
         .unwrap_or_default();
     let app_id = app_info
+        .as_ref()
         .and_then(|app| app.AppUserModelId().ok())
         .map(|value| value.to_string())
         .filter(|value| !value.is_empty());
+    let icon = app_id.as_deref().and_then(|key| {
+        cached_logo(key, || {
+            app_info
+                .as_ref()
+                .and_then(|app| app.DisplayInfo().ok())
+                .and_then(|display| app_logo(&display))
+        })
+    });
     let ticks = value.CreationTime()?.UniversalTime;
     let created_ms = ticks / 10_000 - 11_644_473_600_000;
     let mut lines = Vec::new();
@@ -82,7 +92,68 @@ fn item(value: UserNotification) -> windows::core::Result<NotificationItem> {
             .collect::<Vec<_>>()
             .join(" · "),
         created_ms,
+        icon,
     })
+}
+
+// Keep only app logos in a bounded process cache; notification text is never cached here.
+fn cached_logo(key: &str, load: impl FnOnce() -> Option<String>) -> Option<String> {
+    use std::{
+        collections::HashMap,
+        sync::{Mutex, OnceLock},
+    };
+    static LOGOS: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    let cache = LOGOS.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(icon) = cache.lock().ok()?.get(key).cloned() {
+        return icon;
+    }
+    let icon = load();
+    if let Ok(mut entries) = cache.lock() {
+        if entries.len() >= 64 {
+            entries.clear();
+        }
+        entries.insert(key.to_string(), icon.clone());
+    }
+    icon
+}
+
+// Logos come from Windows app metadata, never remote notification URLs.
+fn app_logo(display: &windows::ApplicationModel::AppDisplayInfo) -> Option<String> {
+    use base64::Engine;
+    use windows::{Foundation::Size, Storage::Streams::DataReader};
+    let stream = display
+        .GetLogo(Size {
+            Width: 48.0,
+            Height: 48.0,
+        })
+        .ok()?
+        .OpenReadAsync()
+        .ok()?
+        .get()
+        .ok()?;
+    let size = stream.Size().ok()?;
+    if size == 0 || size > 262_144 {
+        return None;
+    }
+    let content_type = stream.ContentType().ok()?.to_string();
+    if !matches!(
+        content_type.as_str(),
+        "image/png" | "image/jpeg" | "image/x-icon" | "image/bmp"
+    ) {
+        return None;
+    }
+    let reader = DataReader::CreateDataReader(&stream).ok()?;
+    let loaded = reader.LoadAsync(size as u32).ok()?.get().ok()?;
+    if loaded as u64 != size {
+        return None;
+    }
+    let mut bytes = vec![0; loaded as usize];
+    reader.ReadBytes(&mut bytes).ok()?;
+    Some(format!(
+        "data:{};base64,{}",
+        content_type,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 fn blocked_state(

@@ -1,0 +1,67 @@
+.panel-header {
+	width: 100%;
+	min-height: var(--notch-header-height, 48px);
+	flex: 0 0 var(--notch-header-height, 48px);
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	border-bottom: 1px solid var(--bloom-border);
+	color: var(--bloom-text);
+}
+.panel-header .bloom-avatar {
+	margin: 0;
+	flex-shrink: 0;
+}
+.panel-header-divider {
+	width: 1px;
+	height: 27px;
+	background: var(--bloom-border);
+	flex-shrink: 0;
+}
+.panel-header-title {
+	flex: 1;
+	min-width: 0;
+}
+.panel-header-title h2 {
+	font-size: calc(15px * var(--bloom-font-scale, 1));
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.panel-header-title > span {
+	display: block;
+	font-size: calc(11px * var(--bloom-font-scale, 1));
+	color: var(--bloom-text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.panel-header-actions,
+.panel-header nav {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	flex-shrink: 0;
+}
+.panel-header button {
+	color: inherit;
+	cursor: pointer;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	min-height: 28px;
+	padding: 5px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+}
+.panel-header button:hover {
+	background: var(--bloom-group-bg);
+}
+.panel-header button:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
+}

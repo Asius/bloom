@@ -1,9 +1,9 @@
+import { GithubIcon } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
+import { Check, Circle, ExternalLink, LoaderCircle, RefreshCw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BloomAvatar } from "./BloomAvatar";
+import { PanelHeader } from "./PanelHeader";
 import "./IslandGithub.css";
-
 type Run = {
 	id: number;
 	name: string;
@@ -22,7 +22,6 @@ type Job = {
 	steps?: { name: string; status: string; conclusion: string | null }[];
 };
 type Snapshot = { repository: string; runs: Run[] };
-
 function state(status: string, conclusion: string | null): string {
 	if (status !== "completed") return status === "queued" ? "En cola" : "En curso";
 	return (
@@ -38,16 +37,9 @@ function state(status: string, conclusion: string | null): string {
 		)[conclusion || ""] || "Finalizado"
 	);
 }
-
-export function IslandGithub({
-	time,
-	previous,
-	next
-}: {
-	time: string;
-	previous: () => void;
-	next: () => void;
-}) {
+export function IslandGithub({ previous, next }: { previous: () => void; next: () => void }) {
+	const [editing, setEditing] = useState(false);
+	const [showOther, setShowOther] = useState(false);
 	const [repository, setRepository] = useState("Asius/bloom");
 	const [input, setInput] = useState("Asius/bloom");
 	const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -104,6 +96,7 @@ export function IslandGithub({
 		try {
 			await invoke("save_setting", { key: "bloom-github-repository", value });
 			setRepository(value);
+			setEditing(false);
 			setError("");
 		} catch {
 			setError("No se pudo guardar el repositorio.");
@@ -148,45 +141,66 @@ export function IslandGithub({
 			aria-label="Seguimiento de GitHub"
 			onClick={(e) => e.stopPropagation()}
 		>
-			<header className="github-header">
-				<BloomAvatar active playing={false} />
-				<span className="notifications-divider" />
-				<h2>GitHub</h2>
-				<button onClick={previous} aria-label="Panel anterior">
-					<ChevronLeft size={15} />
-				</button>
-				<button onClick={next} aria-label="Panel siguiente">
-					<ChevronRight size={15} />
-				</button>
-				<time>{time}</time>
-			</header>
-			<div className="github-content">
-				<div className="github-repository">
-					<label htmlFor="github-repository">Repositorio público</label>
-					<div>
-						<input
-							id="github-repository"
-							value={input}
-							onChange={(e) => setInput(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") void selectRepository();
-							}}
-						/>
-						<button onClick={() => void selectRepository()}>Seleccionar</button>
+			<PanelHeader
+				title={`GitHub · ${repository.toLowerCase() === "asius/bloom" ? "Bloom" : repository.split("/")[1]}`}
+				icon={<GithubIcon size={25} />}
+				subtitle={repository}
+				previous={previous}
+				next={next}
+				actions={
+					<>
+						<button
+							title="Cambiar repositorio"
+							aria-label="Cambiar repositorio"
+							onClick={() => setEditing((v) => !v)}
+						>
+							<Settings2 size={16} />
+						</button>
 						<button title="Actualizar" aria-label="Actualizar" onClick={() => void refresh()}>
-							<RefreshCw size={15} />
+							<RefreshCw size={16} />
 						</button>
 						<button
-							title="Abrir en GitHub"
-							aria-label="Abrir en GitHub"
+							className="github-open"
 							onClick={() =>
 								void invoke("github_monitor_open", { repository }).catch((e) => setError(String(e)))
 							}
 						>
-							<ExternalLink size={15} />
+							Abrir en GitHub <ExternalLink size={15} />
 						</button>
+					</>
+				}
+			/>
+			<div className="github-content">
+				{editing && (
+					<div className="github-repository">
+						<label htmlFor="github-repository">Repositorio público</label>
+						<div>
+							<input
+								id="github-repository"
+								value={input}
+								onChange={(e) => setInput(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") void selectRepository();
+								}}
+							/>
+							<button onClick={() => void selectRepository()}>Seleccionar</button>
+							<button title="Actualizar" aria-label="Actualizar" onClick={() => void refresh()}>
+								<RefreshCw size={15} />
+							</button>
+							<button
+								title="Abrir en GitHub"
+								aria-label="Abrir en GitHub"
+								onClick={() =>
+									void invoke("github_monitor_open", { repository }).catch((e) =>
+										setError(String(e))
+									)
+								}
+							>
+								<ExternalLink size={15} />
+							</button>
+						</div>
 					</div>
-				</div>
+				)}
 				{error && (
 					<p className="github-error" role="alert">
 						{error}
@@ -195,51 +209,75 @@ export function IslandGithub({
 				)}
 				{!snapshot && !error && <p>Consultando GitHub…</p>}
 				{snapshot &&
-					rows.map(({ name, run }) => (
-						<div className="github-run" key={name}>
-							<button
-								disabled={!run}
-								onClick={() =>
-									run && setSelected((current) => (current === run.id ? null : run.id))
-								}
-								aria-expanded={!!run && selected === run.id}
-							>
-								<span
-									className={`github-state ${run?.conclusion === "success" ? "success" : run?.conclusion === "failure" ? "failure" : ""}`}
-								/>
-								<strong>{name}</strong>
-								<span>{run ? state(run.status, run.conclusion) : "Sin ejecución reciente"}</span>
-								{run && <small>{run.head_sha?.slice(0, 7)}</small>}
-							</button>
-							{run && selected === run.id && (
-								<div className="github-jobs">
-									{jobError ||
-										(jobs.length
-											? jobs.map((job) => (
-													<div key={job.id}>
-														<strong>{job.name}</strong> · {state(job.status, job.conclusion)}
-														{job.steps?.map((step, index) => (
-															<div key={index}>
-																{step.name} · {state(step.status, step.conclusion)}
-															</div>
-														))}
-													</div>
-												))
-											: jobsLoaded
-												? "Sin trabajos disponibles"
-												: "Cargando pasos…")}
-								</div>
-							)}
-						</div>
-					))}
+					rows
+						.filter(({ name }) => showOther || ["CI", "CodeQL", "Release"].includes(name))
+						.map(({ name, run }) => (
+							<div className="github-run" key={name}>
+								<button
+									disabled={!run}
+									onClick={() =>
+										run && setSelected((current) => (current === run.id ? null : run.id))
+									}
+									aria-expanded={!!run && selected === run.id}
+								>
+									<span
+										className={`github-state ${run?.conclusion === "success" ? "success" : run?.conclusion === "failure" ? "failure" : ""}`}
+									>
+										{run?.status && run.status !== "completed" ? (
+											<LoaderCircle className="github-spin" size={21} />
+										) : run?.conclusion === "success" ? (
+											<Check size={15} />
+										) : run?.conclusion === "failure" ? (
+											<X size={15} />
+										) : (
+											<Circle size={19} />
+										)}
+									</span>
+									<strong>{name}</strong>
+									<span>{run ? state(run.status, run.conclusion) : "Sin ejecución reciente"}</span>
+									{run && <small>{run.head_sha?.slice(0, 7)}</small>}
+								</button>
+								{run && selected === run.id && (
+									<div className="github-jobs">
+										{jobError ||
+											(jobs.length
+												? jobs.map((job) => (
+														<div key={job.id}>
+															<strong>{job.name}</strong> · {state(job.status, job.conclusion)}
+															{job.steps?.map((step, index) => (
+																<div key={index}>
+																	{step.name} · {state(step.status, step.conclusion)}
+																</div>
+															))}
+														</div>
+													))
+												: jobsLoaded
+													? "Sin trabajos disponibles"
+													: "Cargando pasos…")}
+									</div>
+								)}
+							</div>
+						))}
+				<div className="github-verification">
+					<Circle size={21} />
+					<strong>Canal y firma</strong>
+					<span>Sin comprobar</span>
+				</div>
+				{names.length > 3 && (
+					<button className="github-other" onClick={() => setShowOther((v) => !v)}>
+						{showOther ? "Ocultar otras ejecuciones" : "Otras ejecuciones"}
+					</button>
+				)}
 				<p className="github-foot">
-					Canal, descarga y firma: no comprobados
+					Consulta pública
 					{updated && ` · Actualizado ${new Date(updated).toLocaleTimeString()}`}
 				</p>
-				<p className="github-foot">
-					Cuenta GitHub: conexión pendiente de configurar. Los repositorios privados aún no están
-					disponibles.
-				</p>
+				{editing && (
+					<p className="github-foot">
+						Cuenta GitHub: conexión pendiente de configurar. Los repositorios privados aún no están
+						disponibles.
+					</p>
+				)}
 			</div>
 		</section>
 	);

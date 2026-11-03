@@ -86,6 +86,7 @@ export function AppearanceTab({
 						onChange={(e) => handleThemeModeChange(e.target.value)}
 					>
 						<option value="system">System (Windows)</option>
+						<option value="black">Negro completo (Bloom)</option>
 						<option value="dark">Dark (Translucent)</option>
 						<option value="light">Light (Translucent)</option>
 						<option value="custom">Custom Color</option>

@@ -1,3 +1,4 @@
+import { PanelHeader } from "./components/PanelHeader";
 import { islandView, type IslandMode } from "./islandView";
 import { sameMediaInfo, type MediaInfo } from "./mediaInfo";
 import { Visualizer } from "./components/Visualizer";
@@ -356,6 +357,7 @@ function App() {
 		// glow less, and the screen corners nothing.
 		wanted.push(
 			...measureElements([
+				[".notification-toast", 8],
 				[".activity-bubble", 16],
 				[".status-tooltip", 28],
 				[".screen-corner", 0]
@@ -403,8 +405,7 @@ function App() {
 		isReady &&
 		!waitForStartupSplash &&
 		!!(peripherals.notice || showUpdatePulse || notifications.notice);
-	const showNotificationToast =
-		!isExpanded && !!notifications.notice && !peripherals.notice && !showUpdatePulse;
+	const showNotificationToast = !!notifications.notice && !peripherals.notice && !showUpdatePulse;
 	const effectiveVisible = isVisible || notificationActive;
 	useEffect(() => {
 		if (windowLabel === "main" && notificationActive) {
@@ -1872,7 +1873,7 @@ function App() {
 		if (activeView === "notifications")
 			return Math.min(500 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (activeView === "github")
-			return Math.min(500 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
+			return Math.min(640 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (activeView === "command-center") return 350;
 		if (notificationActive && peripherals.notice)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
@@ -1902,6 +1903,7 @@ function App() {
 	};
 
 	const getDynamicHeight = () => {
+		if (showNotificationToast) return notchHeaderHeight + 90;
 		if (!isExpanded || !effectiveVisible || isHidden) {
 			return (isImpacted ? 28.9 : notchHeaderHeight) + (showNotificationToast ? 90 : 0);
 		}
@@ -1937,7 +1939,7 @@ function App() {
 				notifications.status === "allowed" && notificationGroups.length > 0
 					? notchHeaderHeight +
 						notificationGroups.reduce(
-							(height, group) => height + 108 + Math.max(0, group.items.length - 1) * 35,
+							(height, group) => height + 130 + Math.max(0, group.items.length - 1) * 35,
 							0
 						) +
 						22
@@ -1949,7 +1951,7 @@ function App() {
 		}
 		if (activeView === "github")
 			return Math.min(
-				380 + headerExtra + Math.max(0, scales.font - 1) * 100,
+				370 + headerExtra + Math.max(0, scales.font - 1) * 100,
 				window.innerHeight / scale - 24
 			);
 		if (activeView === "collapsed") return notchHeaderHeight;
@@ -1959,7 +1961,7 @@ function App() {
 			if (mediaLayout === "compact") {
 				if (compactVolumeExpanded) h += 36;
 			}
-			return h;
+			return h + notchHeaderHeight;
 		}
 		return notchHeaderHeight;
 	};
@@ -1997,7 +1999,7 @@ function App() {
 		scale,
 		pillTargetY,
 		pillTargetWidth,
-		pillTargetHeight,
+		showNotificationToast ? notchHeaderHeight : pillTargetHeight,
 		24
 	);
 
@@ -2044,7 +2046,7 @@ function App() {
 			>
 				<motion.div
 					ref={bloomRef}
-					className={`bloom ${isHovered ? "expanded" : ""} ${isImpacted ? "is-impacted" : ""} ${isDragHovering ? "drag-hover" : ""}`}
+					className={`bloom ${showNotificationToast ? "has-notice" : ""} ${isHovered ? "expanded" : ""} ${isImpacted ? "is-impacted" : ""} ${isDragHovering ? "drag-hover" : ""}`}
 					onMouseEnter={() => setIsNotchHovered(true)}
 					onMouseLeave={() => setIsNotchHovered(false)}
 					onWheel={handleWheel}
@@ -2120,16 +2122,11 @@ function App() {
 							{/* One view owns the panel area; only its entrance is animated. */}
 
 							{activeView === "github" ? (
-								<IslandGithub
-									time={time}
-									previous={() => cyclePanel(-1)}
-									next={() => cyclePanel(1)}
-								/>
+								<IslandGithub previous={() => cyclePanel(-1)} next={() => cyclePanel(1)} />
 							) : activeView === "notifications" ? (
 								<IslandNotifications
 									status={notifications.status}
 									items={notifications.items}
-									time={time}
 									timeFormat24h={timeFormat24h}
 									requestAccess={notifications.requestAccess}
 									setActive={notifications.setActive}
@@ -2143,268 +2140,275 @@ function App() {
 									next={() => cyclePanel(1)}
 								/>
 							) : activeView === "music" ? (
-								<motion.div
-									key="expanded-music"
-									className="expanded-music-container"
-									initial={{ opacity: 0, scale: 0.98 }}
-									animate={{ opacity: 1, scale: 1 }}
+								<>
+									<PanelHeader
+										title="Reproductor"
+										previous={() => cyclePanel(-1)}
+										next={() => cyclePanel(1)}
+									/>
+									<motion.div
+										key="expanded-music"
+										className="expanded-music-container"
+										initial={{ opacity: 0, scale: 0.98 }}
+										animate={{ opacity: 1, scale: 1 }}
 
-									transition={{ type: "spring", stiffness: 500, damping: 30 }}
-								>
-									{mediaLayout === "compact" ? (
-										<CompactMediaPlayer
-											mediaInfo={mediaInfo}
-											albumArtUrl={albumArtUrl}
-											isPlaying={isPlaying}
-											volume={displayVolume}
-											volumeExpanded={compactVolumeExpanded}
-											onVolumeExpandedChange={setCompactVolumeExpanded}
-											onTogglePlayPause={togglePlayPause}
-											onVolumeChange={handleVolumeChange}
-											prevFront={prevFront}
-											prevBack={prevBack}
-											nextFront={nextFront}
-											nextBack={nextBack}
-											onAnimatePrev={animatePrev}
-											onAnimateNext={animateNext}
-											onLayoutChange={(layout) => {
-												setMediaLayout(layout);
-												localStorage.setItem("bloom-media-layout", layout);
-												invoke("save_setting", {
-													key: "bloom-media-layout",
-													value: layout
-												}).catch(console.error);
-												window.dispatchEvent(
-													new CustomEvent("settings-changed", {
-														detail: { key: "media-layout", value: layout }
-													})
-												);
-											}}
-										/>
-									) : (
-										<div className="compact-premium-layout">
-											<div className="album-art-section">
-												<motion.div
-													className="premium-album-art"
-													whileHover={{ scale: 1.05 }}
-													whileTap={{ scale: 0.95 }}
-													onClick={(e) => {
-														e.stopPropagation();
-														setMediaLayout("compact");
-														localStorage.setItem("bloom-media-layout", "compact");
-														invoke("save_setting", {
-															key: "bloom-media-layout",
-															value: "compact"
-														}).catch(console.error);
-														window.dispatchEvent(
-															new CustomEvent("settings-changed", {
-																detail: { key: "media-layout", value: "compact" }
-															})
-														);
-													}}
-													style={{ cursor: "pointer" }}
-												>
-													<AnimatePresence mode="wait" initial={false}>
-														{albumArtUrl ? (
-															<motion.img
-																key={albumArtUrl}
-																src={albumArtUrl}
-																alt="Art"
-																initial={{ rotateY: 90, opacity: 0 }}
-																animate={{ rotateY: 0, opacity: 1 }}
-																exit={{ rotateY: -90, opacity: 0 }}
-																transition={{ duration: 0.3, ease: "easeInOut" }}
-																style={{ width: "100%", height: "100%", objectFit: "cover" }}
-															/>
-														) : (
-															<motion.div
-																key="placeholder"
-																className="art-placeholder-mini"
-																initial={{ rotateY: 90, opacity: 0 }}
-																animate={{ rotateY: 0, opacity: 1 }}
-																exit={{ rotateY: -90, opacity: 0 }}
-																transition={{ duration: 0.3, ease: "easeInOut" }}
-															>
-																<MusicNoteIcon size={32} className="music-placeholder-svg" />
-															</motion.div>
-														)}
-													</AnimatePresence>
-												</motion.div>
-											</div>
-
-											<div className="metadata-controls-section-middle">
-												<div className="track-header-row">
-													<div className="track-info-middle">
-														<TitleMarquee title={mediaInfo.title} />
-														<span className="premium-artist">{mediaInfo.artist}</span>
-													</div>
-													<div className="header-visualizer-wrap">
-														<div className="header-visualizer">
-															<Visualizer isPlaying={isPlaying} bars={5} height={18} />
-														</div>
-														<motion.button
-															className="classic-audio-output-btn"
-															onClick={(e) => {
-																e.stopPropagation();
-																invoke("open_sound_settings").catch(() => {});
-															}}
-															whileTap={{ scale: 0.9 }}
-															title="Audio Output"
-														>
-															<HeadphonesIcon size={20} style={{ opacity: 0.5 }} />
-														</motion.button>
-													</div>
-												</div>
-
-												<div className="controls-row-sleek">
-													<motion.button
-														aria-label="Previous track"
-														className="sleek-btn previous-btn"
-														onClick={(e) => {
-															e.stopPropagation();
-															animatePrev();
-														}}
-														whileHover={{ scale: 1.2 }}
-														whileTap={{ scale: 0.9 }}
-														transition={{ type: "spring", stiffness: 400, damping: 25 }}
-													>
-														<div
-															style={{
-																position: "relative",
-																width: 32,
-																height: 16,
-																overflow: "hidden"
-															}}
-														>
-															<motion.div
-																animate={prevBack}
-																style={{
-																	position: "absolute",
-																	inset: 0,
-																	display: "flex",
-																	alignItems: "center",
-																	justifyContent: "center"
-																}}
-															>
-																<SkipBackIcon size={32} />
-															</motion.div>
-															<motion.div
-																animate={prevFront}
-																style={{
-																	position: "absolute",
-																	inset: 0,
-																	display: "flex",
-																	alignItems: "center",
-																	justifyContent: "center"
-																}}
-															>
-																<SkipBackIcon size={32} />
-															</motion.div>
-														</div>
-													</motion.button>
-
-													<motion.button
-														aria-label={isPlaying ? "Pause" : "Play"}
-														className="sleek-btn play-pause-btn-floating"
-														onClick={(e) => {
-															e.stopPropagation();
-															togglePlayPause();
-														}}
-														whileHover={{ scale: 1.2 }}
+										transition={{ type: "spring", stiffness: 500, damping: 30 }}
+									>
+										{mediaLayout === "compact" ? (
+											<CompactMediaPlayer
+												mediaInfo={mediaInfo}
+												albumArtUrl={albumArtUrl}
+												isPlaying={isPlaying}
+												volume={displayVolume}
+												volumeExpanded={compactVolumeExpanded}
+												onVolumeExpandedChange={setCompactVolumeExpanded}
+												onTogglePlayPause={togglePlayPause}
+												onVolumeChange={handleVolumeChange}
+												prevFront={prevFront}
+												prevBack={prevBack}
+												nextFront={nextFront}
+												nextBack={nextBack}
+												onAnimatePrev={animatePrev}
+												onAnimateNext={animateNext}
+												onLayoutChange={(layout) => {
+													setMediaLayout(layout);
+													localStorage.setItem("bloom-media-layout", layout);
+													invoke("save_setting", {
+														key: "bloom-media-layout",
+														value: layout
+													}).catch(console.error);
+													window.dispatchEvent(
+														new CustomEvent("settings-changed", {
+															detail: { key: "media-layout", value: layout }
+														})
+													);
+												}}
+											/>
+										) : (
+											<div className="compact-premium-layout">
+												<div className="album-art-section">
+													<motion.div
+														className="premium-album-art"
+														whileHover={{ scale: 1.05 }}
 														whileTap={{ scale: 0.95 }}
-														transition={{ type: "spring", stiffness: 400, damping: 25 }}
+														onClick={(e) => {
+															e.stopPropagation();
+															setMediaLayout("compact");
+															localStorage.setItem("bloom-media-layout", "compact");
+															invoke("save_setting", {
+																key: "bloom-media-layout",
+																value: "compact"
+															}).catch(console.error);
+															window.dispatchEvent(
+																new CustomEvent("settings-changed", {
+																	detail: { key: "media-layout", value: "compact" }
+																})
+															);
+														}}
+														style={{ cursor: "pointer" }}
 													>
 														<AnimatePresence mode="wait" initial={false}>
-															<motion.div
-																key={isPlaying ? "pause" : "play"}
-																initial={{ opacity: 0, scale: 0.8 }}
-																animate={{ opacity: 1, scale: 1 }}
-																exit={{ opacity: 0, scale: 0.8 }}
-																transition={{ duration: 0.15 }}
-																style={{
-																	display: "flex",
-																	alignItems: "center",
-																	justifyContent: "center"
-																}}
-															>
-																{isPlaying ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
-															</motion.div>
+															{albumArtUrl ? (
+																<motion.img
+																	key={albumArtUrl}
+																	src={albumArtUrl}
+																	alt="Art"
+																	initial={{ rotateY: 90, opacity: 0 }}
+																	animate={{ rotateY: 0, opacity: 1 }}
+																	exit={{ rotateY: -90, opacity: 0 }}
+																	transition={{ duration: 0.3, ease: "easeInOut" }}
+																	style={{ width: "100%", height: "100%", objectFit: "cover" }}
+																/>
+															) : (
+																<motion.div
+																	key="placeholder"
+																	className="art-placeholder-mini"
+																	initial={{ rotateY: 90, opacity: 0 }}
+																	animate={{ rotateY: 0, opacity: 1 }}
+																	exit={{ rotateY: -90, opacity: 0 }}
+																	transition={{ duration: 0.3, ease: "easeInOut" }}
+																>
+																	<MusicNoteIcon size={32} className="music-placeholder-svg" />
+																</motion.div>
+															)}
 														</AnimatePresence>
-													</motion.button>
-
-													<motion.button
-														aria-label="Next track"
-														className="sleek-btn next-btn"
-														onClick={(e) => {
-															e.stopPropagation();
-															animateNext();
-														}}
-														whileHover={{ scale: 1.2 }}
-														whileTap={{ scale: 0.9 }}
-														transition={{ type: "spring", stiffness: 400, damping: 25 }}
-													>
-														<div
-															style={{
-																position: "relative",
-																width: 32,
-																height: 16,
-																overflow: "hidden"
-															}}
-														>
-															<motion.div
-																animate={nextBack}
-																style={{
-																	position: "absolute",
-																	inset: 0,
-																	display: "flex",
-																	alignItems: "center",
-																	justifyContent: "center"
-																}}
-															>
-																<SkipForwardIcon size={32} />
-															</motion.div>
-															<motion.div
-																animate={nextFront}
-																style={{
-																	position: "absolute",
-																	inset: 0,
-																	display: "flex",
-																	alignItems: "center",
-																	justifyContent: "center"
-																}}
-															>
-																<SkipForwardIcon size={32} />
-															</motion.div>
-														</div>
-													</motion.button>
+													</motion.div>
 												</div>
 
-												<div className="volume-slider-container">
-													<VolumeLowIcon size={12} style={{ opacity: 0.5 }} />
-													<div className="slider-track-premium">
-														<input
-															aria-label="Media volume"
-															type="range"
-															min="0"
-															max="1"
-															step="0.01"
-															value={displayVolume}
-															onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
-															onPointerDown={(e) => e.stopPropagation()}
-															onClick={(e) => e.stopPropagation()}
-															className="premium-slider"
-														/>
-														<div
-															className="slider-progress-fill"
-															style={{ width: `${displayVolume * 100}%` }}
-														/>
+												<div className="metadata-controls-section-middle">
+													<div className="track-header-row">
+														<div className="track-info-middle">
+															<TitleMarquee title={mediaInfo.title} />
+															<span className="premium-artist">{mediaInfo.artist}</span>
+														</div>
+														<div className="header-visualizer-wrap">
+															<div className="header-visualizer">
+																<Visualizer isPlaying={isPlaying} bars={5} height={18} />
+															</div>
+															<motion.button
+																className="classic-audio-output-btn"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	invoke("open_sound_settings").catch(() => {});
+																}}
+																whileTap={{ scale: 0.9 }}
+																title="Audio Output"
+															>
+																<HeadphonesIcon size={20} style={{ opacity: 0.5 }} />
+															</motion.button>
+														</div>
 													</div>
-													<VolumeHighIcon size={14} style={{ opacity: 0.5 }} />
+
+													<div className="controls-row-sleek">
+														<motion.button
+															aria-label="Previous track"
+															className="sleek-btn previous-btn"
+															onClick={(e) => {
+																e.stopPropagation();
+																animatePrev();
+															}}
+															whileHover={{ scale: 1.2 }}
+															whileTap={{ scale: 0.9 }}
+															transition={{ type: "spring", stiffness: 400, damping: 25 }}
+														>
+															<div
+																style={{
+																	position: "relative",
+																	width: 32,
+																	height: 16,
+																	overflow: "hidden"
+																}}
+															>
+																<motion.div
+																	animate={prevBack}
+																	style={{
+																		position: "absolute",
+																		inset: 0,
+																		display: "flex",
+																		alignItems: "center",
+																		justifyContent: "center"
+																	}}
+																>
+																	<SkipBackIcon size={32} />
+																</motion.div>
+																<motion.div
+																	animate={prevFront}
+																	style={{
+																		position: "absolute",
+																		inset: 0,
+																		display: "flex",
+																		alignItems: "center",
+																		justifyContent: "center"
+																	}}
+																>
+																	<SkipBackIcon size={32} />
+																</motion.div>
+															</div>
+														</motion.button>
+
+														<motion.button
+															aria-label={isPlaying ? "Pause" : "Play"}
+															className="sleek-btn play-pause-btn-floating"
+															onClick={(e) => {
+																e.stopPropagation();
+																togglePlayPause();
+															}}
+															whileHover={{ scale: 1.2 }}
+															whileTap={{ scale: 0.95 }}
+															transition={{ type: "spring", stiffness: 400, damping: 25 }}
+														>
+															<AnimatePresence mode="wait" initial={false}>
+																<motion.div
+																	key={isPlaying ? "pause" : "play"}
+																	initial={{ opacity: 0, scale: 0.8 }}
+																	animate={{ opacity: 1, scale: 1 }}
+																	exit={{ opacity: 0, scale: 0.8 }}
+																	transition={{ duration: 0.15 }}
+																	style={{
+																		display: "flex",
+																		alignItems: "center",
+																		justifyContent: "center"
+																	}}
+																>
+																	{isPlaying ? <PauseIcon size={26} /> : <PlayIcon size={26} />}
+																</motion.div>
+															</AnimatePresence>
+														</motion.button>
+
+														<motion.button
+															aria-label="Next track"
+															className="sleek-btn next-btn"
+															onClick={(e) => {
+																e.stopPropagation();
+																animateNext();
+															}}
+															whileHover={{ scale: 1.2 }}
+															whileTap={{ scale: 0.9 }}
+															transition={{ type: "spring", stiffness: 400, damping: 25 }}
+														>
+															<div
+																style={{
+																	position: "relative",
+																	width: 32,
+																	height: 16,
+																	overflow: "hidden"
+																}}
+															>
+																<motion.div
+																	animate={nextBack}
+																	style={{
+																		position: "absolute",
+																		inset: 0,
+																		display: "flex",
+																		alignItems: "center",
+																		justifyContent: "center"
+																	}}
+																>
+																	<SkipForwardIcon size={32} />
+																</motion.div>
+																<motion.div
+																	animate={nextFront}
+																	style={{
+																		position: "absolute",
+																		inset: 0,
+																		display: "flex",
+																		alignItems: "center",
+																		justifyContent: "center"
+																	}}
+																>
+																	<SkipForwardIcon size={32} />
+																</motion.div>
+															</div>
+														</motion.button>
+													</div>
+
+													<div className="volume-slider-container">
+														<VolumeLowIcon size={12} style={{ opacity: 0.5 }} />
+														<div className="slider-track-premium">
+															<input
+																aria-label="Media volume"
+																type="range"
+																min="0"
+																max="1"
+																step="0.01"
+																value={displayVolume}
+																onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+																onPointerDown={(e) => e.stopPropagation()}
+																onClick={(e) => e.stopPropagation()}
+																className="premium-slider"
+															/>
+															<div
+																className="slider-progress-fill"
+																style={{ width: `${displayVolume * 100}%` }}
+															/>
+														</div>
+														<VolumeHighIcon size={14} style={{ opacity: 0.5 }} />
+													</div>
 												</div>
 											</div>
-										</div>
-									)}
-								</motion.div>
+										)}
+									</motion.div>
+								</>
 							) : (
 								<motion.div
 									key="standard-view-group"
@@ -2414,252 +2418,273 @@ function App() {
 									transition={{ duration: 0.2 }}
 									style={{ width: "100%" }}
 								>
-									<div className="main-row">
-										<AnimatePresence mode="wait">
-											{notificationActive && peripherals.notice ? (
-												<PeripheralNoticeView
-													key="peripheral-notice"
-													notice={peripherals.notice}
-													time={time}
-													onDismiss={peripherals.dismiss}
-													onOpen={() => {
-														peripherals.dismiss();
-														openNotch("devices");
-													}}
-												/>
-											) : notificationActive && showUpdatePulse ? (
-												<motion.div
-													key="update-pulse-view"
-													initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
-													animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-													exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
-													className="power-pulse-content"
-												>
-													<GreenDownArrowIcon />
-													<span className="label" style={{ color: "#32D74B" }}>
-														Update Available
-													</span>
-												</motion.div>
-											) : (
-												<motion.div
-													key="standard-view"
-													className={`main-row-inner${showCompactMusicIcons || showGithubActivity ? " has-compact-media" : ""}${simpleCompact ? " simple-compact" : ""}`}
-													initial={{ opacity: 0 }}
-													animate={{ opacity: 1 }}
-													exit={{ opacity: 0 }}
-												>
-													{/* Status widgets never reserve a slot for the waveform. */}
-													<div className="side-content left">
-														{!showCompactMusicIcons &&
-														isHovered &&
-														statusWidgets.left.length > 0 ? (
-															<motion.div
-																key="left-widgets"
-																ref={leftWidgetsRef}
-																className="passive-features-group"
-																initial={{ opacity: 0 }}
-																animate={{ opacity: 1 }}
-																exit={{ opacity: 0 }}
-																transition={{ duration: 0.2 }}
-															>
-																{statusWidgets.left.map(renderStatusWidget)}
-															</motion.div>
-														) : null}
-													</div>
-
-													{/* Center - Time (always visible) */}
-													<div
-														className={`time-center${showNotificationDot ? " has-notification-dot" : ""}`}
-														ref={timeCenterRef}
+									{["command-center", "calendar", "shelf", "devices"].includes(activeView) ? (
+										<PanelHeader
+											title={
+												activeView === "command-center"
+													? "Controles"
+													: activeView === "calendar"
+														? "Calendario"
+														: activeView === "shelf"
+															? "Archivos"
+															: "Dispositivos"
+											}
+											previous={() => cyclePanel(-1)}
+											next={() => cyclePanel(1)}
+										/>
+									) : (
+										<div className="main-row">
+											<AnimatePresence mode="wait">
+												{notificationActive && peripherals.notice ? (
+													<PeripheralNoticeView
+														key="peripheral-notice"
+														notice={peripherals.notice}
+														time={time}
+														onDismiss={peripherals.dismiss}
+														onOpen={() => {
+															peripherals.dismiss();
+															openNotch("devices");
+														}}
+													/>
+												) : notificationActive && showUpdatePulse ? (
+													<motion.div
+														key="update-pulse-view"
+														initial={{ opacity: 0, scale: 0.95, filter: "blur(4px)" }}
+														animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+														exit={{ opacity: 0, scale: 1.05, filter: "blur(4px)" }}
+														className="power-pulse-content"
 													>
-														<div className="avatar-notification-anchor">
-															<BloomAvatar
-																active={effectiveVisible && !isHidden && isExpanded}
-																playing={isPlaying}
-																mediaType={mediaInfo.playback_type}
-															/>
-															{showNotificationDot && (
-																<button
-																	className="notification-dot"
-																	aria-label="Abrir notificaciones"
-																	title="Notificaciones nuevas"
-																	onClick={(event) => {
-																		event.stopPropagation();
-																		openNotch("notifications");
-																	}}
-																/>
-															)}
-														</div>
-														<AnimatePresence>
-															{showPanelArrows && (
-																<motion.button
-																	key="panel-prev"
-																	type="button"
-																	className="panel-arrow prev"
-																	aria-label="Previous panel"
-																	initial={{ opacity: 0, x: 4 }}
-																	animate={{ opacity: 1, x: 0 }}
-																	exit={{ opacity: 0, x: 4 }}
-																	transition={{ duration: 0.15 }}
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		cyclePanel(-1);
-																	}}
+														<GreenDownArrowIcon />
+														<span className="label" style={{ color: "#32D74B" }}>
+															Update Available
+														</span>
+													</motion.div>
+												) : (
+													<motion.div
+														key="standard-view"
+														className={`main-row-inner${showCompactMusicIcons || showGithubActivity ? " has-compact-media" : ""}${simpleCompact ? " simple-compact" : ""}`}
+														initial={{ opacity: 0 }}
+														animate={{ opacity: 1 }}
+														exit={{ opacity: 0 }}
+													>
+														{/* Status widgets never reserve a slot for the waveform. */}
+														<div className="side-content left">
+															{!showCompactMusicIcons &&
+															isHovered &&
+															statusWidgets.left.length > 0 ? (
+																<motion.div
+																	key="left-widgets"
+																	ref={leftWidgetsRef}
+																	className="passive-features-group"
+																	initial={{ opacity: 0 }}
+																	animate={{ opacity: 1 }}
+																	exit={{ opacity: 0 }}
+																	transition={{ duration: 0.2 }}
 																>
-																	<ChevronLeft size={12} strokeWidth={2.5} />
-																</motion.button>
-															)}
-														</AnimatePresence>
-														<div className="time-flip-container" onClick={toggleCalendarMode}>
-															<AnimatePresence initial={false}>
-																{
-																	<motion.span
-																		key="clock"
-																		className="time"
-																		initial={{ rotateX: -90, opacity: 0 }}
-																		animate={{ rotateX: 0, opacity: 1 }}
-																		exit={{ rotateX: 90, opacity: 0 }}
-																		transition={{ type: "spring", stiffness: 600, damping: 30 }}
-																	>
-																		{time}
-																	</motion.span>
-																}
-															</AnimatePresence>
+																	{statusWidgets.left.map(renderStatusWidget)}
+																</motion.div>
+															) : null}
 														</div>
-														<AnimatePresence>
-															{showPanelArrows && (
-																<motion.button
-																	key="panel-next"
-																	type="button"
-																	className="panel-arrow next"
-																	aria-label="Next panel"
-																	initial={{ opacity: 0, x: -4 }}
-																	animate={{ opacity: 1, x: 0 }}
-																	exit={{ opacity: 0, x: -4 }}
-																	transition={{ duration: 0.15 }}
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		cyclePanel(1);
-																	}}
-																>
-																	<ChevronRight size={12} strokeWidth={2.5} />
-																</motion.button>
-															)}
-														</AnimatePresence>
-														{updateAvailable && showUpdateIndicator && (
-															<div className="update-dot" />
-														)}
-													</div>
 
-													{/* Artwork and waveform share the right side of the activity. */}
-													<div className="side-content right">
-														{showCompactMusicIcons ? (
-															<>
-																{(settingsAlbumArtEnabled || showMusicOnStatusHover) && (
-																	<AnimatePresence mode="wait">
-																		<motion.div
-																			key="album-art"
-																			className="album-art-transition-wrapper"
-																			initial={{ opacity: 0, scale: 0.8 }}
-																			animate={{ opacity: 1, scale: 1 }}
-																			exit={{ opacity: 0, y: -20, scale: 0.8, filter: "blur(8px)" }}
-																			transition={{ duration: 0.12 }}
-																		>
-																			<button
-																				className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
-																				aria-label="Open music"
-																				onClick={(e) => {
-																					e.stopPropagation();
-																					openNotch("music");
-																				}}
-																				onContextMenu={(e) => {
-																					e.preventDefault();
-																					e.stopPropagation();
-																					skipPrevious();
-																				}}
-																			>
-																				<div className="album-art-inner">
-																					<AnimatePresence mode="wait" initial={false}>
-																						{settingsAlbumArtEnabled && albumArtUrl ? (
-																							<motion.img
-																								key={albumArtUrl}
-																								src={albumArtUrl}
-																								alt="Art"
-																								draggable={false}
-																								initial={{ rotateY: 90, opacity: 0 }}
-																								animate={{ rotateY: 0, opacity: 1 }}
-																								exit={{ rotateY: -90, opacity: 0 }}
-																								transition={{ duration: 0.25, ease: "easeInOut" }}
-																								style={{
-																									width: "100%",
-																									height: "100%",
-																									objectFit: "cover"
-																								}}
-																							/>
-																						) : (
-																							<motion.div
-																								key="compact-placeholder"
-																								className="album-art-placeholder"
-																								initial={{ rotateY: 90, opacity: 0 }}
-																								animate={{ rotateY: 0, opacity: 1 }}
-																								exit={{ rotateY: -90, opacity: 0 }}
-																								transition={{ duration: 0.25, ease: "easeInOut" }}
-																							>
-																								<MusicNoteIcon className="music-placeholder-svg-small" />
-																							</motion.div>
-																						)}
-																					</AnimatePresence>
-																				</div>
-																			</button>
-																		</motion.div>
-																	</AnimatePresence>
-																)}
-																{settingsVisualizerEnabled && (
+														{/* Center - Time (always visible) */}
+														<div
+															className={`time-center${showNotificationDot ? " has-notification-dot" : ""}`}
+															ref={timeCenterRef}
+														>
+															<div className="avatar-notification-anchor">
+																<BloomAvatar
+																	active={effectiveVisible && !isHidden && isExpanded}
+																	playing={isPlaying}
+																	mediaType={mediaInfo.playback_type}
+																/>
+																{showNotificationDot && (
 																	<button
+																		className="notification-dot"
+																		aria-label="Abrir notificaciones"
+																		title="Notificaciones nuevas"
+																		onClick={(event) => {
+																			event.stopPropagation();
+																			openNotch("notifications");
+																		}}
+																	/>
+																)}
+															</div>
+															<AnimatePresence>
+																{showPanelArrows && (
+																	<motion.button
+																		key="panel-prev"
 																		type="button"
-																		className="compact-audio-visualizer"
-																		aria-label="Open music"
+																		className="panel-arrow prev"
+																		aria-label="Previous panel"
+																		initial={{ opacity: 0, x: 4 }}
+																		animate={{ opacity: 1, x: 0 }}
+																		exit={{ opacity: 0, x: 4 }}
+																		transition={{ duration: 0.15 }}
 																		onClick={(e) => {
 																			e.stopPropagation();
-																			openNotch("music");
+																			cyclePanel(-1);
 																		}}
 																	>
-																		<Visualizer isPlaying={isPlaying} />
-																	</button>
+																		<ChevronLeft size={12} strokeWidth={2.5} />
+																	</motion.button>
 																)}
-															</>
-														) : showGithubActivity ? (
-															<button
-																className="github-activity"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	openNotch("github");
-																}}
-																aria-label="Ver publicación en GitHub"
-															>
-																<GithubIcon size={17} />
-																<span>Publicando</span>
-															</button>
-														) : !showCompactMusicIcons &&
-														  isHovered &&
-														  statusWidgets.right.length > 0 ? (
-															<motion.div
-																key="right-widgets"
-																ref={rightWidgetsRef}
-																className="passive-features-group"
-																initial={{ opacity: 0 }}
-																animate={{ opacity: 1 }}
-																exit={{ opacity: 0 }}
-																transition={{ duration: 0.2 }}
-															>
-																{statusWidgets.right.map(renderStatusWidget)}
-															</motion.div>
-														) : null}
-													</div>
-												</motion.div>
-											)}
-										</AnimatePresence>
-									</div>
+															</AnimatePresence>
+															<div className="time-flip-container" onClick={toggleCalendarMode}>
+																<AnimatePresence initial={false}>
+																	{
+																		<motion.span
+																			key="clock"
+																			className="time"
+																			initial={{ rotateX: -90, opacity: 0 }}
+																			animate={{ rotateX: 0, opacity: 1 }}
+																			exit={{ rotateX: 90, opacity: 0 }}
+																			transition={{ type: "spring", stiffness: 600, damping: 30 }}
+																		>
+																			{time}
+																		</motion.span>
+																	}
+																</AnimatePresence>
+															</div>
+															<AnimatePresence>
+																{showPanelArrows && (
+																	<motion.button
+																		key="panel-next"
+																		type="button"
+																		className="panel-arrow next"
+																		aria-label="Next panel"
+																		initial={{ opacity: 0, x: -4 }}
+																		animate={{ opacity: 1, x: 0 }}
+																		exit={{ opacity: 0, x: -4 }}
+																		transition={{ duration: 0.15 }}
+																		onClick={(e) => {
+																			e.stopPropagation();
+																			cyclePanel(1);
+																		}}
+																	>
+																		<ChevronRight size={12} strokeWidth={2.5} />
+																	</motion.button>
+																)}
+															</AnimatePresence>
+															{updateAvailable && showUpdateIndicator && (
+																<div className="update-dot" />
+															)}
+														</div>
+
+														{/* Artwork and waveform share the right side of the activity. */}
+														<div className="side-content right">
+															{showCompactMusicIcons ? (
+																<>
+																	{(settingsAlbumArtEnabled || showMusicOnStatusHover) && (
+																		<AnimatePresence mode="wait">
+																			<motion.div
+																				key="album-art"
+																				className="album-art-transition-wrapper"
+																				initial={{ opacity: 0, scale: 0.8 }}
+																				animate={{ opacity: 1, scale: 1 }}
+																				exit={{
+																					opacity: 0,
+																					y: -20,
+																					scale: 0.8,
+																					filter: "blur(8px)"
+																				}}
+																				transition={{ duration: 0.12 }}
+																			>
+																				<button
+																					className={`album-art album-art-activity${!isPlaying ? " paused" : ""}`}
+																					aria-label="Open music"
+																					onClick={(e) => {
+																						e.stopPropagation();
+																						openNotch("music");
+																					}}
+																					onContextMenu={(e) => {
+																						e.preventDefault();
+																						e.stopPropagation();
+																						skipPrevious();
+																					}}
+																				>
+																					<div className="album-art-inner">
+																						<AnimatePresence mode="wait" initial={false}>
+																							{settingsAlbumArtEnabled && albumArtUrl ? (
+																								<motion.img
+																									key={albumArtUrl}
+																									src={albumArtUrl}
+																									alt="Art"
+																									draggable={false}
+																									initial={{ rotateY: 90, opacity: 0 }}
+																									animate={{ rotateY: 0, opacity: 1 }}
+																									exit={{ rotateY: -90, opacity: 0 }}
+																									transition={{ duration: 0.25, ease: "easeInOut" }}
+																									style={{
+																										width: "100%",
+																										height: "100%",
+																										objectFit: "cover"
+																									}}
+																								/>
+																							) : (
+																								<motion.div
+																									key="compact-placeholder"
+																									className="album-art-placeholder"
+																									initial={{ rotateY: 90, opacity: 0 }}
+																									animate={{ rotateY: 0, opacity: 1 }}
+																									exit={{ rotateY: -90, opacity: 0 }}
+																									transition={{ duration: 0.25, ease: "easeInOut" }}
+																								>
+																									<MusicNoteIcon className="music-placeholder-svg-small" />
+																								</motion.div>
+																							)}
+																						</AnimatePresence>
+																					</div>
+																				</button>
+																			</motion.div>
+																		</AnimatePresence>
+																	)}
+																	{settingsVisualizerEnabled && (
+																		<button
+																			type="button"
+																			className="compact-audio-visualizer"
+																			aria-label="Open music"
+																			onClick={(e) => {
+																				e.stopPropagation();
+																				openNotch("music");
+																			}}
+																		>
+																			<Visualizer isPlaying={isPlaying} />
+																		</button>
+																	)}
+																</>
+															) : showGithubActivity ? (
+																<button
+																	className="github-activity"
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		openNotch("github");
+																	}}
+																	aria-label="Ver publicación en GitHub"
+																>
+																	<GithubIcon size={17} />
+																	<span>Publicando</span>
+																</button>
+															) : !showCompactMusicIcons &&
+															  isHovered &&
+															  statusWidgets.right.length > 0 ? (
+																<motion.div
+																	key="right-widgets"
+																	ref={rightWidgetsRef}
+																	className="passive-features-group"
+																	initial={{ opacity: 0 }}
+																	animate={{ opacity: 1 }}
+																	exit={{ opacity: 0 }}
+																	transition={{ duration: 0.2 }}
+																>
+																	{statusWidgets.right.map(renderStatusWidget)}
+																</motion.div>
+															) : null}
+														</div>
+													</motion.div>
+												)}
+											</AnimatePresence>
+										</div>
+									)}
 									<AnimatePresence>
 										{showNotificationToast && notifications.notice && (
 											<NotificationNotice

@@ -7,13 +7,16 @@ function panel(status: NotificationStatus, timeFormat24h = false) {
 	return renderToStaticMarkup(
 		<IslandNotifications
 			status={status}
-			time="10:24"
 			timeFormat24h={timeFormat24h}
 			items={[{ id: 1, app: "Correo", title: "Contenido privado", body: "Detalle", createdMs: 0 }]}
 			requestAccess={() => {}}
 			setActive={() => {}}
 			preferenceError={null}
 			preferenceBusy={false}
+			actionError={null}
+			removeNotifications={() => {}}
+			clearAll={() => {}}
+			openApp={() => {}}
 			previous={() => {}}
 			next={() => {}}
 		/>
@@ -44,4 +47,13 @@ test("las horas de los avisos respetan el formato de 24 horas elegido", () => {
 		hour12: false
 	});
 	expect(html).toContain(expectedTime);
+});
+
+test("la cabecera conserva avatar y navegación sin reloj de reposo", () => {
+	const html = panel("allowed", true);
+	const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+	expect(header).toContain("Saludar a Bloom");
+	expect(header).toContain("Panel anterior");
+	expect(header).not.toContain("<time");
+	expect(html).toContain("<time");
 });

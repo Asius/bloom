@@ -39,19 +39,54 @@ function simulateIPC(version) {
 	let mockDesktopIdle = false;
 	let mockRaises = 0;
 	const requestedNotifications = query.get("notifications") || "unavailable";
-	let mockNotificationStatus = ["items", "empty"].includes(requestedNotifications) ? "allowed" : requestedNotifications;
+	let mockNotificationStatus = ["items", "empty"].includes(requestedNotifications)
+		? "allowed"
+		: requestedNotifications;
 	let mockNotificationId = 3;
 	const mockNoticeNow = Date.now();
-	let mockWindowsNotices = requestedNotifications === "items" ? [
-		{ id: 1, app: "Slack", appId: "com.slack.Slack", title: "Saúl Rodríguez", body: "ando caminando jaja", createdMs: mockNoticeNow },
-		{ id: 2, app: "Slack", appId: "com.slack.Slack", title: "Saúl Rodríguez", body: "en un rato voy a ver el archivo", createdMs: mockNoticeNow - 30000 },
-		{ id: 3, app: "Slack", appId: "com.slack.Slack", title: "Saúl Rodríguez", body: "hm ni idea", createdMs: mockNoticeNow - 60000 },
-		{ id: 4, app: "Correo", title: "Mensaje nuevo", body: "Ejemplo de notificación", createdMs: mockNoticeNow - 120000 }
-	] : [];
+	let mockWindowsNotices =
+		requestedNotifications === "items"
+			? [
+					{
+						id: 1,
+						app: "Slack",
+						appId: "com.slack.Slack",
+						title: "Saúl Rodríguez",
+						body: "ando caminando jaja",
+						createdMs: mockNoticeNow
+					},
+					{
+						id: 2,
+						app: "Slack",
+						appId: "com.slack.Slack",
+						title: "Saúl Rodríguez",
+						body: "en un rato voy a ver el archivo",
+						createdMs: mockNoticeNow - 30000
+					},
+					{
+						id: 3,
+						app: "Slack",
+						appId: "com.slack.Slack",
+						title: "Saúl Rodríguez",
+						body: "hm ni idea",
+						createdMs: mockNoticeNow - 60000
+					},
+					{
+						id: 4,
+						app: "Correo",
+						title: "Mensaje nuevo",
+						body: "Ejemplo de notificación",
+						createdMs: mockNoticeNow - 120000
+					}
+				]
+			: [];
 	window.__bloomPreview = {
 		raises: () => mockRaises,
 		pushNotification: (notice) => {
-			mockWindowsNotices = [{ ...notice, id: mockNotificationId++, createdMs: Date.now() }, ...mockWindowsNotices];
+			mockWindowsNotices = [
+				{ ...notice, id: mockNotificationId++, createdMs: Date.now() },
+				...mockWindowsNotices
+			];
 			mockNotificationStatus = "allowed";
 		}
 	};
@@ -66,7 +101,8 @@ function simulateIPC(version) {
 		"bloom-theme-mode": query.get("theme") || "light",
 		"bloom-media-layout": query.get("layout") || "classic",
 		"bloom-notch-remember-panel": "false",
-		"bloom-notch-default-panel": query.has("notifications") ? "notifications" : "command-center",
+		"bloom-notch-default-panel":
+			query.get("panel") || (query.has("notifications") ? "notifications" : "command-center"),
 		"bloom-notifications-enabled": query.has("notifications") ? "true" : "false",
 		"bloom-status-widgets": JSON.stringify({ left: [], right: [] })
 	};
@@ -88,28 +124,134 @@ function simulateIPC(version) {
 		unregisterCallback: (id) => callbacks.delete(id),
 		convertFileSrc: (path) => path,
 		invoke: async (cmd, args = {}) => {
+			if (cmd === "github_monitor_snapshot")
+				return {
+					repository: args.repository,
+					runs: [
+						"CI",
+						"CodeQL",
+						"Release",
+						"A very long workflow name used to check wrapping and horizontal overflow"
+					].map((name, i) => ({
+						id: 100 + i,
+						name,
+						status: i === 2 ? "in_progress" : "completed",
+						conclusion: i === 2 ? null : "success",
+						head_sha: "1234567abcdef",
+						updated_at: new Date().toISOString()
+					}))
+				};
+			if (cmd === "github_monitor_jobs")
+				return {
+					jobs: [
+						{
+							id: 1,
+							name: "Build Windows x64 NSIS",
+							status: "in_progress",
+							conclusion: null,
+							steps: [
+								{ name: "Compile", status: "completed", conclusion: "success" },
+								{ name: "Sign and publish", status: "in_progress", conclusion: null }
+							]
+						}
+					]
+				};
 			if (cmd === "notification_snapshot") {
-				return { status: mockNotificationStatus, items: mockNotificationStatus === "allowed" ? mockWindowsNotices : [] };
+				return {
+					status: mockNotificationStatus,
+					items: mockNotificationStatus === "allowed" ? mockWindowsNotices : []
+				};
 			}
 			if (cmd === "remove_notifications") {
 				const removed = new Set(args.ids || []);
 				mockWindowsNotices = mockWindowsNotices.filter((notice) => !removed.has(notice.id));
 				return;
 			}
-			if (cmd === "clear_notifications") { mockWindowsNotices = []; return; }
+			if (cmd === "clear_notifications") {
+				mockWindowsNotices = [];
+				return;
+			}
 			if (cmd === "open_notification_app") return;
-			if (cmd === "raise_notch_for_notification") { mockRaises++; return; }
+			if (cmd === "raise_notch_for_notification") {
+				mockRaises++;
+				return;
+			}
 			if (cmd === "desktop_idle") return mockDesktopIdle;
-			if (cmd === "ghub_batteries") return query.get("notice") === "1" ? [{ id: "ghub-test", name: "Pro Wireless Mouse", kind: "mouse", connected: mockMouseConnected, percent: mockMouseConnected ? 82 : null, approximate: false, charging: false }] : null;
+			if (cmd === "ghub_batteries")
+				return query.get("notice") === "1"
+					? [
+							{
+								id: "ghub-test",
+								name: "Pro Wireless Mouse",
+								kind: "mouse",
+								connected: mockMouseConnected,
+								percent: mockMouseConnected ? 82 : null,
+								approximate: false,
+								charging: false
+							}
+						]
+					: null;
 			if (cmd === "peripheral_batteries") {
-				if (query.get("battery") === "low") await new Promise((resolve) => setTimeout(resolve, 3000));
-				return { bluetoothAvailable: true, devices: [
-				...(query.get("notice") === "1" ? [] : [{ id: "mouse", name: "Logitech G PRO Wireless", kind: "mouse", connected: true, percent: 82, approximate: false, charging: false }]),
-				{ id: "keyboard", name: "Logitech G613", kind: "keyboard", connected: true, percent: 64, approximate: true, charging: false },
-				{ id: "headphones", name: "Razer Barracuda X", kind: "headphones", connected: true, percent: query.get("battery") === "low" ? 15 : 70, approximate: true, charging: null },
-				...Array.from({ length: query.get("devices") === "many" ? 5 : 0 }, (_, i) => ({ id: `extra-${i}`, name: `Periférico de prueba ${i + 1}`, kind: "other", connected: true, percent: 50, approximate: false, charging: false })),
-				...(query.get("bluetooth") === "example" ? [{ id: "bluetooth-example", name: "Dispositivo Bluetooth", kind: "other", connected: true, percent: null, approximate: false, charging: null }] : [])
-			] };
+				if (query.get("battery") === "low")
+					await new Promise((resolve) => setTimeout(resolve, 3000));
+				return {
+					bluetoothAvailable: true,
+					devices: [
+						...(query.get("notice") === "1"
+							? []
+							: [
+									{
+										id: "mouse",
+										name: "Logitech G PRO Wireless",
+										kind: "mouse",
+										connected: true,
+										percent: 82,
+										approximate: false,
+										charging: false
+									}
+								]),
+						{
+							id: "keyboard",
+							name: "Logitech G613",
+							kind: "keyboard",
+							connected: true,
+							percent: 64,
+							approximate: true,
+							charging: false
+						},
+						{
+							id: "headphones",
+							name: "Razer Barracuda X",
+							kind: "headphones",
+							connected: true,
+							percent: query.get("battery") === "low" ? 15 : 70,
+							approximate: true,
+							charging: null
+						},
+						...Array.from({ length: query.get("devices") === "many" ? 5 : 0 }, (_, i) => ({
+							id: `extra-${i}`,
+							name: `Periférico de prueba ${i + 1}`,
+							kind: "other",
+							connected: true,
+							percent: 50,
+							approximate: false,
+							charging: false
+						})),
+						...(query.get("bluetooth") === "example"
+							? [
+									{
+										id: "bluetooth-example",
+										name: "Dispositivo Bluetooth",
+										kind: "other",
+										connected: true,
+										percent: null,
+										approximate: false,
+										charging: null
+									}
+								]
+							: [])
+					]
+				};
 			}
 			if (cmd === "google_calendar_connected") return mockGoogleConnected;
 			if (cmd === "google_calendar_events") {
@@ -118,10 +260,20 @@ function simulateIPC(version) {
 				const civil = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 				const tomorrow = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
 				const end = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
-				return [{ id: "mock-1", summary: "Evento de ejemplo", start: { date: civil }, end: { date: end } }];
+				return [
+					{ id: "mock-1", summary: "Evento de ejemplo", start: { date: civil }, end: { date: end } }
+				];
 			}
-			if (cmd === "google_calendar_connect") { mockGoogleConnected = true; dispatch("google-calendar-state", null); return true; }
-			if (cmd === "google_calendar_disconnect") { mockGoogleConnected = false; dispatch("google-calendar-state", null); return; }
+			if (cmd === "google_calendar_connect") {
+				mockGoogleConnected = true;
+				dispatch("google-calendar-state", null);
+				return true;
+			}
+			if (cmd === "google_calendar_disconnect") {
+				mockGoogleConnected = false;
+				dispatch("google-calendar-state", null);
+				return;
+			}
 			if (cmd === "load_settings") return { ...values };
 			if (cmd === "settings_file_readable" || cmd === "plugin:window|is_visible") return true;
 			if (cmd === "save_setting") {
@@ -161,7 +313,7 @@ function simulateIPC(version) {
 		}
 	};
 	document.addEventListener("DOMContentLoaded", () => {
-		if (query.has("notifications")) {
+		if (query.has("notifications") || query.has("panel")) {
 			setTimeout(() => document.querySelector(".bloom")?.click(), 2500);
 		}
 		document.body.style.background = query.get("theme") === "dark" ? "#282b31" : "#c7cbd1";
@@ -177,19 +329,89 @@ function simulateIPC(version) {
 			seek_enabled: false
 		};
 		for (const [label, action] of [
-			["Add test notice", () => { mockWindowsNotices = [{ id: mockNotificationId++, app: "Mensajería", title: "Aviso de prueba", body: "", createdMs: Date.now() }, ...mockWindowsNotices]; }],
-			["Revoke test access", () => { mockNotificationStatus = "denied"; }],
-			["Restore test access", () => { mockNotificationStatus = "allowed"; }],
-			["External disable", () => { values["bloom-notifications-enabled"] = "false"; dispatch("settings-external-changed", { key: "bloom-notifications-enabled", value: "false" }); }],
+			[
+				"Add test notice",
+				() => {
+					mockWindowsNotices = [
+						{
+							id: mockNotificationId++,
+							app: "Mensajería",
+							title: "Aviso de prueba",
+							body: "",
+							createdMs: Date.now()
+						},
+						...mockWindowsNotices
+					];
+				}
+			],
+			[
+				"Revoke test access",
+				() => {
+					mockNotificationStatus = "denied";
+				}
+			],
+			[
+				"Restore test access",
+				() => {
+					mockNotificationStatus = "allowed";
+				}
+			],
+			[
+				"External disable",
+				() => {
+					values["bloom-notifications-enabled"] = "false";
+					dispatch("settings-external-changed", {
+						key: "bloom-notifications-enabled",
+						value: "false"
+					});
+				}
+			],
 			["Simulate overlap", () => dispatch("notch-overlap", true)],
 			["Simulate fullscreen", () => dispatch("visibility-change", false)],
-			["Restore visibility", () => { dispatch("notch-overlap", false); dispatch("visibility-change", true); }],
+			[
+				"Restore visibility",
+				() => {
+					dispatch("notch-overlap", false);
+					dispatch("visibility-change", true);
+				}
+			],
 			["Update notice", () => dispatch("update-available", { available: true })],
-			["Desktop idle", () => { mockDesktopIdle = true; }],
-			["Desktop active", () => { mockDesktopIdle = false; }],
-			["Toggle device", () => { mockMouseConnected = !mockMouseConnected; }],
-			["Play music", () => dispatch("media-update", { ...media, playback_type: "music", position_updated_at: Date.now() })],
-			["Play video", () => dispatch("media-update", { ...media, playback_type: "video", position_updated_at: Date.now() })],
+			[
+				"Desktop idle",
+				() => {
+					mockDesktopIdle = true;
+				}
+			],
+			[
+				"Desktop active",
+				() => {
+					mockDesktopIdle = false;
+				}
+			],
+			[
+				"Toggle device",
+				() => {
+					mockMouseConnected = !mockMouseConnected;
+				}
+			],
+			[
+				"Play music",
+				() =>
+					dispatch("media-update", {
+						...media,
+						playback_type: "music",
+						position_updated_at: Date.now()
+					})
+			],
+			[
+				"Play video",
+				() =>
+					dispatch("media-update", {
+						...media,
+						playback_type: "video",
+						position_updated_at: Date.now()
+					})
+			],
 			[
 				"Start media",
 				() => dispatch("media-update", { ...media, position_updated_at: Date.now() })
