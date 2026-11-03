@@ -229,12 +229,31 @@
 	font-size: 11px;
 }
 .github-device-code {
-	margin: 10px 0 4px;
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
 	font-size: 14px;
 }
 .github-device-code strong {
 	font-size: 18px;
 	letter-spacing: 2px;
+}
+.github-device-code-row {
+	margin-top: 9px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+.github-copy-code {
+	min-height: 34px;
+	padding: 6px 9px !important;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	border: 1px solid var(--bloom-border) !important;
 }
 .github-auth-message {
 	margin: 7px 0;
@@ -247,6 +266,16 @@
 	margin: 8px 0;
 	border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 	border-radius: 7px;
+}
+.github-repo-group + .github-repo-group {
+	border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+.github-repo-group h4 {
+	margin: 0;
+	padding: 6px 8px 3px;
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--bloom-text-muted);
 }
 .github-repo-choice {
 	min-height: 34px;
@@ -319,6 +348,27 @@
 	background: linear-gradient(90deg, transparent, currentColor, transparent);
 	background-size: 200% 100%;
 	animation: github-publishing 1.6s linear infinite;
+}
+.github-notice[data-priority="critical"] .github-notice-icon {
+	color: #ff8b86;
+	background: color-mix(in srgb, #ff4941 18%, transparent);
+}
+.github-notice[data-priority="success"] .github-notice-icon {
+	color: #a4e78b;
+	background: color-mix(in srgb, #65d37c 16%, transparent);
+}
+.github-notice-icon {
+	width: 34px;
+	height: 34px;
+	flex: 0 0 34px;
+	display: grid;
+	place-items: center;
+	border-radius: 10px;
+}
+.github-notice time {
+	font-size: 10px;
+	color: var(--bloom-text-muted);
+	white-space: nowrap;
 }
 @keyframes github-publishing {
 	to {

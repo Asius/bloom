@@ -6,7 +6,15 @@ import { BloomAvatar } from "./components/BloomAvatar";
 import { IslandCalendar } from "./components/IslandCalendar";
 import { IslandPeripherals, PeripheralNoticeView } from "./components/IslandPeripherals";
 import { IslandNotifications, NotificationNotice } from "./components/IslandNotifications";
+import { GithubNotice } from "./components/GithubNotice";
 import { IslandGithub } from "./components/IslandGithub";
+import {
+	currentGitHubActivity,
+	githubRunTransitionNotice,
+	type GitHubActivity,
+	type GitHubNotice as GitHubToast
+} from "./githubActivity";
+import { subscribeGithubDeviceFlow } from "./githubDeviceFlow";
 import { useNotifications } from "./hooks/useNotifications";
 import { groupNotifications } from "./notificationState";
 import { normalizeStatusWidgets } from "./statusWidgets";
@@ -372,31 +380,77 @@ function App() {
 		isReady && !waitForStartupSplash
 	);
 	const notifications = useNotifications(windowLabel === "main" && systemSettingsReady);
-	const [githubPublishing, setGithubPublishing] = useState(false);
+	const [githubAuthPending, setGithubAuthPending] = useState(false);
+	const githubAuthPendingRef = useRef(false);
+	githubAuthPendingRef.current = githubAuthPending;
+	const [githubActivity, setGithubActivity] = useState<GitHubActivity | null>(null);
+	const [githubNotice, setGithubNotice] = useState<GitHubToast | null>(null);
+	const githubSeenRuns = useRef<{
+		repository: string;
+		runs: Map<number, { status: string; conclusion: string | null }>;
+	} | null>(null);
+	useEffect(
+		() =>
+			subscribeGithubDeviceFlow((flow) => {
+				setGithubAuthPending(flow.pending);
+			}),
+		[]
+	);
 	useEffect(() => {
-		if (windowLabel !== "main" || !systemSettingsReady || isOpen) return;
+		if (windowLabel !== "main" || !systemSettingsReady) return;
 		let cancelled = false;
 		const refresh = async () => {
 			try {
 				const settings = await invoke<Record<string, string>>("load_settings");
 				const repository = settings["bloom-github-repository"] || "Asius/bloom";
-				const result = await invoke<{ runs: { name: string; status: string }[] }>(
-					"github_monitor_snapshot",
-					{ repository }
-				);
-				const release = result.runs.find((run) => run.name.toLowerCase() === "release");
-				if (!cancelled) setGithubPublishing(!!release && release.status !== "completed");
+				const result = await invoke<{
+					runs: {
+						id: number;
+						name: string;
+						status: string;
+						conclusion: string | null;
+						updated_at: string;
+						html_url: string;
+					}[];
+				}>("github_monitor_snapshot", { repository });
+				if (cancelled) return;
+				const prior = githubSeenRuns.current;
+				if (prior?.repository === repository) {
+					const notice = githubRunTransitionNotice(repository, prior.runs, result.runs);
+					if (notice) setGithubNotice(notice);
+				}
+				githubSeenRuns.current = {
+					repository,
+					runs: new Map(
+						result.runs.map((run) => [run.id, { status: run.status, conclusion: run.conclusion }])
+					)
+				};
+				setGithubActivity(currentGitHubActivity(repository, result.runs));
 			} catch {
-				if (!cancelled) setGithubPublishing(false);
+				if (!cancelled) setGithubActivity(null);
 			}
 		};
+		let unlisten: (() => void) | null = null;
+		void listen("github-repository-changed", () => void refresh()).then((stop) => {
+			if (cancelled) stop();
+			else unlisten = stop;
+		});
 		void refresh();
 		const timer = setInterval(() => void refresh(), 120000);
 		return () => {
 			cancelled = true;
 			clearInterval(timer);
+			unlisten?.();
 		};
-	}, [windowLabel, systemSettingsReady, isOpen]);
+	}, [windowLabel, systemSettingsReady]);
+	useEffect(() => {
+		if (!githubNotice) return;
+		const timer = window.setTimeout(
+			() => setGithubNotice((current) => (current === githubNotice ? null : current)),
+			githubNotice.priority === "critical" ? 10000 : 6000
+		);
+		return () => window.clearTimeout(timer);
+	}, [githubNotice]);
 	const notificationGroups = useMemo(
 		() => groupNotifications(notifications.items),
 		[notifications.items]
@@ -406,12 +460,19 @@ function App() {
 		!waitForStartupSplash &&
 		!!(peripherals.notice || showUpdatePulse || notifications.notice);
 	const showNotificationToast = !!notifications.notice && !peripherals.notice && !showUpdatePulse;
-	const effectiveVisible = isVisible || notificationActive;
+	const showGithubToast = !!githubNotice && !notificationActive && !isOpen;
+	const showAnyToast = showNotificationToast || showGithubToast;
+	const effectiveVisible = isVisible || notificationActive || githubAuthPending || showGithubToast;
 	useEffect(() => {
 		if (windowLabel === "main" && notificationActive) {
 			invoke("raise_notch_for_notification").catch(console.error);
 		}
 	}, [windowLabel, notificationActive, peripherals.notice, showUpdatePulse, notifications.notice]);
+	useEffect(() => {
+		if (windowLabel === "main" && (githubAuthPending || showGithubToast)) {
+			invoke("raise_notch_for_notification").catch(console.error);
+		}
+	}, [windowLabel, githubAuthPending, showGithubToast]);
 	const initialSystemSyncDone = useRef(false);
 	const splashDone = useRef(false);
 	const systemSyncQueue = useRef<Promise<void>>(Promise.resolve());
@@ -420,6 +481,8 @@ function App() {
 	const isAnyInteraction = isHovered || isNotchHovered || isEdgeHovered;
 	const isHidden =
 		!notificationActive &&
+		!githubAuthPending &&
+		!showGithubToast &&
 		!startupAnimating &&
 		((notchMode === "smart" &&
 			isOverlapped &&
@@ -1111,6 +1174,12 @@ function App() {
 	const releaseNotchHover = () => {
 		setIsHovered(false);
 		setIsNotchHovered(false);
+		if (githubAuthPendingRef.current) {
+			setIsOpen(true);
+			setBloomMode("github");
+			invoke("raise_notch_for_notification").catch(() => {});
+			return;
+		}
 		if (isOpenRef.current) {
 			const panel = asNotchPanel(bloomModeRef.current);
 			if (panel && rememberPanelEnabledRef.current) rememberPanelRef.current(panel);
@@ -1366,6 +1435,7 @@ function App() {
 	// Wheel and swipe navigate panels, even from a collapsed live activity.
 	// Music and shelf remain entry points through their activity affordances.
 	const cycleBloomMode = (direction: 1 | -1) => {
+		if (githubAuthPendingRef.current) return false;
 		const panels = NOTCH_PANELS.filter(panelAvailable);
 		const currentIndex = panels.indexOf(bloomMode as NotchPanel);
 		const nextMode =
@@ -1379,6 +1449,7 @@ function App() {
 
 	// Arrows and wheel both stay within panels once one is open.
 	const cyclePanel = (direction: 1 | -1) => {
+		if (githubAuthPendingRef.current) return;
 		const panels = NOTCH_PANELS.filter(panelAvailable);
 		const index = panels.indexOf(bloomMode as NotchPanel);
 		if (index === -1 || panels.length < 2) return;
@@ -1406,6 +1477,7 @@ function App() {
 
 	// Expands the notch into a panel, or into an activity's own view.
 	const openNotch = (view: NotchPanel | "music" | "shelf") => {
+		if (githubAuthPendingRef.current && view !== "github") return;
 		setIsOpen(true);
 		setBloomMode(view);
 	};
@@ -1845,7 +1917,12 @@ function App() {
 		((musicActivity && (settingsAlbumArtEnabled || settingsVisualizerEnabled)) ||
 			showMusicOnStatusHover);
 	const showGithubActivity =
-		!isOpen && githubPublishing && !showCompactMusicIcons && !notificationActive;
+		!isOpen &&
+		!githubAuthPending &&
+		!!githubActivity &&
+		!showCompactMusicIcons &&
+		!notificationActive &&
+		!showGithubToast;
 	const simpleCompact =
 		!isOpen &&
 		!showCompactMusicIcons &&
@@ -1861,7 +1938,7 @@ function App() {
 
 	// Calculate width dynamically based on enabled features
 	const getDynamicWidth = () => {
-		if (showNotificationToast)
+		if (showAnyToast)
 			return Math.min(400 + Math.max(0, scales.font - 1) * 100, window.innerWidth / scale - 48);
 		if (isCalendarMode) {
 			return Math.min(620 + Math.max(0, scales.font - 1) * 140, window.innerWidth / scale - 48);
@@ -1903,9 +1980,9 @@ function App() {
 	};
 
 	const getDynamicHeight = () => {
-		if (showNotificationToast) return notchHeaderHeight + 90;
+		if (showAnyToast) return notchHeaderHeight + 90;
 		if (!isExpanded || !effectiveVisible || isHidden) {
-			return (isImpacted ? 28.9 : notchHeaderHeight) + (showNotificationToast ? 90 : 0);
+			return (isImpacted ? 28.9 : notchHeaderHeight) + (showAnyToast ? 90 : 0);
 		}
 		// Six stable calendar rows; browsing months never changes the region.
 		const headerExtra = notchHeaderHeight - 36;
@@ -1987,7 +2064,7 @@ function App() {
 		? 34
 		: isExpanded && effectiveVisible && !isHidden
 			? getDynamicWidth()
-			: (showNotificationToast || showGithubActivity) && effectiveVisible && !isHidden
+			: (showAnyToast || showGithubActivity) && effectiveVisible && !isHidden
 				? getDynamicWidth()
 				: isImpacted
 					? 39.1
@@ -1999,7 +2076,7 @@ function App() {
 		scale,
 		pillTargetY,
 		pillTargetWidth,
-		showNotificationToast ? notchHeaderHeight : pillTargetHeight,
+		showAnyToast ? notchHeaderHeight : pillTargetHeight,
 		24
 	);
 
@@ -2046,7 +2123,7 @@ function App() {
 			>
 				<motion.div
 					ref={bloomRef}
-					className={`bloom ${showNotificationToast ? "has-notice" : ""} ${isHovered ? "expanded" : ""} ${isImpacted ? "is-impacted" : ""} ${isDragHovering ? "drag-hover" : ""}`}
+					className={`bloom ${showAnyToast ? "has-notice" : ""} ${isHovered ? "expanded" : ""} ${isImpacted ? "is-impacted" : ""} ${isDragHovering ? "drag-hover" : ""}`}
 					onMouseEnter={() => setIsNotchHovered(true)}
 					onMouseLeave={() => setIsNotchHovered(false)}
 					onWheel={handleWheel}
@@ -2662,7 +2739,7 @@ function App() {
 																	aria-label="Ver publicación en GitHub"
 																>
 																	<GithubIcon size={17} />
-																	<span>Publicando</span>
+																	<span>{githubActivity.label}</span>
 																</button>
 															) : !showCompactMusicIcons &&
 															  isHovered &&
@@ -2695,6 +2772,16 @@ function App() {
 													openNotch("notifications");
 												}}
 												dismiss={notifications.dismiss}
+											/>
+										)}
+										{showGithubToast && githubNotice && (
+											<GithubNotice
+												notice={githubNotice}
+												open={() => {
+													setGithubNotice(null);
+													openNotch("github");
+												}}
+												dismiss={() => setGithubNotice(null)}
 											/>
 										)}
 									</AnimatePresence>
