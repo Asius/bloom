@@ -103,6 +103,7 @@ export function IslandGithub({
 	});
 	const [repoChoices, setRepoChoices] = useState<RepoChoice[]>([]);
 	const [authBusy, setAuthBusy] = useState(false);
+	const [repoError, setRepoError] = useState("");
 	const [authMessage, setAuthMessage] = useState("");
 	const [deviceFlow, setDeviceFlow] = useState(getGithubDeviceFlowState);
 	const [codeCopied, setCodeCopied] = useState(false);
@@ -118,12 +119,12 @@ export function IslandGithub({
 	}, []);
 	const loadRepositories = useCallback(async () => {
 		setAuthBusy(true);
-		setAuthMessage("");
+		setRepoError("");
 		try {
 			const repos = await invoke<RepoChoice[]>("github_repositories");
 			setRepoChoices(repos);
 		} catch (e) {
-			setAuthMessage(String(e));
+			setRepoError(String(e));
 		} finally {
 			setAuthBusy(false);
 		}
@@ -370,7 +371,16 @@ export function IslandGithub({
 						: `GitHub · ${repository.toLowerCase() === "asius/bloom" ? "Bloom" : repository.split("/")[1]}`
 				}
 				icon={<GithubIcon size={25} />}
-				subtitle={accountView && account.connected ? "● Cuenta conectada" : repository}
+				subtitle={
+					accountView && account.connected ? (
+						<span className="github-connected">
+							<i aria-hidden="true" />
+							Cuenta conectada
+						</span>
+					) : (
+						repository
+					)
+				}
 				previous={previous}
 				next={next}
 				actions={
@@ -470,6 +480,11 @@ export function IslandGithub({
 								</p>
 							)}
 						</div>
+					)}
+					{repoError && (
+						<p className="github-error" role="alert">
+							{repoError}
+						</p>
 					)}
 					{authMessage && (
 						<p className="github-auth-message" role="status">
@@ -580,7 +595,9 @@ export function IslandGithub({
 												<p>
 													{authBusy
 														? "Cargando repositorios…"
-														: "No hay repositorios en esta categoría."}
+														: privacy
+															? "No hay repositorios privados autorizados. Usa «Autorizar repositorios de Bloom» para elegirlos en GitHub."
+															: "No hay repositorios que coincidan con la búsqueda."}
 												</p>
 											)}
 										</>
@@ -605,14 +622,14 @@ export function IslandGithub({
 									<Check size={15} /> Usar repositorio
 								</button>
 							)}
-							{accountView && (editing || repoChoices.length === 0) && (
+							{accountView && (editing || !repoChoices.some((repo) => repo.private)) && (
 								<button
 									className="github-install-app"
 									onClick={() =>
 										void openUrl("https://github.com/apps/bloom-florecer/installations/new")
 									}
 								>
-									Administrar repositorios autorizados <ExternalLink size={14} />
+									Autorizar repositorios de Bloom <ExternalLink size={14} />
 								</button>
 							)}
 						</div>

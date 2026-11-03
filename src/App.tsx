@@ -1914,6 +1914,7 @@ function App() {
 		mediaInfo.has_media &&
 		(!musicActivity || (!settingsAlbumArtEnabled && !settingsVisualizerEnabled));
 	const showCompactMusicIcons =
+		!githubActivity &&
 		!isOpen &&
 		((musicActivity && (settingsAlbumArtEnabled || settingsVisualizerEnabled)) ||
 			showMusicOnStatusHover);

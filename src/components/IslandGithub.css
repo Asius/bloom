@@ -412,3 +412,17 @@
 		animation: none;
 	}
 }
+
+.github-connected {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+.github-connected i {
+	display: inline-block;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: #83df55;
+	flex-shrink: 0;
+}

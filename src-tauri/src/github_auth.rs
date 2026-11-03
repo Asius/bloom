@@ -175,7 +175,7 @@ pub(crate) fn access_token_for_selected_repository(
     if !account
         .selected
         .iter()
-        .any(|selected| selected.full_name.eq_ignore_ascii_case(repository))
+        .any(|selected| selected.private && selected.full_name.eq_ignore_ascii_case(repository))
     {
         return Ok(None);
     }
@@ -244,6 +244,40 @@ fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, S
             if page_repositories.len() < 100 || repositories.len() >= 1000 {
                 break;
             }
+        }
+    }
+    // Public repositories belong to the account even before the App is installed.
+    // Private repositories above still require the owner's installation grant.
+    for page in 1..=10 {
+        let page_repositories: Vec<serde_json::Value> = client
+            .get(format!(
+                "https://api.github.com/users/{}/repos?type=owner&per_page=100&page={page}",
+                account.login
+            ))
+            .header("User-Agent", "Bloom-desktop")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .map_err(|_| {
+                "No se pudieron consultar los repositorios públicos de la cuenta".to_string()
+            })?
+            .error_for_status()
+            .map_err(|_| "GitHub no permitió consultar los repositorios públicos".to_string())?
+            .json()
+            .map_err(|_| "GitHub devolvió repositorios públicos no válidos".to_string())?;
+        for repo in &page_repositories {
+            if let (Some(id), Some(full_name)) = (repo["id"].as_u64(), repo["full_name"].as_str()) {
+                if !repositories.iter().any(|item| item.id == id) {
+                    repositories.push(Repository {
+                        id,
+                        full_name: full_name.to_string(),
+                        private: false,
+                        selected: account.selected.iter().any(|item| item.id == id),
+                    });
+                }
+            }
+        }
+        if page_repositories.len() < 100 {
+            break;
         }
     }
     repositories.sort_by_key(|repo| repo.full_name.to_lowercase());

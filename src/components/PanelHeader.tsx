@@ -12,7 +12,7 @@ export function PanelHeader({
 	next
 }: {
 	title: string;
-	subtitle?: string;
+	subtitle?: ReactNode;
 	actions?: ReactNode;
 	icon?: ReactNode;
 	previous: () => void;

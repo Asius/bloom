@@ -2021,8 +2021,9 @@ pub fn reposition_island(app: &AppHandle) {
     }
     if let Some(window) = app.get_webview_window("main") {
         if let Ok(Some(monitor)) = window.primary_monitor() {
-            let height = (480.0 * crate::utils::get_notch_scale(app) * monitor.scale_factor())
-                .round() as u32;
+            // Panels grow to the available monitor height; the native input region
+            // continues to include only the visible island.
+            let height = monitor.size().height;
             let _ = window.set_position(*monitor.position());
             let _ = window.set_size(tauri::PhysicalSize::new(monitor.size().width, height));
         }
