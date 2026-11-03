@@ -9,6 +9,8 @@ use tauri::{AppHandle, Emitter, Manager, Window};
 use tauri_plugin_updater::UpdaterExt;
 
 const CLIENT_ID: &str = "Iv23ctoA6xuYRnqst4Nd";
+const BLOOM_APP_ID: u64 = 5_588_585;
+const ASIUS_ACCOUNT_ID: u64 = 36_309_844;
 const ACCOUNT_FILE: &str = "github-account.dat";
 static DEVICE: Mutex<Option<DeviceSession>> = Mutex::new(None);
 static TOKEN_REFRESH: Mutex<()> = Mutex::new(());
@@ -121,6 +123,11 @@ pub(crate) fn secure_http_client() -> Result<reqwest::blocking::Client, String> 
     crate::google_auth::secure_http_client()
 }
 
+fn is_bloom_installation(installation: &serde_json::Value) -> bool {
+    installation["app_id"].as_u64() == Some(BLOOM_APP_ID)
+        && installation["account"]["id"].as_u64() == Some(ASIUS_ACCOUNT_ID)
+}
+
 fn refresh_account(app: &AppHandle, account: Account) -> Result<Account, String> {
     if account.expires_at > now() + 120 {
         return Ok(account);
@@ -198,7 +205,7 @@ fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, S
         let Some(id) = installation["id"].as_u64() else {
             continue;
         };
-        if installation["app_id"].as_u64() != Some(5_588_585) {
+        if !is_bloom_installation(installation) {
             continue;
         }
         for page in 1..=10 {
@@ -272,7 +279,7 @@ pub fn github_auth_status(app: AppHandle, window: Window) -> Result<serde_json::
 #[tauri::command]
 pub async fn github_device_start(app: AppHandle, window: Window) -> Result<DeviceStart, String> {
     require_main(&window)?;
-    if app_data_file(&app)?.exists() {
+    if load_account(&app).is_ok() {
         return Err("Desconecta la cuenta actual antes de iniciar otra".into());
     }
     let result = tauri::async_runtime::spawn_blocking(|| {
@@ -552,13 +559,41 @@ pub async fn github_select_repositories(
 pub fn github_disconnect(app: AppHandle, window: Window) -> Result<(), String> {
     require_main(&window)?;
     let path = app_data_file(&app)?;
-    if path.exists() {
-        std::fs::remove_file(path)
-            .map_err(|_| "No se pudo quitar el token GitHub de este equipo".to_string())?;
+    for file in [path.clone(), path.with_extension("tmp")] {
+        match std::fs::remove_file(file) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                return Err("No se pudo quitar el token GitHub de este equipo".into());
+            }
+        }
     }
     if let Ok(mut device) = DEVICE.lock() {
         *device = None;
     }
     let _ = app.emit("github-auth-state", ());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_bloom_installation;
+    use serde_json::json;
+
+    #[test]
+    fn installation_must_match_bloom_app_and_asius_account() {
+        assert!(is_bloom_installation(&json!({
+            "app_id": 5_588_585,
+            "account": { "id": 36_309_844 }
+        })));
+        assert!(!is_bloom_installation(&json!({
+            "app_id": 5_588_586,
+            "account": { "id": 36_309_844 }
+        })));
+        assert!(!is_bloom_installation(&json!({
+            "app_id": 5_588_585,
+            "account": { "id": 1 }
+        })));
+        assert!(!is_bloom_installation(&json!({ "app_id": 5_588_585 })));
+    }
 }
