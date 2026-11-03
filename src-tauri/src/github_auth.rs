@@ -185,7 +185,13 @@ pub(crate) fn access_token_for_selected_repository(
     Ok(Some(refresh_account(app, account)?.access_token))
 }
 
-fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, String> {
+#[derive(Serialize)]
+pub struct RepositoryListing {
+    repositories: Vec<Repository>,
+    warning: Option<String>,
+}
+
+fn fetch_authorized_repositories(account: &Account) -> Result<RepositoryListing, String> {
     let client = secure_http_client()?;
     let installations: serde_json::Value = client
         .get("https://api.github.com/user/installations?per_page=100")
@@ -204,6 +210,7 @@ fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, S
         .as_array()
         .ok_or("GitHub no devolvió instalaciones")?;
     let mut repositories = Vec::new();
+    let mut warning = None;
     for installation in installations {
         let Some(id) = installation["id"].as_u64() else {
             continue;
@@ -272,7 +279,10 @@ fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, S
         })();
         let page_repositories = match public_page {
             Ok(page) => page,
-            Err(_) if !repositories.is_empty() => break,
+            Err(error) if !repositories.is_empty() => {
+                warning = Some(format!("Lista parcial: {error}. Vuelve a actualizar."));
+                break;
+            }
             Err(error) => return Err(error),
         };
         for repo in &page_repositories {
@@ -292,7 +302,10 @@ fn fetch_authorized_repositories(account: &Account) -> Result<Vec<Repository>, S
         }
     }
     repositories.sort_by_key(|repo| repo.full_name.to_lowercase());
-    Ok(repositories)
+    Ok(RepositoryListing {
+        repositories,
+        warning,
+    })
 }
 
 fn require_main(window: &Window) -> Result<(), String> {
@@ -509,7 +522,7 @@ pub async fn github_device_poll(
 pub async fn github_repositories(
     app: AppHandle,
     window: Window,
-) -> Result<Vec<Repository>, String> {
+) -> Result<RepositoryListing, String> {
     require_main(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let account = refresh_account(&app, load_account(&app)?)?;
@@ -586,6 +599,7 @@ pub async fn github_select_repositories(
             .into_iter()
             .map(|requested| {
                 authorized
+                    .repositories
                     .iter()
                     .find(|repo| repo.id == requested.id && repo.full_name == requested.full_name)
                     .cloned()

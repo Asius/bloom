@@ -135,7 +135,7 @@ function simulateIPC(version) {
 					login: mockGithubConnected ? "Asius" : null,
 					selected: mockGithubConnected ? mockGithubRepos.filter((repo) => repo.selected) : []
 				};
-			if (cmd === "github_repositories") return mockGithubRepos;
+			if (cmd === "github_repositories") return { repositories: mockGithubRepos, warning: null };
 			if (cmd === "github_select_repositories") {
 				for (const repo of mockGithubRepos)
 					repo.selected = args.repositories.some((item) => item.id === repo.id);

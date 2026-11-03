@@ -128,8 +128,13 @@ export function IslandGithub({
 		setAuthBusy(true);
 		setRepoError("");
 		try {
-			const repos = await invoke<RepoChoice[]>("github_repositories");
-			if (request === repositoryGeneration.current) setRepoChoices(repos);
+			const result = await invoke<{ repositories: RepoChoice[]; warning: string | null }>(
+				"github_repositories"
+			);
+			if (request === repositoryGeneration.current) {
+				setRepoChoices(result.repositories);
+				setRepoError(result.warning ?? "");
+			}
 		} catch (e) {
 			if (request === repositoryGeneration.current) setRepoError(String(e));
 		} finally {
@@ -170,10 +175,10 @@ export function IslandGithub({
 			value === "public" &&
 			repoChoices.some((repo) => repo.fullName === repository && repo.private)
 		) {
-			setInput("Asius/bloom");
-			setRepository("Asius/bloom");
-			void invoke("save_setting", { key: "bloom-github-repository", value: "Asius/bloom" })
-				.then(() => emit("github-repository-changed", "Asius/bloom"))
+			setInput("");
+			setRepository("");
+			void invoke("save_setting", { key: "bloom-github-repository", value: "" })
+				.then(() => emit("github-repository-changed", ""))
 				.catch(() => setError("No se pudo guardar el repositorio público."));
 		}
 		void invoke("save_setting", { key: "bloom-github-source", value }).catch(() =>
@@ -328,7 +333,7 @@ export function IslandGithub({
 		try {
 			await invoke("save_setting", { key: "bloom-github-repository", value });
 			setRepository(value);
-			setRecentRepos((repos) => [...new Set([value, ...repos])].slice(0, 8));
+			setRecentRepos((repos) => [...new Set([value, ...repos])].filter(Boolean).slice(0, 8));
 			await emit("github-repository-changed", value);
 			setPickerOpen(false);
 			setError("");
@@ -389,7 +394,9 @@ export function IslandGithub({
 				title={
 					accountView && account.connected
 						? `GitHub · ${account.login}`
-						: `GitHub · ${repository.toLowerCase() === "asius/bloom" ? "Bloom" : repository.split("/")[1]}`
+						: repository
+							? `GitHub · ${repository.toLowerCase() === "asius/bloom" ? "Bloom" : repository.split("/")[1]}`
+							: "GitHub"
 				}
 				icon={<GithubIcon size={25} />}
 				subtitle={

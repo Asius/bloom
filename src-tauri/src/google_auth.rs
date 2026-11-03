@@ -67,6 +67,7 @@ pub(crate) fn secure_http_client() -> Result<reqwest::blocking::Client, String> 
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
     reqwest::blocking::Client::builder()
+        .https_only(true)
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -463,5 +464,17 @@ mod tests {
     #[test]
     fn secure_http_client_initializes() {
         assert!(secure_http_client().is_ok());
+    }
+    #[test]
+    fn credential_client_rejects_plaintext_before_connecting() {
+        let error = secure_http_client()
+            .unwrap()
+            .get("http://127.0.0.1:1/never-connect")
+            .send()
+            .unwrap_err();
+        assert!(
+            error.is_builder(),
+            "HTTP must fail before any network connection"
+        );
     }
 }

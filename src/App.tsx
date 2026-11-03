@@ -411,6 +411,7 @@ function App() {
 			const request = ++refreshGeneration;
 			try {
 				const settings = await invoke<Record<string, string>>("load_settings");
+				if (cancelled || request !== refreshGeneration) return;
 				const repository = settings["bloom-github-repository"] ?? "Asius/bloom";
 				if (!repository) {
 					setGithubActivity(null);

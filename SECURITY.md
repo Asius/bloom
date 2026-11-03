@@ -30,6 +30,12 @@ This is a personal fork maintained by @Asius. Response times depend on maintaine
 
 Bloom runs as a desktop app with system-level access (window management, media controls, autostart). Reports about privilege escalation, arbitrary code execution, unsafe IPC between the webview and the Rust core, and supply-chain issues are especially appreciated.
 
+## Credential transport review — 2026-11-03
+
+The shared GitHub/Google credential HTTP client now rejects non-HTTPS requests and disables redirects. A regression test verifies HTTP rejection before connecting. OAuth's local browser callback uses its separate loopback listener.
+
+CodeQL alert #1 (`rust/cleartext-transmission`) flags the public repository URL built from `account.login`. Inspection found only the public handle in that fixed HTTPS API URL; access tokens are bearer headers, not URL parameters. The owner explicitly approved dismissal; GitHub confirmed `dismissed` / `false positive` on 2026-11-03. No alert suppression was added to code or CI.
+
 ## Safe harbor
 
 Good-faith security research on Bloom is welcome. Do not access, modify, or delete other people's data, and do not disrupt the project or its users. If you are unsure whether something is in scope, report it privately first.
