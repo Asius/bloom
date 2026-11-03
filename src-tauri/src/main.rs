@@ -98,6 +98,7 @@ fn main() {
             github_auth::github_device_start,
             github_auth::github_device_poll,
             github_auth::github_repositories,
+            github_auth::github_manage_repositories,
             github_auth::github_select_repositories,
             github_auth::github_disconnect,
             github_auth::github_release_verification,

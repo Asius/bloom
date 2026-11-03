@@ -2071,11 +2071,14 @@ function App() {
 	// window region below is cut from it, so the region is already at the
 	// final size while the pill animates.
 	const pillTargetY = !isReady ? 250 : effectiveVisible ? (isHidden ? -100 : 0) : -150;
+	// Keep horizontal bounds stable while hidden: native Smart overlap testing
+	// uses them too. Shrinking here would remove overlap and immediately reveal
+	// the island again, causing a hide/show loop without a foreground change.
 	const pillTargetWidth = !isReady
 		? 34
-		: isExpanded && effectiveVisible && !isHidden
+		: isExpanded
 			? getDynamicWidth()
-			: (showAnyToast || showGithubActivity) && effectiveVisible && !isHidden
+			: showAnyToast || showGithubActivity
 				? getDynamicWidth()
 				: isImpacted
 					? 39.1

@@ -2,7 +2,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { GithubIcon } from "../icons";
 import { invoke } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import {
 	Check,
@@ -115,6 +114,7 @@ export function IslandGithub({
 	const [verificationError, setVerificationError] = useState("");
 	const [verifying, setVerifying] = useState(false);
 	const repositoryGeneration = useRef(0);
+	const refreshAfterAuthorization = useRef(false);
 	const handledAuthorization = useRef(deviceFlow.completedAt);
 	const generation = useRef(0);
 	const jobGeneration = useRef(0);
@@ -141,6 +141,20 @@ export function IslandGithub({
 			if (request === repositoryGeneration.current) setAuthBusy(false);
 		}
 	}, []);
+	const manageRepositories = async () => {
+		setAuthBusy(true);
+		setAuthMessage("");
+		try {
+			refreshAfterAuthorization.current = true;
+			await invoke("github_manage_repositories");
+			setAuthMessage("Elige los repositorios en GitHub y vuelve a Bloom para actualizar la lista.");
+		} catch (reason) {
+			refreshAfterAuthorization.current = false;
+			setAuthMessage(String(reason));
+		} finally {
+			setAuthBusy(false);
+		}
+	};
 	useEffect(() => {
 		let cancelled = false;
 		void Promise.all([reloadAccount(), invoke<Record<string, string>>("load_settings")])
@@ -388,6 +402,12 @@ export function IslandGithub({
 			ref={panelRef}
 			className="github-panel"
 			aria-label="Seguimiento de GitHub"
+			onMouseEnter={() => {
+				if (refreshAfterAuthorization.current && account.connected) {
+					refreshAfterAuthorization.current = false;
+					void loadRepositories();
+				}
+			}}
 			onClick={(e) => e.stopPropagation()}
 		>
 			<PanelHeader
@@ -655,9 +675,8 @@ export function IslandGithub({
 								(editing || (privacy && !repoChoices.some((repo) => repo.private))) && (
 									<button
 										className="github-install-app"
-										onClick={() =>
-											void openUrl("https://github.com/apps/bloom-florecer/installations/new")
-										}
+										disabled={authBusy || deviceFlow.pending}
+										onClick={() => void manageRepositories()}
 									>
 										Autorizar repositorios de Bloom <ExternalLink size={14} />
 									</button>

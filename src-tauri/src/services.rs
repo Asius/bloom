@@ -2076,11 +2076,19 @@ fn setup_island_visibility(app: AppHandle, tx: Sender<SystemCommand>) {
             let mut foreground = GetForegroundWindow();
             let mut pid = 0;
             GetWindowThreadProcessId(foreground, Some(&mut pid));
-            if pid == std::process::id() && IsWindow(Some(last)).as_bool() {
-                foreground = last;
+            if pid == std::process::id() {
+                // Never remember Bloom itself as an occluder. Its transparent
+                // native window fills the monitor, even when the pill is hidden.
+                foreground = if IsWindow(Some(last)).as_bool() {
+                    last
+                } else {
+                    HWND::default()
+                };
             } else {
                 last = foreground;
             }
+            pid = 0;
+            GetWindowThreadProcessId(foreground, Some(&mut pid));
             let mut rectangle = RECT::default();
             let mut monitor = MONITORINFO {
                 cbSize: std::mem::size_of::<MONITORINFO>() as u32,
@@ -2090,11 +2098,22 @@ fn setup_island_visibility(app: AppHandle, tx: Sender<SystemCommand>) {
             let len = GetClassNameW(foreground, &mut class);
             let excluded =
                 excluded_foreground_class(&String::from_utf16_lossy(&class[..len as usize]));
-            let meaningful = !excluded
-                && !foreground.is_invalid()
-                && IsWindowVisible(foreground).as_bool()
-                && !IsIconic(foreground).as_bool()
-                && GetWindowRect(foreground, &mut rectangle).is_ok()
+            let mut cloaked = 0u32;
+            let is_cloaked = DwmGetWindowAttribute(
+                foreground,
+                windows::Win32::Graphics::Dwm::DWMWA_CLOAKED,
+                &mut cloaked as *mut _ as *mut _,
+                std::mem::size_of::<u32>() as u32,
+            )
+            .is_ok()
+                && cloaked != 0;
+            let meaningful = foreground_can_occlude(
+                pid == std::process::id(),
+                excluded || foreground.is_invalid(),
+                IsWindowVisible(foreground).as_bool(),
+                IsIconic(foreground).as_bool(),
+                is_cloaked,
+            ) && GetWindowRect(foreground, &mut rectangle).is_ok()
                 && GetMonitorInfoW(
                     MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST),
                     &mut monitor,
@@ -2165,6 +2184,15 @@ fn setup_island_visibility(app: AppHandle, tx: Sender<SystemCommand>) {
 }
 
 static CAPTURE_DIRTY: AtomicBool = AtomicBool::new(true);
+fn foreground_can_occlude(
+    own: bool,
+    excluded: bool,
+    visible: bool,
+    minimized: bool,
+    cloaked: bool,
+) -> bool {
+    !own && !excluded && visible && !minimized && !cloaked
+}
 fn excluded_foreground_class(class: &str) -> bool {
     matches!(
         class,
@@ -2174,6 +2202,14 @@ fn excluded_foreground_class(class: &str) -> bool {
 #[cfg(test)]
 mod island_tests {
     use super::*;
+    #[test]
+    fn minimizing_the_last_app_and_focusing_bloom_cannot_hide_the_island() {
+        assert!(foreground_can_occlude(false, false, true, false, false));
+        assert!(!foreground_can_occlude(false, false, true, true, false));
+        assert!(!foreground_can_occlude(true, false, true, false, false));
+        assert!(!foreground_can_occlude(false, false, true, false, true));
+        assert!(!foreground_can_occlude(false, true, true, false, false));
+    }
     #[test]
     fn the_desktop_and_native_taskbar_do_not_hide_the_island_as_fullscreen_apps() {
         assert!(excluded_foreground_class("Progman"));

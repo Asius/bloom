@@ -316,6 +316,20 @@ fn require_main(window: &Window) -> Result<(), String> {
     }
 }
 
+/// Only this fixed GitHub App installation page can be opened by this command.
+/// It avoids granting the webview permission to open arbitrary external URLs.
+#[tauri::command]
+pub fn github_manage_repositories(window: Window) -> Result<(), String> {
+    require_main(&window)?;
+    tauri_plugin_opener::open_url(
+        "https://github.com/apps/bloom-florecer/installations/new",
+        None::<&str>,
+    )
+    .map_err(|_| {
+        "No se pudo abrir GitHub en el navegador predeterminado. Vuelve a intentarlo.".into()
+    })
+}
+
 #[tauri::command]
 pub fn github_auth_status(app: AppHandle, window: Window) -> Result<serde_json::Value, String> {
     require_main(&window)?;
